@@ -12,29 +12,40 @@ _This is a living document. Update it whenever a PR changes security assumptions
 ## Adversaries
 | Adversary | Capabilities | In scope? |
 |---|---|---|
-| Curious or compromised **server / VM operator** | Reads the DB and traffic, can modify server code, can inject or drop messages | ✅ It must not learn content or GIF identity, and tampering must be detectable. |
+| Curious or compromised **server / VM operator** | Reads the DB and traffic, can modify server code, can inject, drop, reorder or withhold messages | ✅ A **passive** server must not learn content or GIF identity. ⚠️ An **active** server can man-in-the-middle a first contact until key verification exists (see Accepted risks). Forged messages are detected by MLS; dropping, withholding and forking are *not* prevented (see Limitations). |
 | **Network attacker** | Passive or active on the client↔server path | ✅ |
-| **Malicious group member / friend** | Valid member who may misbehave | ✅ After removal (PCS) they cannot read new messages. |
+| **Malicious group member / friend** | Valid member who may misbehave | ✅ After removal they cannot read messages from later epochs. |
 | **GIF provider** (Giphy/Klipy) | Sees search queries and sender IP (and recipient IP in Mode B) | ⚠️ Accepted leak (ADR-0003) |
 | **Stolen or unlocked device** | Full access to the app's local state | ⚠️ Partially: OS keystore protection; no defence against an unlocked device |
 | Global passive adversary / traffic analysis | | ❌ Out of scope for now |
 
 ## Security goals
-1. Confidentiality and integrity of message content against the server and the network (MLS).
-2. Forward secrecy and post-compromise security as provided by MLS, with regular self-updates.
+1. Confidentiality and authenticity of message content against the network and a passive server. Against an active server this holds only for contacts whose keys were verified, or who were first contacted while the server was honest.
+2. Forward secrecy and post-compromise security (recovery after a key compromise) as provided by MLS, with regular self-updates. Removed members lose access to later epochs.
 3. The server learns neither GIF identity nor search terms (ADR-0003).
 4. Only invited people can register; invites are single-use and expire.
 5. Users can detect key changes (M3: safety numbers).
 
+## Limitations (not prevented)
+- The server can **drop, delay, withhold or reorder** messages. It can also show different members different views of a group (**forking**, e.g. by delivering conflicting commits to different members). MLS makes forged messages impossible, but it does not guarantee delivery or consistency. A later partial mitigation: clients compare the epoch authenticator or transcript hash, out of band or in-band.
+
+## Accepted risks (owner sign-off required)
+| Risk | Until | Mitigation planned |
+|---|---|---|
+| Active server serves a forged KeyPackage on first contact (MITM), or adds ghost devices | Key verification ships | M2: fingerprint display + in-chat "member/device added" notices; M3: safety-number verification and key-change warnings |
+| Web client code is served by the untrusted server | Indefinitely (inherent to web E2EE) | Evaluate SRI / reproducible builds in a milestone review |
+
+Owner sign-off: ☐ _pending_
+
 ## Known metadata visible to the server
 - Usernames, devices, IP addresses, connection times.
-- Group IDs, group membership as derived from delivery, message counts, timing, and ciphertext and blob sizes (blob sizes are padded).
+- Group IDs, group membership (explicit by design, ADR-0002), message counts, timing, and ciphertext and blob sizes (blob sizes are padded).
 - Invite tree (who invited whom).
 
 ## Assumptions
 - OpenMLS and the platform CSPRNGs are correct.
 - The TLS terminating proxy (Caddy) runs on the same VM; the server is still treated as untrusted for content.
-- Clients are distributed from trusted sources: the APK through GitHub Releases, the web app from our domain. ⚠️ The web client is served by the same server we distrust. This is an inherent limitation of web E2EE; it is documented here and revisited in a milestone review (e.g. SRI or reproducible builds).
+- The APK is distributed through GitHub Releases. The web client is served by the server we distrust (see Accepted risks).
 
 ## Open questions
 - Web key storage: how strong can at-rest protection of keys in IndexedDB realistically be?

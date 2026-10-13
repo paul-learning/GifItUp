@@ -9,7 +9,7 @@ We need Android and Web clients from a single codebase. Development happens on W
 ## Decision
 - **Clients:** Kotlin Multiplatform with **Compose Multiplatform** UI, targets `androidTarget` and `wasmJs` (browser).
 - **Shared code:** `shared` KMP module for domain, data, networking (Ktor client), serialization (kotlinx.serialization) and the crypto facade.
-- **Backend:** **Ktor** server on the JVM, **PostgreSQL**, migrations via Flyway (or similar, chosen at scaffold time). It shares wire models with the clients through `shared`, using a JVM target or a small `protocol` module.
+- **Backend:** **Ktor** server on the JVM, **PostgreSQL**, migrations via Flyway (or similar, chosen at scaffold time). It shares wire models with the clients through a dedicated `protocol` KMP module (wire models only). The server never depends on `shared`, which is client code.
 - **Deployment:** Docker Compose on the VM with **Caddy** as reverse proxy, which provides automatic TLS. Deployed by a GitHub Actions workflow.
 - **Quality:** ktlint + detekt, kotlin.test, GitHub Actions CI as the merge gate.
 

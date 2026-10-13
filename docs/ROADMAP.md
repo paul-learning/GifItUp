@@ -10,7 +10,7 @@ Status legend: ⬜ not started · 🟨 in progress · ✅ done
 ## M0 — Foundations ⬜
 _Get the skeleton, CI, deploy pipeline and the two big technical risks (MLS on KMP, GIF provider) de-risked._
 
-- Scaffold the KMP monorepo: `composeApp` (Android + wasmJs), `shared`, `server`, version catalog, ktlint/detekt. (#1)
+- Scaffold the KMP monorepo: `composeApp` (Android + wasmJs), `protocol`, `shared`, `server`, version catalog, ktlint/detekt. (#1)
 - CI with GitHub Actions: build + test + lint for every module, required for merge. (#2)
 - Hetzner deployment baseline: Docker Compose (Caddy + Ktor + Postgres), TLS, deploy workflow, hardening checklist. (#6, #7)
 - **Spike: OpenMLS on Android** (uniffi + cargo-ndk) and **on Web** (wasm-bindgen, called from Kotlin/Wasm). Result: ADR-0002 is confirmed or revised. (#3, #4)
@@ -37,13 +37,14 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 - Client: GIF search UI, talking to the provider directly. (#23)
 - Client: send flow (pick → fetch → encrypt → upload blob or reference → MLS application message) and receive/render flow. (#24)
 - Client: chat list + conversation screen UI (GIF grid, timestamps, sender). (#25)
+- Key fingerprints in contact/chat info and in-chat "member/device added" notices, which mitigate the first-contact MITM risk (#31).
 - Cross-platform interop test: an Android client and a Web client in the same group (CI). (#26)
 - Release: Android APK through GitHub Releases, web app served by Caddy, alpha with friends. (#27)
 - 🏛️ Architecture review M2 · 🛡️ Security review M2 — #28, #29
 
 ## M3 — Hardening & everyday use ⬜
 - Push notifications without content (FCM data-only "wake up" or UnifiedPush/ntfy, decided by ADR).
-- Group management: leave, remove member, rename (the name is encrypted inside the group context), self-update / key rotation schedule.
+- Group management: leave, remove member, rename (the name is sent as an encrypted `GroupMeta` message, not in the GroupContext), self-update / key rotation schedule.
 - Safety-number / key-fingerprint verification UI and key-change warnings.
 - Multi-device per user (each device is its own MLS leaf).
 - Local state backup/restore strategy (ADR).
@@ -59,7 +60,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 ---
 
 ## Owner setup (one-time, cannot be done by the agent)
-1. **Branch protection / ruleset on `main`:** require a PR, require 1 approving review (Code Owners), require status checks once CI exists (#2), block force pushes and deletions.
+1. **Ruleset on `main`:** require a PR with 1 approval and **Require review from Code Owners**, require status checks once CI exists (#2), block force pushes and deletions. **Remove the Admin "always" bypass** (or set it to "pull requests only"): the agent uses your account, so any bypass you have, the agent has. The `code_scanning` (CodeQL) rule blocks merges until a CodeQL workflow exists (#2), so either disable it until then or merge #2 first.
 2. **Separate GitHub identity for the agent** (recommended): a machine user or a fine-grained PAT that the agent uses. Then PRs are authored by the bot and *you* approve them. If PRs are authored by your own account, GitHub won't let you approve them, and a "require approval" rule would block every PR.
 3. **Local toolchain:** JDK 21, Android Studio (SDK + NDK), Rust via rustup (+ `wasm32-unknown-unknown` and Android targets, `cargo-ndk`), Docker Desktop (optional, for running the server locally).
 4. **Domain** pointing at the Hetzner VM (A/AAAA record), needed for TLS and the web app (#6).

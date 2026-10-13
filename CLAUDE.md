@@ -10,6 +10,7 @@ Read this file fully at the start of every session. Read `docs/ROADMAP.md` and t
 | Part | Tech | Path |
 |---|---|---|
 | UI (Android + Web) | Compose Multiplatform, targets `androidTarget` + `wasmJs` | `composeApp/` |
+| Wire protocol | KMP module with `@Serializable` wire models only (no client logic); used by clients **and** server | `protocol/` |
 | Shared client logic | Kotlin Multiplatform (domain, data, Ktor client, crypto facade) | `shared/` |
 | E2EE core | Rust crate wrapping OpenMLS; uniffi → Android, wasm-bindgen → Web | `crypto/` |
 | Backend | Ktor server (Kotlin/JVM), PostgreSQL | `server/` |
@@ -22,11 +23,11 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 ## Architecture rules
 
 - **Layering (client):** `ui` → `presentation` (state holders / ViewModels) → `domain` (use cases, pure Kotlin) → `data` (repositories, network, storage, crypto). Dependencies point inward only; `domain` imports nothing platform- or framework-specific.
-- **Crypto boundary:** all MLS / key / encryption code lives in `crypto/` (Rust) and is exposed to Kotlin only through the `shared` crypto facade (`MlsClient`-style interface, `expect/actual`). No other module touches keys or ciphertext formats directly. Never hand-roll cryptographic primitives.
+- **Crypto boundary:** all MLS / key / encryption code, including GIF blob encryption and padding (ADR-0003), lives in `crypto/` (Rust) and is exposed to Kotlin only through the `shared` crypto facade (`MlsClient`-style interface, `expect/actual`). No other module touches keys or ciphertext formats directly. Never hand-roll cryptographic primitives.
 - **Server is untrusted:** the server stores and forwards opaque ciphertext, KeyPackages, and encrypted blobs. It must never receive plaintext content, GIF identities, GIF search queries, or private keys. Any new server-visible field needs a justification in the PR ("metadata it reveals").
-- **Shared wire models** (`shared/.../protocol`) are `@Serializable` and versioned; changes must stay backward compatible or bump the protocol version.
-- Prefer small, testable units; constructor injection (Koin or manual DI — whatever ADR says); no global mutable state.
-- Significant decisions (new dependency, new module, protocol change, data stored server-side) → write an ADR in `docs/adr/` using the template there, in the same PR.
+- **Wire models** live in `protocol/` (the server depends on `protocol`, never on `shared`), are `@Serializable` and versioned; changes must stay backward compatible or bump the protocol version.
+- Prefer small, testable units; constructor injection (DI approach decided in #1 and recorded as an ADR); no global mutable state.
+- Significant decisions (new dependency, new module, protocol change, data stored server-side) → write an ADR in `docs/adr/` using the template there, in the same PR. Use the **next free ADR number at the time of writing**; issue texts name ADR topics, not numbers.
 
 ## Security rules (non-negotiable)
 
@@ -35,11 +36,11 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 3. No secrets in the repo (it is **public**). API keys/tokens come from env vars / GitHub secrets / `local.properties` (gitignored).
 4. Logs never contain ciphertext bodies, keys, tokens, invite codes, or usernames-to-IP mappings beyond what ops strictly needs.
 5. Validate all input server-side (sizes, rate limits, auth on every endpoint). Deny by default.
-6. Crypto-relevant changes (anything in `crypto/`, auth, key handling, storage of secrets, protocol) require the security reviewer (see below) and must update `docs/security/threat-model.md` if assumptions change.
+6. Crypto-relevant changes (anything in `crypto/`, auth, key handling, storage of secrets, `protocol/`) require the security reviewer (see below) and must update `docs/security/threat-model.md` if assumptions change.
 
 ## Git & PR workflow
 
-- **Never push to `main`. Never merge PRs** (yours or anyone's). Never approve your own PR, never force-push to shared branches, never disable/skip CI or hooks. The human owner merges.
+- **Never push to `main`. Never merge PRs** (yours or anyone's), including via `gh api`. Never use admin bypass of rulesets. Never approve your own PR, never force-push to shared branches, never disable/skip CI or hooks. The human owner merges.
 - One issue → one branch → one PR. Branch names: `feat/<issue#>-short-name`, `fix/…`, `chore/…`, `spike/…`, `docs/…`.
 - Conventional commits (`feat(server): add invite endpoint`). Reference the issue (`Closes #12`) in the PR body.
 - Keep PRs reviewable (aim < ~600 changed lines excluding generated code). Split otherwise.
@@ -51,7 +52,7 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 After opening (or substantially updating) a PR:
 
 1. Launch a **separate agent** with the `code-reviewer` subagent (`.claude/agents/code-reviewer.md`). Give it only the PR number — it must form its own view from the diff, not from your reasoning.
-2. If the PR touches `crypto/`, authentication/authorization, key or secret storage, the wire protocol, server endpoints, or `deploy/`, **also** launch the `security-reviewer` subagent.
+2. If the PR touches `crypto/`, authentication/authorization, key or secret storage, `protocol/`, server endpoints, `deploy/`, `.github/workflows/`, `.github/CODEOWNERS`, `.claude/` (agents/settings) or CLAUDE.md's security/workflow rules, **also** launch the `security-reviewer` subagent.
 3. The reviewer posts its findings as a PR comment in the standard **Review log** format (see the agent file). Findings are numbered (`CR-1`, `SEC-1`, …).
 4. You (the author) address every finding: fix it (reference the commit SHA) or reply with a justification for not fixing. Then update the PR body's *Review log* section with a status table. Blocking (`high`/`critical`) findings must be fixed, not waived — or escalated to the human in the PR.
 5. If fixes were non-trivial, run the reviewer again and record the second round.

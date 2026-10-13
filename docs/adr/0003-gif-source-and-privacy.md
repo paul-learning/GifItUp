@@ -12,7 +12,11 @@
 1. **Search happens client → provider directly**, with the provider API key in the client. Search queries never touch our backend. The provider is hidden behind a `GifProvider` interface so Giphy and Klipy can be swapped.
 2. **What our backend sees:** only MLS ciphertext and, depending on the delivery mode, opaque encrypted blobs. It never sees a GIF ID, URL, or search term.
 3. **Delivery mode** (the spike picks one based on the provider's terms of service and CORS):
-   - **Mode A, encrypted re-upload (preferred if the ToS allows it).** The sender downloads the chosen rendition and encrypts it with a fresh random AES-256-GCM key. The ciphertext is padded to a size bucket and uploaded to our blob store, which returns a `blobId`. The MLS message carries `{blobId, key, sha256, mime, width, height}`. Recipients fetch from our server only, so the provider never sees recipients.
+   - **Mode A, encrypted re-upload (preferred if the ToS allows it).** The sender downloads the chosen rendition and encrypts it. Recipients fetch from our server only, so the provider never sees recipients. Blob encryption is implemented **in `crypto/`** (Rust), never per platform in Kotlin:
+     1. Pad the **plaintext**: `len (u32 BE) ‖ gif bytes ‖ zero padding`, up to the next size bucket (powers of two from 64 KiB to the max blob size).
+     2. Encrypt with AES-256-GCM using a fresh random 256-bit key per blob and a random 96-bit nonce; the blob is `nonce ‖ ciphertext ‖ tag`.
+     3. Upload to the blob store, which returns a `blobId`. The MLS message carries `{blobId, key, sha256(uploaded blob bytes), mime, width, height}`.
+     4. The recipient checks the sha256 before decrypting, then GCM authentication, then the length prefix.
    - **Mode B, direct reference.** The MLS message carries the provider GIF ID/URL. Recipients fetch from the provider CDN directly, so the provider sees recipients' IPs and the GIF, but our backend still sees nothing.
 4. **Convergent or deduplicating encryption is forbidden.** It would let the server recognise popular GIFs.
 
