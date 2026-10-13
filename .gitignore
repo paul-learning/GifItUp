@@ -1,0 +1,32 @@
+# Gradle / Kotlin
+.gradle/
+build/
+.kotlin/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Rust
+crypto/target/
+
+# Node / web tooling
+node_modules/
+kotlin-js-store/
+
+# Secrets & env
+.env
+*.env
+!*.env.example
+*.jks
+*.keystore
+google-services.json
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
