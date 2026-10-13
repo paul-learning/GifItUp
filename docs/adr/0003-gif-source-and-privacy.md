@@ -16,7 +16,8 @@
      1. Pad the **plaintext**: `len (u32 BE) ‖ gif bytes ‖ zero padding`, up to the next size bucket (powers of two from 64 KiB to the max blob size).
      2. Encrypt with AES-256-GCM using a fresh random 256-bit key per blob and a random 96-bit nonce; the blob is `nonce ‖ ciphertext ‖ tag`.
      3. Upload to the blob store, which returns a `blobId`. The MLS message carries `{blobId, key, sha256(uploaded blob bytes), mime, width, height}`.
-     4. The recipient checks the sha256 before decrypting, then GCM authentication, then the length prefix.
+     4. The recipient checks the sha256 before decrypting, then GCM authentication, then the length prefix: `4 ≤ len + 4 ≤ padded length`, otherwise reject.
+     - The uploaded blob size is therefore **bucket size + 28 bytes** (12-byte nonce + 16-byte tag). The server enforces exactly that set of sizes.
    - **Mode B, direct reference.** The MLS message carries the provider GIF ID/URL. Recipients fetch from the provider CDN directly, so the provider sees recipients' IPs and the GIF, but our backend still sees nothing.
 4. **Convergent or deduplicating encryption is forbidden.** It would let the server recognise popular GIFs.
 

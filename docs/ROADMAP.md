@@ -60,8 +60,9 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 ---
 
 ## Owner setup (one-time, cannot be done by the agent)
-1. **Ruleset on `main`:** require a PR with 1 approval and **Require review from Code Owners**, require status checks once CI exists (#2), block force pushes and deletions. **Remove the Admin "always" bypass** (or set it to "pull requests only"): the agent uses your account, so any bypass you have, the agent has. The `code_scanning` (CodeQL) rule blocks merges until a CodeQL workflow exists (#2), so either disable it until then or merge #2 first.
-2. **Separate GitHub identity for the agent** (recommended): a machine user or a fine-grained PAT that the agent uses. Then PRs are authored by the bot and *you* approve them. If PRs are authored by your own account, GitHub won't let you approve them, and a "require approval" rule would block every PR.
+1. **Separate GitHub identity for the agent (prerequisite for step 2):** a machine user with write access, using a fine-grained PAT, that the agent's `gh`/git use. PRs are then authored by the bot and *you* approve them. GitHub never lets an author approve their own PR. So as long as PRs are authored by your account, a "require approval" rule without a bypass would block every merge.
+2. **Ruleset on `main`, once step 1 is done:** require a PR with 1 approval and **Require review from Code Owners**, require status checks once CI exists (#2), block force pushes and deletions. **Remove the Admin "always" bypass** (or set it to "pull requests only"). The bot then has no bypass, and you merge after approving. The `code_scanning` (CodeQL) rule blocks merges until a CodeQL workflow exists (#2), so either disable it until then or merge #2 first.
+   - *Interim, before step 1:* PRs are authored by you, so keep the bypass and merge them yourself. In this phase "never merge" is enforced only by `CLAUDE.md` and the `.claude/settings.json` deny list, not by GitHub.
 3. **Local toolchain:** JDK 21, Android Studio (SDK + NDK), Rust via rustup (+ `wasm32-unknown-unknown` and Android targets, `cargo-ndk`), Docker Desktop (optional, for running the server locally).
 4. **Domain** pointing at the Hetzner VM (A/AAAA record), needed for TLS and the web app (#6).
 5. **VM access** for the deploy workflow: a `deploy` user + SSH key stored as GitHub secret (#6, #7).
