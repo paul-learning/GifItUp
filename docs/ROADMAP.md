@@ -46,7 +46,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 - Push notifications without content (FCM data-only "wake up" or UnifiedPush/ntfy, decided by ADR).
 - Group management: leave, remove member, rename (the name is sent as an encrypted `GroupMeta` message, not in the GroupContext), self-update / key rotation schedule.
 - Safety-number / key-fingerprint verification UI and key-change warnings.
-- Multi-device per user (each device is its own MLS leaf).
+- Multi-device per user (each device is its own MLS leaf; per-user identity key signing device credentials, ADR first).
 - Local state backup/restore strategy (ADR).
 - Reactions (as GIFs, naturally) and read receipts, both encrypted.
 - Own GIF uploads (encrypted attachments).

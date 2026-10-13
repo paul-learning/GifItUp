@@ -17,11 +17,14 @@ _This is a living document. Update it whenever a PR changes security assumptions
 | **Malicious group member / friend** | Valid member who may misbehave | ✅ After removal they cannot read messages from later epochs. |
 | **GIF provider** (Giphy/Klipy) | Sees search queries and sender IP (and recipient IP in Mode B) | ⚠️ Accepted leak (ADR-0003) |
 | **Stolen or unlocked device** | Full access to the app's local state | ⚠️ Partially: OS keystore protection; no defence against an unlocked device |
+| **Malicious group member** (active) | Sends envelope/Commit mismatches, spams commits | ⚠️ Can deny service to a group (stuck/forked). Recovery is a new group (ADR-0002). Cannot read groups it was never in. |
+| **Prompt injection against AI agents** | Anyone can write issues, PR comments, or content agents read (dependency docs, API responses) on this public repo | ✅ Only owner-authored text counts as instructions (CLAUDE.md rule 7). Agents have no merge or settings power once the bot identity exists (roadmap "Owner setup"). |
+| **Supply chain / build pipeline** | Compromised dependency, GitHub Action, GHCR image, deploy SSH key, APK signing key, or web bundle | ✅ Pinned actions, committed lockfiles, Dependabot alerts and security updates, least-privilege workflow tokens, deploy behind an environment that needs owner approval, signing key held by the owner only. |
 | Global passive adversary / traffic analysis | | ❌ Out of scope for now |
 
 ## Security goals
 1. Confidentiality and authenticity of message content against the network and a passive server. Against an active server this holds only for contacts whose keys were verified, or who were first contacted while the server was honest.
-2. Forward secrecy and post-compromise security (recovery after a key compromise) as provided by MLS, with regular self-updates. Removed members lose access to later epochs.
+2. Forward secrecy and post-compromise security (recovery after a key compromise) as provided by MLS, with regular self-updates. Removed members lose access to later epochs. **Caveats:** FS does not cover the locally stored message history or the blob keys kept in it. Encrypted blobs stay on the server until their TTL. OpenMLS `max_past_epochs` (kept small) retains old epoch secrets for late messages.
 3. The server learns neither GIF identity nor search terms (ADR-0003).
 4. Only invited people can register; invites are single-use and expire.
 5. Users can detect key changes (M3: safety numbers).
@@ -41,6 +44,8 @@ Owner sign-off: ☐ _pending_
 - Usernames, devices, IP addresses, connection times.
 - Group IDs, group membership (explicit by design, ADR-0002), message counts, timing, and ciphertext and blob sizes (blob sizes are padded).
 - Invite tree (who invited whom).
+- KeyPackage claims (who is about to add whom), Welcome recipients, which device downloads which blob and when, inbox acks/read cursors, and push-notification tokens and timing once push exists.
+- In Mode B, the GIF provider can link a sender's search to the recipients fetching the same GIF shortly after.
 
 ## Assumptions
 - OpenMLS and the platform CSPRNGs are correct.
