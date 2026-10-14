@@ -48,9 +48,11 @@ _This is a living document. Update it whenever a PR changes security assumptions
 | Active server serves a forged KeyPackage on first contact (MITM), or adds ghost devices | Key verification ships | M2: fingerprint display + in-chat "member/device added" notices; M3: safety-number verification and key-change warnings |
 | AI agent uses the owner's GitHub account, so it technically has the ruleset admin bypass and could push to or merge into `main` | A bot account or GitHub App exists | Hard rule in `CLAUDE.md`, deny list in `.claude/settings.json`, owner reviews every PR |
 | Web client code is served by the untrusted server | Indefinitely (inherent to web E2EE) | Evaluate SRI / reproducible builds in a milestone review |
-| **Not yet signed off:** the GIF API key is shared by all clients. Our server hands it only to authenticated users, but a member could extract and abuse it and get it revoked, which stops GIF search for everyone until rotation (spike #5) | Indefinitely (inherent to a client-side key) | Key never built into the APK or web bundle; server-side rotation without a release (runbook in `docs/spikes/gif-provider.md`); production key with no hourly limit |
+| The GIF API key is shared by all clients. Our server hands it only to authenticated users, but a member could extract and abuse it and get it revoked, which stops GIF search for everyone until rotation (spike #5) | Indefinitely (inherent to a client-side key); owner wants to revisit it for improvements later | Key never built into the APK or web bundle; server-side rotation without a release (runbook in `docs/spikes/gif-provider.md`); production key with no hourly limit |
 
 Owner sign-off: ☑ accepted by @paul-learning, 2026-10-13 (in chat with the agent: "i sign accept the risk")
+
+Owner sign-off (shared GIF API key row): ☑ accepted by @paul-learning, 2026-10-14 (in chat with the agent: "yes i accept that risk - maybe we can improve it in the future")
 
 ## Known metadata visible to the server
 - Usernames, devices, IP addresses, connection times.
