@@ -71,4 +71,4 @@ Gradle only adds entries to `verification-metadata.xml`. After removing or upgra
 Checksums are **trust-on-first-use**: `verify-signatures` is `false`, so the first download of a version defines its "correct" bytes. The cross-check against publisher checksums in step 3 is the only defence against a version that was already malicious on first fetch. PGP signature verification (e.g. for Kotlin and Ktor, which sign their artifacts) is a possible later hardening step (#38 SEC-4).
 
 ## IDE
-Android Studio / IntelliJ download `-sources.jar` and `-javadoc.jar` files during sync. These aren't on the compile classpath. `verification-metadata.xml` trusts them by pattern (`<trust file=".*-(sources|javadoc)\.jar" regex="true"/>`), so the IDE doesn't fail verification. Everything else is verified.
+Android Studio / IntelliJ download `-sources.jar` and `-javadoc.jar` files during sync. These aren't on the compile classpath. `verification-metadata.xml` trusts them by pattern (`<trust file=".*-(sources|javadoc)[.]jar" regex="true"/>`; Gradle rewrites the file on regeneration, so the rule carries no XML comment), so the IDE doesn't fail verification. Everything else is verified.
