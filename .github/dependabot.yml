@@ -17,7 +17,7 @@ updates:
       compose:
         patterns: ['org.jetbrains.compose*']
 
-  # The crate does not exist yet (#3, #4, #11); until then Dependabot reports "no manifest" for this entry.
+  # crypto/Cargo.toml (OpenMLS, uniffi). The Rust toolchain, NDK and cargo-ndk pins are bumped by hand.
   - package-ecosystem: cargo
     directory: /crypto
     schedule:
