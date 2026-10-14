@@ -258,7 +258,7 @@ impl Client {
     /// Exports the complete client state (identity, all group state, key material) as one blob.
     ///
     /// SPIKE: the blob is **plaintext secret material**. #11 must encrypt it before it leaves Rust
-    /// and apply the persistence rules from the spike docs (persist before send/ack, rollback
+    /// and apply the persistence rules from the spike docs (persist before send/ack, freshness
     /// protection).
     ///
     /// Format: magic, snapshot version, OpenMLS storage version (u16-BE), username, signature public

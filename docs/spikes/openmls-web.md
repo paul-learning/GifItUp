@@ -72,7 +72,7 @@ The persistence building block from the Android spike's option A is now implemen
 
 | Option | Verdict for the web |
 |---|---|
-| **A. Snapshot (implemented) → IndexedDB** | ✅ Recommended. IndexedDB stores `Uint8Array`/`ArrayBuffer` directly, so the snapshot never needs to become a Kotlin `ByteArray`. Writes are transactional, so the snapshot plus a monotonic counter can be written atomically in one transaction. A 1-group snapshot is 7.8 KB, so rewriting it after every message is cheap. |
+| **A. Snapshot (implemented) → IndexedDB** | ✅ Recommended. IndexedDB stores `Uint8Array`/`ArrayBuffer` directly, so the snapshot never needs to become a Kotlin `ByteArray`. Writes are transactional, so the snapshot is replaced atomically (crash consistency; rollback detection needs an external anchor, see the recommendation below). A 1-group snapshot is 7.8 KB, so rewriting it after every message is cheap. |
 | B. SQLite (`openmls_sqlite_storage`) | ❌ Doesn't run in the browser without a wasm SQLite + OPFS layer. Too much for the benefit. |
 | C. Own `StorageProvider` → IndexedDB per key | ⚠️ IndexedDB is async-only, but OpenMLS's `StorageProvider` is synchronous. It would need an in-memory cache plus write-behind, which is basically option A with extra steps. |
 
@@ -82,7 +82,10 @@ The persistence building block from the Android spike's option A is now implemen
    - **Does *not* protect against offline access to the profile** (corrected after SEC-1 on #37). Chromium and Firefox store the raw key bytes in the profile next to the ciphertext, and non-extractability is enforced only at the JS API. The WebCrypto spec allows this. Safari/WebKit wraps stored keys with a Keychain key. Sources: [Ryan Sleevi on public-webcrypto-comments (2015)](https://lists.w3.org/Archives/Public/public-webcrypto-comments/2015Feb/0037.html), [WebKit bug 164868](https://bugs.webkit.org/show_bug.cgi?id=164868). Not verified by inspecting a current profile.
    - **Doesn't protect against:** script running in our origin (XSS, a compromised bundle). That script can't export the key, but it can use it to decrypt.
 2. **Encrypt inside Rust** with a key derived from (1) or from a user passphrase. Matches SEC-5 on #36 (secrets never sit in the JS/Kotlin heap as plaintext). But wasm memory is equally visible to same-origin script, so the gain on the web is small.
-3. **Passphrase-derived key** (Argon2/PBKDF2): the **only** real protection against a stolen device or copied profile on the web, at a UX cost (unlock on start). This is a product decision.
+3. **Passphrase-derived key:** the **only** real protection against a stolen device or copied profile on the web, at a UX cost (unlock on start). This is a product decision.
+   - **KDF: Argon2id, run inside the Rust crate** (memory-hard).
+   - **PBKDF2 only as a fallback:** it's the only KDF built into WebCrypto, but it's cheap to brute-force on GPUs. If used at all, use OWASP iteration counts.
+   - **Strength:** a copied profile allows unlimited offline guessing, so the protection is **proportional to passphrase strength**. #16 needs a minimum strength (SEC-7 on #37).
 
 **Recommendation for #16 (web part):**
 - Store the snapshot in IndexedDB in one transaction.
@@ -90,7 +93,7 @@ The persistence building block from the Android spike's option A is now implemen
 - Offer an **optional passphrase** as the only real at-rest protection on Chromium/Firefox. The owner decides on this.
 - **Where to encrypt (SEC-5 on #37):** decide this once for both platforms. The spike's code comment says "encrypt inside Rust", while this doc encrypts in JS. Recommendation: encrypt inside Rust with a key the platform supplies (Keystore-unwrapped on Android, WebCrypto- or passphrase-derived on the web), so the plaintext snapshot never enters the Kotlin/JS heap. The browser test currently copies it into a `ByteArray` for convenience; that's spike-only.
 - Apply the same persistence rules as on Android: persist before send, persist before ack, no old snapshots.
-- **Rollback (SEC-2 on #37):** a counter in the same store and transaction gets rolled back together with the snapshot. It gives crash consistency, not rollback detection. Freshness must come from outside the local store, e.g. the client compares its epoch per group with the Delivery Service before it encrypts, and refuses to send from an older epoch.
+- **Rollback (SEC-2 on #37):** a counter in the same store and transaction gets rolled back together with the snapshot. It gives crash consistency, not rollback detection. Freshness has to be anchored outside the local store, and an epoch check alone is not enough: a rollback *within* an epoch keeps the epoch but rewinds the client's own sender-ratchet generation, so the client would reuse key/nonce generations (SEC-6 on #37). #11/#16 must therefore either have the Delivery Service remember the last accepted send per group and device (the client stores its last-sent ID in the snapshot and refuses to encrypt if the server knows a later one), or send a self-update Commit before the first application message after any restore whose freshness can't be confirmed. The first option fails if the server colludes with whoever rolled the state back.
 
 The threat model now spells out what the web client can't protect (offline profile copies without a passphrase, script in our origin). Script in our origin is the realistic web threat, so the web client needs a strict CSP (SEC-4 on #32) and subresource integrity. Phones (Android Keystore) are the stronger client.
 

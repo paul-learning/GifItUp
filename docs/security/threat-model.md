@@ -36,7 +36,7 @@ _This is a living document. Update it whenever a PR changes security assumptions
   - **A non-extractable WebCrypto key does *not* protect it against offline access to the profile:** Chromium and Firefox store the key's raw bytes on disk next to the ciphertext. Non-extractability is only enforced through the JS API; Safari/WebKit is the exception and wraps stored keys with the Keychain.
   - **Without a user passphrase**, anyone with a copy of the browser profile (backup, stolen laptop, malware) can decrypt all of it.
   - **Script running in our origin** (XSS, a compromised or maliciously served bundle) can use any key and read wasm/JS memory, passphrase or not.
-  - **Mitigations:** optional passphrase-derived key (Argon2/PBKDF2) for real at-rest protection, strict CSP and SRI, and the phone app (Keystore) as the stronger client.
+  - **Mitigations:** optional passphrase-derived key (Argon2id inside the crate; protection is proportional to passphrase strength, since a copied profile allows unlimited offline guessing), strict CSP and SRI, and the phone app (Keystore) as the stronger client.
   - **Not yet signed off as an accepted risk:** this goes to the owner with #16.
 
 ## Accepted risks (owner sign-off required)
@@ -61,5 +61,5 @@ Owner sign-off: ☑ accepted by @paul-learning, 2026-10-13 (in chat with the age
 - The APK is distributed through GitHub Releases. The web client is served by the server we distrust (see Accepted risks).
 
 ## Open questions
-- Web key storage: partly answered by spike #4 (see Limitations). Open: whether to offer an optional passphrase (Argon2/PBKDF2) for real stolen-profile protection. That's a product decision for #16.
+- Web key storage: partly answered by spike #4 (see Limitations). Open: whether to offer an optional passphrase (Argon2id, with a minimum strength) for real stolen-profile protection. That's a product decision for #16.
 - Push notifications: which provider, and what metadata does it reveal?
