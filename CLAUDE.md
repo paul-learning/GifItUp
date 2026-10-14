@@ -72,6 +72,7 @@ After opening (or substantially updating) a PR:
 ### Periodic reviews
 
 - At the end of every milestone there are two issues: **Architecture review** (`architecture-reviewer` agent) and **Security review** (`security-reviewer` agent, whole-codebase mode).
+- The architecture review covers module structure **and** code structure: file/function size, function design, UI vs. logic separation (Composables render state only; logic in state holders / use cases), with a hotspot table of the largest files and functions in every report. Hard size/complexity limits are enforced in CI by detekt (Kotlin) and clippy `too_many_lines` / `cognitive_complexity` (Rust).
 - Reports are committed to `docs/reviews/YYYY-MM-DD-<milestone>-<architecture|security>.md`; every actionable finding becomes a GitHub issue labeled `review-finding` and linked from the report.
 - A milestone is not "done" until both reviews are merged and their `critical`/`high` findings are fixed or explicitly accepted by the owner.
 
