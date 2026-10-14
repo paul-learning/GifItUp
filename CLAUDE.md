@@ -3,7 +3,7 @@
 GifItUp is a private messenger for a small circle of friends where the **only** content you can send is GIFs.
 All chat content is **end-to-end encrypted with MLS (RFC 9420) via OpenMLS**. The backend is a dumb, untrusted relay.
 
-Read this file fully at the start of every session. Read `docs/ROADMAP.md` and the relevant ADRs in `docs/adr/` before starting an issue.
+Read this file and `docs/review-lessons.md` fully at the start of every session. Read `docs/ROADMAP.md` and the relevant ADRs in `docs/adr/` before starting an issue.
 
 ## Stack (see ADR-0001)
 
@@ -56,7 +56,7 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 - One issue → one branch → one PR. Branch names: `feat/<issue#>-short-name`, `fix/…`, `chore/…`, `spike/…`, `docs/…`.
 - Conventional commits (`feat(server): add invite endpoint`). Reference the issue (`Closes #12`) in the PR body.
 - Keep PRs reviewable (aim < ~600 changed lines excluding generated code). Split otherwise.
-- Before opening a PR: build, run all tests, run linters (`./gradlew check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` when relevant). Report honestly in the PR if something could not be run locally and why.
+- Before opening a PR, self-check: build, run all tests and linters (`./gradlew check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` when relevant) and `bash scripts/check-repo-hygiene.sh`; then go through *What to check* in `code-reviewer.md`, the *Focus areas* in `security-reviewer.md` if step 2 below applies, and `docs/review-lessons.md`, and fix what you find. The agent files are the single source for these checklists. Report honestly in the PR if something could not be run locally and why.
 - Fill out `.github/pull_request_template.md` completely.
 
 ### Mandatory independent code review (every PR)
@@ -66,8 +66,8 @@ After opening (or substantially updating) a PR:
 1. Launch a **separate agent** with the `code-reviewer` subagent (`.claude/agents/code-reviewer.md`). Give it only the PR number — it must form its own view from the diff, not from your reasoning.
 2. If the PR touches `crypto/`, authentication/authorization, key or secret storage, `protocol/`, server endpoints, `deploy/`, `.github/workflows/`, `.github/CODEOWNERS`, `.claude/` (agents/settings) or CLAUDE.md's security/workflow rules, **also** launch the `security-reviewer` subagent.
 3. The reviewer posts its findings as a PR comment in the standard **Review log** format (see the agent file). Findings are numbered (`CR-1`, `SEC-1`, …).
-4. You (the author) address every finding: fix it (reference the commit SHA) or reply with a justification for not fixing. Then update the PR body's *Review log* section with a status table. Blocking (`high`/`critical`) findings must be fixed, not waived — or escalated to the human in the PR.
-5. If fixes were non-trivial, run the reviewer again and record the second round.
+4. You (the author) address every finding: fix it (reference the commit SHA) or reply with a justification for not fixing. Then update the PR body's *Review log* section with a status table. Blocking (`high`/`critical`) findings must be fixed, not waived — or escalated to the human in the PR. Add a line to `docs/review-lessons.md` for any finding type that could recur (merge with existing lines).
+5. Run another round only if a `high`/`critical` finding was fixed or a fix changed the design/approach. Low/medium findings and nits are fixed and listed in the review log without a new round.
 
 ### Periodic reviews
 
@@ -79,6 +79,7 @@ After opening (or substantially updating) a PR:
 ## Working on issues
 
 - Pick issues from the current milestone (see `docs/ROADMAP.md`), respecting dependencies listed in the issue.
+- Issues touching `crypto/`, auth, key or secret storage, `protocol/` or new server endpoints: write the plan first (plan mode) and have the `security-reviewer` review it (mode c). Post its result as the first PR comment and record it in the review log as round 0 (plan).
 - Spikes produce a written result (ADR or `docs/spikes/<name>.md`) and may contain throwaway code; mark it clearly.
 - If an issue is ambiguous or a decision belongs to the owner (product choices, paid services, anything touching the VM), ask in the issue/PR or in chat instead of guessing.
 - When scope grows, open a new issue rather than expanding the current PR.
@@ -105,4 +106,5 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Web dev server | `./gradlew :composeApp:wasmJsBrowserDevelopmentRun` (opens http://localhost:8080) |
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
 | Run server locally | `./gradlew :server:run` (port from `PORT`, default 8080; `GET /health`) |
+| Repo hygiene (file modes, IDE artifacts, matching pins) | `bash scripts/check-repo-hygiene.sh` (Git Bash on Windows) |
 | Add/update a dependency (locks + checksums) | see [`docs/dependencies.md`](docs/dependencies.md): `--write-locks --write-verification-metadata sha256` over all modules, review the diff |
