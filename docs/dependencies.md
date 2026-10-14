@@ -33,7 +33,7 @@ CI fails if a lockfile or the verification metadata is out of date. There's no s
 3. **Review the diff** of `gradle/verification-metadata.xml` and the lockfiles:
    - Only the dependencies you meant to change (and their expected transitives) should appear.
    - **New checksums are trust-on-first-use.** For a new direct dependency, compare at least one SHA-256 against the publisher's own checksum (Maven Central `.sha256`/`.sha1`, GitHub release digest) and name the source in the PR.
-   - **Red flag: a changed or additional checksum for an artifact whose version did not change**, or any `<also-trust>` entry. Same coordinates must mean same bytes. Stop and investigate instead of committing. CI rejects `<also-trust>` entries (`Gradle check` job).
+   - **Red flag: a changed or additional checksum for an artifact whose version did not change**, or any `<also-trust>` entry. Same coordinates must mean same bytes. Stop and investigate instead of committing. Also a red flag: anything that weakens verification, i.e. `<verify-metadata>` not `true`, a `<trust>` rule beyond the IDE sources/javadoc one, or a verification-mode override (`org.gradle.dependency.verification`, `--dependency-verification`/`-F`). The `Gradle check` CI job rejects all of these, as well as `<also-trust>` entries and a missing metadata file.
    - Remove entries the build no longer uses (Gradle doesn't prune the verification file; see "Pruning" below).
 4. Commit `libs.versions.toml`, the lockfiles and `verification-metadata.xml` together, and justify the dependency in the PR (CLAUDE.md rule 9).
 

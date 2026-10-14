@@ -40,12 +40,23 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      # Same coordinates must mean same bytes: a second trusted checksum for an artifact is a red flag (#38 SEC-1).
-      - name: Reject also-trust entries in verification metadata
+      # Guards against verification being weakened or switched off (#38 SEC-1, SEC-7); see docs/dependencies.md.
+      # Same coordinates must mean same bytes: a second trusted checksum for an artifact is a red flag.
+      - name: Guard dependency verification config
         run: |
-          if grep -n "<also-trust" gradle/verification-metadata.xml; then
-            echo "::error::gradle/verification-metadata.xml contains <also-trust> entries; see docs/dependencies.md"
-            exit 1
+          meta=gradle/verification-metadata.xml
+          fail() { echo "::error::$1; see docs/dependencies.md"; exit 1; }
+          [ -f "$meta" ] || fail "$meta is missing"
+          grep -q "<verify-metadata>true</verify-metadata>" "$meta" || fail "$meta does not enable verify-metadata"
+          if grep -n "<also-trust" "$meta"; then fail "$meta contains <also-trust> entries"; fi
+          trust=$(grep "<trust " "$meta" | tr -d ' ')
+          [ "$trust" = '<trustfile=".*-(sources|javadoc)[.]jar"regex="true"/>' ] \
+            || fail "$meta trusts artifacts beyond the IDE sources/javadoc rule"
+          # Mode overrides: the Gradle property (also as -D), the long CLI flag, or -F (also on a folded continuation line).
+          # The [n] keeps the pattern from matching this script.
+          if grep -rnE 'dependency[.-]verificatio[n][[:space:]=]' gradle.properties .github/workflows/ \
+            || grep -rnE '(gradlew.*[[:space:]]|^[[:space:]]*)-F([[:space:]=]|$)' .github/workflows/; then
+            fail "dependency verification mode is overridden"
           fi
 
       # check = all tests (jvm, Android host, wasmJs/Node, server) + ktlint + detekt + Android lint.
