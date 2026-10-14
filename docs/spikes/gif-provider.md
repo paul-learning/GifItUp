@@ -25,6 +25,17 @@ Which free GIF API do we use? Can the sender re-upload an encrypted copy (Mode A
 | Formats | `gif`, `webp`, `mp4`, `webm`, `jpg` in sizes `xs`/`sm`/`md`/`hd` | `gif`, `webp`, `mp4` in many renditions |
 | CORS (tested live) | `api.klipy.com`: `Access-Control-Allow-Origin: *`, preflight allows all. `static.klipy.com`: ACAO `*`, no `Cross-Origin-Resource-Policy` header | `api.giphy.com` and `media*.giphy.com` / `i.giphy.com`: ACAO `*`, CORP `cross-origin` |
 
+**Other options looked at** (after the owner asked whether Klipy is really the only one):
+
+| Option | Free? | Key | Verdict |
+|---|---|---|---|
+| Imgur API | Free for non-commercial use, ~12,500 requests/day | Client ID per app, embedded in the client (same problem as any key) | Community uploads, not a reaction-GIF library. Weaker than Klipy |
+| Openverse (openly licensed media) | Yes | Without a key: 5 requests/hour; with a key: same problem | Hardly any reaction GIFs, and too slow without a key |
+| Wikimedia Commons | Yes | None | Technically fine (no key, CORS), but practically no reaction GIFs |
+| Own curated collection on our server | Yes | None | Most private: every client gets the whole catalogue, so nobody learns what was searched or sent. But we'd have to find and license the content ourselves, and the selection stays small. Kept as a later fallback (ROADMAP "Later / ideas") |
+
+Every hosted provider needs an app key used from the client, and Giphy and Klipy forbid routing requests through our server. So a key reaching clients is unavoidable. What we control is **which** clients get it (see "The API key").
+
 **Pick: Klipy.** It is the only option that stays free in production. Giphy would work technically, but a release build on a beta key goes against its intent, and production access costs money.
 
 Klipy media URLs look like `https://static.klipy.com/ii/<32 hex>/<2 hex>/<2 hex>/<name>.<ext>`. They carry no query string and no user or session identifier, which matters for Mode B below.
@@ -76,11 +87,17 @@ What it costs (recorded in the threat model):
 The alternative, sending only the slug and having each recipient call Klipy's Items API, was rejected. It costs one API call per received GIF against the rate limit, and the URL it returns still has to pass the same check.
 
 ## Rate limits
-The key ships inside every client, so **all users share one limit**. In testing mode that's 100 requests/hour: one per opened picker (trending) plus one per debounced search. That's enough for development, but not for the friends alpha. **The production key must be requested before #27.** The client debounces search input (≥ 400 ms) and shows a friendly message on HTTP 429.
+All clients use the same key, so **all users share one limit**. In testing mode that's 100 requests/hour: one per opened picker (trending) plus one per debounced search. That's enough for development, but not for the friends alpha. **The production key must be requested before #27.** The client debounces search input (≥ 400 ms) and shows a friendly message on HTTP 429.
 
-## The API key
-- The key isn't secret in the cryptographic sense: it's embedded in every APK and web bundle. But CLAUDE.md rule 3 keeps it **out of the repo**. Builds read it from `local.properties` / an env var locally and from a GitHub secret in CI. Wiring that up is part of #23.
-- **Availability risk:** anyone can extract the key and use up the shared rate limit, or get it revoked through abuse. GIF search and trending then stop for everyone; already-sent GIFs still load, because media fetches don't use the key. Runbook: create a new key in the Partner Panel, revoke the old one, update the GitHub secret, rebuild and release the APK and web app. This needs owner sign-off as an accepted risk (threat model).
+## The API key (decided with the owner, 2026-10-14)
+- **Not in the build.** The key is never in the repo, the APK or the web bundle. Those are public (GitHub Releases, a web app anyone can load), so anything baked in can be extracted by anyone.
+- **Our server hands it to authenticated clients only.** The server reads the key from its environment (a deploy secret) and returns it from an authenticated endpoint. Clients keep it in memory, or in app storage next to their other state, and use it for direct calls to Klipy.
+  - Only invited users ever see the key. Leaking it beyond the circle needs one of them to extract and share it.
+  - Rotation is a server config change that takes effect at the next fetch. No rebuild or release is needed.
+  - The server learns nothing about GIF use: it only hands out the key. Searches and media loads still go straight from the client to Klipy.
+  - New server-visible data: none about users. The server stores one more secret (the key) and sees when clients fetch it (at login/startup, along with other traffic). The response gets `Cache-Control: no-store`, and the key is never logged (CLAUDE.md rule 4).
+  - Implemented in a separate issue (server endpoint, wire model in `protocol/`), which #23 depends on.
+- **Residual availability risk:** a member could extract and abuse the key, and Klipy could revoke it. GIF search and trending then stop for everyone until the key is rotated; already-sent GIFs still load, because media fetches don't use the key. With the production key there is no hourly limit to exhaust. Runbook: create a new key in the Partner Panel, revoke the old one, update the server's secret and restart it.
 - Partner Panel settings: ads **off**, content filter set by the owner (Klipy's `content_filter` request parameter is the per-request alternative). In case ads are ever switched on, the client renders `type: "ad"` items as plain placeholders and never loads their content or calls their tracking URLs.
 - **Web CSP (deployment, #6/#27):** `connect-src` and `img-src` list only `https://api.klipy.com` and `https://static.klipy.com https://static1.klipy.com https://static2.klipy.com` for the GIF features. Klipy's media hosts send no `Cross-Origin-Resource-Policy` header, so the web app must not enable `Cross-Origin-Embedder-Policy: require-corp` without testing it.
 
