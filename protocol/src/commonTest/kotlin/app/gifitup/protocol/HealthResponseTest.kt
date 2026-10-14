@@ -1,6 +1,5 @@
 package app.gifitup.protocol
 
-import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -9,9 +8,18 @@ class HealthResponseTest {
     fun roundTripsThroughJson() {
         val response = HealthResponse(status = "ok", protocolVersion = PROTOCOL_VERSION)
 
-        val json = Json.encodeToString(response)
+        val json = ProtocolJson.encodeToString(response)
 
         assertEquals("""{"status":"ok","protocolVersion":1}""", json)
-        assertEquals(response, Json.decodeFromString<HealthResponse>(json))
+        assertEquals(response, ProtocolJson.decodeFromString<HealthResponse>(json))
+    }
+
+    @Test
+    fun ignoresFieldsAddedByNewerServers() {
+        val json = """{"status":"ok","protocolVersion":1,"addedLater":"x"}"""
+
+        val decoded = ProtocolJson.decodeFromString<HealthResponse>(json)
+
+        assertEquals(HealthResponse(status = "ok", protocolVersion = 1), decoded)
     }
 }

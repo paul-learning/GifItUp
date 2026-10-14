@@ -4,5 +4,6 @@ naming:
     # Composable functions are PascalCase by convention.
     ignoreAnnotated: ['Composable']
 style:
-  UnusedPrivateMember:
-    ignoreAnnotated: ['Preview']
+  MaxLineLength:
+    # Keep in sync with max_line_length in .editorconfig (ktlint).
+    maxLineLength: 140

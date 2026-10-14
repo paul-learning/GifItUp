@@ -2,6 +2,7 @@ package app.gifitup.server
 
 import app.gifitup.protocol.HealthResponse
 import app.gifitup.protocol.PROTOCOL_VERSION
+import app.gifitup.protocol.ProtocolJson
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -20,7 +21,7 @@ fun main() {
 }
 
 fun Application.module() {
-    install(ContentNegotiation) { json() }
+    install(ContentNegotiation) { json(ProtocolJson) }
     routing {
         get("/health") {
             call.respond(HealthResponse(status = "ok", protocolVersion = PROTOCOL_VERSION))
