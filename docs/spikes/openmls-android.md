@@ -25,29 +25,30 @@ The instrumented test (`MlsRoundTripTest`, 2 tests) passes on an API 37 x86_64 e
 1. Alice creates a group and adds Bob via his KeyPackage. Bob joins via the Welcome, and both exchange application messages in both directions.
 2. A third member joins. An existing member processes the Commit, and messages still decrypt.
 
-The same scenario also runs as a Rust unit test (`cargo test`) on the host.
+Both scenarios also run as Rust unit tests (`cargo test`) on the host, so CI covers them without an emulator. The instrumented test adds coverage of the uniffi/JNA layer on a device.
 
 The configuration follows ADR-0002:
 - ciphersuite `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`
 - `BasicCredential` (username)
-- RustCrypto provider (`openmls_rust_crypto`, pure Rust, no C code)
+- RustCrypto provider (`openmls_rust_crypto`). All Rust, no C code compiled for Android; `hpke-rs` brings a few `libcrux-*` crates (e.g. `libcrux-sha3`), which are also Rust. `hpke-rs-libcrux` is in the lockfile but not built for Android (`cargo tree --target aarch64-linux-android`).
 - `PURE_CIPHERTEXT_WIRE_FORMAT_POLICY`, so handshake messages are `PrivateMessage`s too
+- application-message padding to 256-byte blocks in both the create and the join config, so ciphertext length only reveals the plaintext size in 256-byte steps (SEC-2 on #36)
 - ratchet tree in the Welcome
 
 ## Measurements
-Measured on the Windows 11 dev machine (Rust 1.99.0, NDK 30.0.16248370, release profile with `opt-level = "z"`, LTO, `codegen-units = 1`, stripped, `panic = "abort"`).
+Measured on the Windows 11 dev machine (Rust 1.99.0, NDK 30.0.16248370, release profile with `opt-level = "z"`, LTO, `codegen-units = 1`, stripped, `panic = "unwind"`). The first measurement used `panic = "abort"`; both are shown.
 
 | What | Value |
 |---|---|
-| `libgifitup_crypto.so` arm64-v8a | 1.79 MiB (874 KiB gzipped) |
-| `libgifitup_crypto.so` x86_64 | 2.24 MiB (912 KiB gzipped) |
+| `libgifitup_crypto.so` arm64-v8a | **2.02 MiB (980 KiB gzipped)** with unwind; 1.79 MiB (874 KiB) with abort, so unwind costs about +13% |
+| `libgifitup_crypto.so` x86_64 | **2.47 MiB (1018 KiB gzipped)** with unwind; 2.24 MiB (912 KiB) with abort |
 | JNA `libjnidispatch.so` | 162 KiB (arm64), 114 KiB (x86_64) |
 | Clean release build, both ABIs | ~5.3 min (2 min arm64 + 3.2 min x86_64; LTO dominates) |
 | Generated Kotlin bindings | 1761 lines (`uniffi.gifitup_crypto`) |
-| Two-party round trip on the emulator (2 identities, KeyPackage, group, add, join, 2 messages) | 79 ms |
+| Two-party round trip on the emulator (2 identities, KeyPackage, group, add, join, 2 messages) | 79–416 ms over 5 runs (median ~115 ms). The x86_64 emulator shares the dev machine, so the numbers are noisy; a physical device is still to be measured |
 | Crates in `Cargo.lock` | 249. Most come from `uniffi/cli`, which only the `bindgen` feature (build-time bindgen binary) uses; the shipped library pulls far fewer |
 
-**APK impact:** a release APK that ships only arm64-v8a would grow by about 0.9 MB compressed. The x86_64 build is only needed for emulators and can be left out of release builds with an ABI split.
+**APK impact:** a release APK that ships only arm64-v8a would grow by about 1.0 MB compressed (the `.so` plus JNA). The x86_64 build is only needed for emulators and can be left out of release builds with an ABI split.
 
 ## Toolchain setup
 - `rustup` with `crypto/rust-toolchain.toml` (pins Rust 1.99.0, `rustfmt`, `clippy`, and the targets `aarch64-linux-android`, `x86_64-linux-android`, `wasm32-unknown-unknown`). rustup installs everything automatically on the first `cargo` call in `crypto/`.
@@ -74,6 +75,12 @@ OpenMLS keeps all group state, key material and pending commits behind the `Stor
 
 **Recommendation for #11 / #16:** use **A**, with the snapshot encrypted at rest by the platform key store, behind the crypto facade. Revisit C if snapshots get too large or too slow. Losing the snapshot means losing the groups, so restoring requires a re-add (ADR-0002, Consequences).
 
+Option A comes with hard rules (SEC-4/SEC-5 on #36):
+- **Persist before send.** The state after `encrypt` (or after creating a Commit) must be durably saved *before* the ciphertext leaves the device. Otherwise a crash followed by a restore reuses a ratchet key and nonce, with only OpenMLS's 4-byte reuse guard as protection.
+- **Persist before ack.** State after processing an incoming message must be saved before the message is acknowledged/deleted on the server.
+- **Rollback protection.** Write atomically, keep a monotonic counter (stored in the Keystore or alongside the wrapping key), keep no old snapshots, and exclude the snapshot from Android backup (already set in `androidApp`). Otherwise deleted keys come back and forward secrecy is lost.
+- **Plaintext state in memory.** With A, all group secrets and the signature private key pass through the JVM/JS heap as one blob that can't be wiped, and the Rust types don't zeroize. Preferred: encrypt the snapshot inside Rust, with a key the platform keystore unwraps, so Kotlin only ever sees ciphertext. Otherwise record it as an accepted residual risk in the threat model.
+
 ## Proposed updates to ADR-0002
 1. **Fix the ciphersuite name.** OpenMLS and RFC 9420 call it `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`; the ADR says `…DCX25519…`.
 2. **Android path confirmed:**
@@ -94,7 +101,11 @@ I'll apply these to ADR-0002 after #4 (web spike), so the ADR is revised once wi
   - typed errors without `Debug` strings of OpenMLS internals
   - `cargo-deny`/`cargo-audit` in CI
   - move the Kotlin wiring from `spikes/mls-android` into `:shared` (androidMain `actual` of the crypto facade)
-- **Error strings:** the spike turns OpenMLS errors into `Debug` strings for Kotlin. The real crate must make sure no key material or plaintext can end up in error messages or logs (CLAUDE.md, security rule 4).
+- **Panics (SEC-1 on #36):** the release profile now uses `panic = "unwind"`, so uniffi turns a Rust panic into a Kotlin exception instead of killing the app. With `abort`, a crafted message that makes OpenMLS panic would crash the app on every start if it gets re-fetched, and a malicious server could replay it forever. #11 must also quarantine any message that keeps failing to process (don't re-process it on every launch) and fuzz the parse paths (KeyPackage, Welcome, message). On wasm (#4) a panic is a trap, which the facade has to catch.
+- **Typed results for `process()` (CR-3, SEC-3 on #36):** the spike returns `None` both for a merged Commit and for messages it ignores (standalone Proposals), and it drops the sender. #11 must return a typed result that includes the **MLS-authenticated sender** (leaf credential) for application messages, so the UI never trusts the server envelope for "who sent this". For Commits, it must return a **staged** commit with its add/remove list, so the client can check it against the DS envelope (ADR-0002) *before* merging.
+- **Validation (SEC-7 on #36):** inspect the `StagedWelcome` (sender, members, ciphersuite) before `into_group`, and validate KeyPackages (ciphersuite, lifetime, credential type, username ↔ device owner, TOFU key) as ADR-0002 requires. Also put limits on username length and characters.
+- **Error strings (SEC-6 on #36):** the spike turns OpenMLS errors into `Debug` strings for Kotlin. The real crate must map them to a closed set of error codes, so no key material or plaintext can end up in error messages or logs (CLAUDE.md, security rule 4).
+- **Supply chain (SEC-8 on #36):** add `cargo-deny` or `cargo-audit` to CI. Dependabot doesn't track the cargo-ndk, NDK or Rust toolchain pins; bump those by hand.
 - **CI cost:** the spike job adds a cargo-ndk release build of about 5 min per run. Caching `crypto/target` (keyed on `Cargo.lock`) and building only arm64 for PRs would cut that down.
 
 ## Throwaway parts

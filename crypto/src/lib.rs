@@ -17,6 +17,11 @@ uniffi::setup_scaffolding!();
 /// Ciphersuite fixed by ADR-0002 (mandatory-to-implement).
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
+/// MLS application-message padding (bytes), so ciphertext length does not reveal plaintext length
+/// (SEC-2 on #36). Local setting: must be applied to both create and join configs. The real value
+/// is decided with the message format in #11/#24.
+const PADDING_SIZE: usize = 256;
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CryptoError {
     #[error("invalid input: {reason}")]
@@ -107,6 +112,7 @@ impl MlsClient {
             .ciphersuite(CIPHERSUITE)
             // Handshake messages travel as PrivateMessage too (ADR-0002: the server does not parse MLS).
             .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
+            .padding_size(PADDING_SIZE)
             .use_ratchet_tree_extension(true)
             .build();
         let group = MlsGroup::new(
@@ -172,6 +178,7 @@ impl MlsClient {
         };
         let join_config = MlsGroupJoinConfig::builder()
             .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
+            .padding_size(PADDING_SIZE)
             .use_ratchet_tree_extension(true)
             .build();
         let group = StagedWelcome::new_from_welcome(&self.provider, &join_config, welcome, None)
@@ -269,6 +276,62 @@ mod tests {
             alice.process(group_id, to_alice).unwrap().unwrap(),
             b"hi alice"
         );
+    }
+
+    #[test]
+    fn third_member_joins_and_existing_member_processes_commit() {
+        let alice = MlsClient::new("alice".into()).unwrap();
+        let bob = MlsClient::new("bob".into()).unwrap();
+        let carol = MlsClient::new("carol".into()).unwrap();
+
+        let group_id = alice.create_group().unwrap();
+        let add_bob = alice
+            .add_member(group_id.clone(), bob.create_key_package().unwrap())
+            .unwrap();
+        bob.join_from_welcome(add_bob.welcome).unwrap();
+
+        let add_carol = alice
+            .add_member(group_id.clone(), carol.create_key_package().unwrap())
+            .unwrap();
+        assert_eq!(
+            bob.process(group_id.clone(), add_carol.commit).unwrap(),
+            None
+        );
+        carol.join_from_welcome(add_carol.welcome).unwrap();
+        assert_eq!(bob.member_count(group_id.clone()).unwrap(), 3);
+
+        let msg = carol.encrypt(group_id.clone(), b"hi all".to_vec()).unwrap();
+        assert_eq!(
+            alice
+                .process(group_id.clone(), msg.clone())
+                .unwrap()
+                .unwrap(),
+            b"hi all"
+        );
+        assert_eq!(bob.process(group_id, msg).unwrap().unwrap(), b"hi all");
+    }
+
+    #[test]
+    fn ciphertext_length_does_not_reveal_plaintext_length() {
+        let alice = MlsClient::new("alice".into()).unwrap();
+        let bob = MlsClient::new("bob".into()).unwrap();
+        let group_id = alice.create_group().unwrap();
+        let added = alice
+            .add_member(group_id.clone(), bob.create_key_package().unwrap())
+            .unwrap();
+        bob.join_from_welcome(added.welcome).unwrap();
+
+        // Padding quantizes to PADDING_SIZE blocks (content + signature + framing), so lengths
+        // within one block are indistinguishable and larger messages differ by whole blocks.
+        let short = alice.encrypt(group_id.clone(), vec![b'a'; 10]).unwrap();
+        let medium = alice.encrypt(group_id.clone(), vec![b'a'; 100]).unwrap();
+        let long = alice.encrypt(group_id.clone(), vec![b'a'; 400]).unwrap();
+        assert_eq!(short.len(), medium.len());
+        assert_eq!((long.len() - short.len()) % PADDING_SIZE, 0);
+        // The joiner's config pads too (padding is a local setting).
+        let from_bob_short = bob.encrypt(group_id.clone(), vec![b'b'; 10]).unwrap();
+        let from_bob_medium = bob.encrypt(group_id, vec![b'b'; 100]).unwrap();
+        assert_eq!(from_bob_short.len(), from_bob_medium.len());
     }
 
     #[test]
