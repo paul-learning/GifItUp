@@ -91,7 +91,7 @@ Option A comes with hard rules (SEC-4/SEC-5 on #36):
 4. **Persistence:** add the storage decision (option A above) once #4 confirms it works on the web.
 5. **Toolchain pin:** `crypto/rust-toolchain.toml` is the single source of the Rust version, like `libs.versions.toml` for Gradle.
 
-I'll apply these to ADR-0002 after #4 (web spike), so the ADR is revised once with both platforms' results.
+Applied to ADR-0002 together with the web spike (#4); see the ADR's "Spike results (2026-10-14)" section.
 
 ## Findings for follow-up issues
 - **#11 (real crate):**
