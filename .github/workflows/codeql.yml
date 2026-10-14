@@ -29,6 +29,9 @@ jobs:
         include:
           - language: actions
             build-mode: none
+          # crypto/ (OpenMLS wrapper); Rust is extracted from source without a build.
+          - language: rust
+            build-mode: none
           # Kotlin needs a real compile for extraction (build-mode none only covers Java).
           - language: java-kotlin
             build-mode: manual

@@ -1,4 +1,4 @@
-# Threat model (draft v0)
+# Threat model (v1)
 
 _This is a living document. Update it whenever a PR changes security assumptions; the security reviewer checks it each milestone._
 
@@ -9,6 +9,43 @@ _This is a living document. Update it whenever a PR changes security assumptions
 - Social graph: who talks to whom and in which groups.
 - Account credentials and session tokens; invite codes.
 
+## Data flow and trust boundaries
+Everything outside the **device** box is untrusted for content. Dashed lines are planned (M3) or one-off.
+
+```mermaid
+flowchart LR
+  subgraph DEV["Device (trusted while unlocked)"]
+    UI["Compose UI"] --> FAC["Crypto facade (shared)"]
+    FAC --> CR["crypto/ Rust: OpenMLS, keys"]
+    CR --> ST[("Encrypted MLS snapshot<br/>Keystore / IndexedDB")]
+  end
+  subgraph VM["Hetzner VM (untrusted for content)"]
+    CADDY["Caddy (TLS)"] --> SRV["Ktor server"]
+    SRV --> DB[("PostgreSQL")]
+  end
+  subgraph GIFP["GIF provider (third party)"]
+    API["Klipy API"]
+    CDN["Klipy media via Cloudflare"]
+  end
+  subgraph BUILD["Build and release"]
+    GH["GitHub Actions"] --> GHCR["GHCR image"]
+    GH --> REL["GitHub Releases APK"]
+  end
+  FAC -- "MLS ciphertext, KeyPackages, Welcomes, session token" --> CADDY
+  CADDY -- "web bundle JS/wasm, Klipy API key (logged-in clients)" --> UI
+  UI -- "search query + API key" --> API
+  UI -- "media fetch: no cookies, Referer or redirects" --> CDN
+  FAC -. "encrypted blobs, own uploads (M3)" .-> CADDY
+  GHCR -. "deploy, owner-approved" .-> VM
+  REL -. "install" .-> DEV
+```
+
+What crosses each boundary:
+- **Device → VM:** only MLS ciphertext (application messages and handshakes as `PrivateMessage`), KeyPackages, Welcomes, the DS envelope (group ID, device list, epoch) and the session token. Never plaintext, GIF URLs, search terms or private keys. The metadata this reveals is listed below.
+- **VM → device:** relayed ciphertext, the web client code (see Accepted risks) and the Klipy API key. Each is untrusted: ciphertext is authenticated by MLS, and the key is checked for format and used only with the hard-coded provider host.
+- **Device → GIF provider:** search terms and media fetches, directly from the client (ADR-0003). The provider sees the IP addresses.
+- **Build → device/VM:** see the supply-chain row.
+
 ## Adversaries
 | Adversary | Capabilities | In scope? |
 |---|---|---|
@@ -18,13 +55,15 @@ _This is a living document. Update it whenever a PR changes security assumptions
 | **GIF provider** (Klipy, and Cloudflare in front of its CDN; ADR-0003) | Sees search queries and the sender's IP, and every recipient's IP and the GIF when they load it (Mode B′). Controls which bytes its CDN serves, including different bytes per recipient or hostile files aimed at image decoders. Can remove GIFs, shut down, or revoke our shared API key | ⚠️ Accepted leak (ADR-0003). Our server never sees GIF identity or searches. Recipients only fetch URLs on the provider's media hosts (strict allowlist), with no cookies, `Referer`, redirects or `customer_id`. Our own bounded scanner checks the file structure before any decoder runs, and decoding uses decoders that get security updates (see Assumptions); outdated Android phones get tap-to-load. A removed GIF shows a placeholder |
 | **Stolen or unlocked device** | Full access to the app's local state | ⚠️ Partially: OS keystore protection; no defence against an unlocked device |
 | **Malicious group member** (active) | Sends envelope/Commit mismatches, spams commits | ⚠️ Can deny service to a group (stuck/forked). Recovery is a new group (ADR-0002). Cannot read groups it was never in. |
-| **Prompt injection against AI agents** | Anyone can write issues, PR comments, or content agents read (dependency docs, API responses) on this public repo | ✅ Only owner-authored text counts as instructions (CLAUDE.md rule 7). Agents have no merge or settings power once the bot identity exists (roadmap "Owner setup"). |
-| **Supply chain / build pipeline** | Compromised dependency, GitHub Action, GHCR image, deploy SSH key, APK signing key, or web bundle | ✅ Pinned actions, committed lockfiles (Gradle, Cargo, Yarn), SHA-256 dependency verification for every Gradle artifact (trust-on-first-use, no PGP yet), repositories restricted per group, Dependabot alerts, least-privilege workflow tokens, deploy behind an environment that needs owner approval, signing key held by the owner only. ⚠️ Dependabot's *Gradle* security PRs don't pass CI on their own: someone has to regenerate locks and checksums (docs/dependencies.md), so a Gradle security fix lands only as fast as that happens. |
+| **Crafted MLS input** (from a member or replayed by the server) | Malformed KeyPackages, Welcomes or messages that make OpenMLS or our wrapper panic or misbehave | ⚠️ In place: `panic = "unwind"` on Android turns a panic into an exception. Planned in #11: catching wasm traps on the web (re-instantiate and restore), never persist state after a panic (reload the last snapshot), quarantine a message that keeps failing, per-group state, fuzzing of the parse paths, and errors mapped to closed codes so no key material reaches logs (spikes #3, #4). |
+| **Local state rollback** (backup restore, crash, copied profile) | Restores an older MLS snapshot | ✅ Planned in #11/#16: persist before send and before ack, atomic writes, no old snapshots, Android backup excluded, and freshness anchored at the Delivery Service, because an epoch check alone misses a rollback within an epoch (spikes #3, #4; ADR-0002). Without this, a restore can reuse ratchet keys and nonces. |
+| **Prompt injection against AI agents** | Anyone can write issues, PR comments, or content agents read (dependency docs, API responses) on this public repo | ✅ Only owner-authored text counts as instructions (CLAUDE.md rule 7). There is no separate bot identity (owner decision 2026-10-13), so the agent technically has the owner's merge and settings power; the guard is the hard rule in CLAUDE.md plus the deny list (see Accepted risks). |
+| **Supply chain / build pipeline** | Compromised dependency, GitHub Action, GHCR image, deploy SSH key, APK signing key, or web bundle | ✅ Pinned actions, committed lockfiles (Gradle, Cargo, Yarn), secret scanning with push protection, CodeQL (`security-extended`; Actions, Kotlin, Rust), a CI repo-hygiene check (`scripts/check-repo-hygiene.sh`), SHA-256 dependency verification for every Gradle artifact (trust-on-first-use, no PGP yet), repositories restricted per group, Dependabot alerts, least-privilege workflow tokens, deploy behind an environment that needs owner approval, signing key held by the owner only. ⚠️ Dependabot's *Gradle* security PRs don't pass CI on their own: someone has to regenerate locks and checksums (docs/dependencies.md), so a Gradle security fix lands only as fast as that happens. |
 | Global passive adversary / traffic analysis | | ❌ Out of scope for now |
 
 ## Security goals
 1. Confidentiality and authenticity of message content against the network and a passive server. Against an active server this holds only for contacts whose keys were verified, or who were first contacted while the server was honest.
-2. Forward secrecy and post-compromise security (recovery after a key compromise) as provided by MLS, with regular self-updates. Removed members lose access to later epochs. **Caveats:** FS does not cover the locally stored message history or the blob keys kept in it. Encrypted blobs stay on the server until their TTL. OpenMLS `max_past_epochs` (kept small) retains old epoch secrets for late messages.
+2. Forward secrecy and post-compromise security (recovery after a key compromise) as provided by MLS, with regular self-updates. Removed members lose access to later epochs. **Caveats:** FS does not cover the locally stored message history or the blob keys kept in it. Encrypted blobs (own uploads, M3) stay on the server until their TTL. OpenMLS `max_past_epochs` (kept small) retains old epoch secrets for late messages.
 3. The server learns neither GIF identity nor search terms (ADR-0003).
 4. Only invited people can register; invites are single-use and expire.
 5. Users can detect key changes (M3: safety numbers).
@@ -56,7 +95,7 @@ Owner sign-off (shared GIF API key row): ☑ accepted by @paul-learning, 2026-10
 
 ## Known metadata visible to the server
 - Usernames, devices, IP addresses, connection times.
-- Group IDs, group membership (explicit by design, ADR-0002), message counts, timing, and ciphertext and blob sizes. Blob sizes are padded, and MLS application messages are padded to 256-byte blocks (spike value, final size set in #11/#24).
+- Group IDs, group membership (explicit by design, ADR-0002), message counts, timing, and ciphertext and blob sizes (blobs: own uploads, M3). Blob sizes are padded, and MLS application messages are padded to 256-byte blocks (spike value, final size set in #11/#24).
 - Invite tree (who invited whom).
 - KeyPackage claims (who is about to add whom), Welcome recipients, which device downloads which blob and when, inbox acks/read cursors, and push-notification tokens and timing once push exists.
 - _(Not visible to the server, but to the GIF provider:)_ in Mode B′ the provider can link a sender's search to the recipients fetching the same GIF shortly after, and sees how many people load it from which IPs.
@@ -73,3 +112,5 @@ Owner sign-off (shared GIF API key row): ☑ accepted by @paul-learning, 2026-10
 ## Open questions
 - Web key storage: partly answered by spike #4 (see Limitations). Open: whether to offer an optional passphrase (Argon2id, with a minimum strength) for real stolen-profile protection. That's a product decision for #16.
 - Push notifications: which provider, and what metadata does it reveal?
+- Where the MLS snapshot is encrypted (#11): inside Rust with a platform-supplied key (preferred, so the plaintext snapshot never enters the Kotlin/JS heap), or in Kotlin/JS. If not inside Rust, the plaintext-in-heap exposure becomes an accepted risk here (spikes #3, #4).
+- Reporting: vulnerabilities go through GitHub private vulnerability reporting (`SECURITY.md`).
