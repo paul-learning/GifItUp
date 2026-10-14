@@ -55,8 +55,17 @@ jobs:
           cache-provider: basic
           cache-read-only: true
 
+      # Rust extraction runs dependency build scripts and proc macros (rust-analyzer). Fetch exactly the
+      # crates in Cargo.lock first, then keep cargo offline while CodeQL runs (#45 SEC-5).
+      - name: Fetch locked Rust dependencies
+        if: matrix.language == 'rust'
+        working-directory: crypto
+        run: cargo fetch --locked
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        env:
+          CARGO_NET_OFFLINE: 'true'
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -77,5 +86,7 @@ jobs:
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        env:
+          CARGO_NET_OFFLINE: 'true'
         with:
           category: /language:${{ matrix.language }}

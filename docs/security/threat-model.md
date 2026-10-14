@@ -1,6 +1,6 @@
 # Threat model (v1)
 
-_This is a living document. Update it whenever a PR changes security assumptions; the security reviewer checks it each milestone._
+_This is a living document. Update it whenever a PR changes security assumptions; the security reviewer checks it each milestone. Report vulnerabilities as described in [`SECURITY.md`](../../SECURITY.md)._
 
 ## Assets
 - GIF message content, meaning which GIF was sent in which chat.
@@ -34,15 +34,15 @@ flowchart LR
   FAC -- "MLS ciphertext, KeyPackages, Welcomes, session token" --> CADDY
   CADDY -- "web bundle JS/wasm, Klipy API key (logged-in clients)" --> UI
   UI -- "search query + API key" --> API
-  UI -- "media fetch: no cookies, Referer or redirects" --> CDN
+  UI -- "media fetch (planned #24: no cookies, Referer or redirects)" --> CDN
   FAC -. "encrypted blobs, own uploads (M3)" .-> CADDY
   GHCR -. "deploy, owner-approved" .-> VM
   REL -. "install" .-> DEV
 ```
 
 What crosses each boundary:
-- **Device → VM:** only MLS ciphertext (application messages and handshakes as `PrivateMessage`), KeyPackages, Welcomes, the DS envelope (group ID, device list, epoch) and the session token. Never plaintext, GIF URLs, search terms or private keys. The metadata this reveals is listed below.
-- **VM → device:** relayed ciphertext, the web client code (see Accepted risks) and the Klipy API key. Each is untrusted: ciphertext is authenticated by MLS, and the key is checked for format and used only with the hard-coded provider host.
+- **Device → VM:** message content only as MLS ciphertext (application messages and handshakes as `PrivateMessage`). Never plaintext, GIF URLs, search terms or private keys. Alongside it, account and control data: credentials and session token, invite codes, username and device registration with public keys, KeyPackages and claims, Welcomes, the DS envelope (group ID, device list, epoch), inbox acks/read cursors, blob requests (M3) and push tokens (later). What this reveals is listed under *Known metadata visible to the server*.
+- **VM → device:** relayed ciphertext, the web client code (see Accepted risks) and the Klipy API key. Each is untrusted: ciphertext is authenticated by MLS. Planned in #23: the key is checked for format and used only with the hard-coded provider host.
 - **Device → GIF provider:** search terms and media fetches, directly from the client (ADR-0003). The provider sees the IP addresses.
 - **Build → device/VM:** see the supply-chain row.
 
@@ -56,9 +56,9 @@ What crosses each boundary:
 | **Stolen or unlocked device** | Full access to the app's local state | ⚠️ Partially: OS keystore protection; no defence against an unlocked device |
 | **Malicious group member** (active) | Sends envelope/Commit mismatches, spams commits | ⚠️ Can deny service to a group (stuck/forked). Recovery is a new group (ADR-0002). Cannot read groups it was never in. |
 | **Crafted MLS input** (from a member or replayed by the server) | Malformed KeyPackages, Welcomes or messages that make OpenMLS or our wrapper panic or misbehave | ⚠️ In place: `panic = "unwind"` on Android turns a panic into an exception. Planned in #11: catching wasm traps on the web (re-instantiate and restore), never persist state after a panic (reload the last snapshot), quarantine a message that keeps failing, per-group state, fuzzing of the parse paths, and errors mapped to closed codes so no key material reaches logs (spikes #3, #4). |
-| **Local state rollback** (backup restore, crash, copied profile) | Restores an older MLS snapshot | ✅ Planned in #11/#16: persist before send and before ack, atomic writes, no old snapshots, Android backup excluded, and freshness anchored at the Delivery Service, because an epoch check alone misses a rollback within an epoch (spikes #3, #4; ADR-0002). Without this, a restore can reuse ratchet keys and nonces. |
-| **Prompt injection against AI agents** | Anyone can write issues, PR comments, or content agents read (dependency docs, API responses) on this public repo | ✅ Only owner-authored text counts as instructions (CLAUDE.md rule 7). There is no separate bot identity (owner decision 2026-10-13), so the agent technically has the owner's merge and settings power; the guard is the hard rule in CLAUDE.md plus the deny list (see Accepted risks). |
-| **Supply chain / build pipeline** | Compromised dependency, GitHub Action, GHCR image, deploy SSH key, APK signing key, or web bundle | ✅ Pinned actions, committed lockfiles (Gradle, Cargo, Yarn), secret scanning with push protection, CodeQL (`security-extended`; Actions, Kotlin, Rust), a CI repo-hygiene check (`scripts/check-repo-hygiene.sh`), SHA-256 dependency verification for every Gradle artifact (trust-on-first-use, no PGP yet), repositories restricted per group, Dependabot alerts, least-privilege workflow tokens, deploy behind an environment that needs owner approval, signing key held by the owner only. ⚠️ Dependabot's *Gradle* security PRs don't pass CI on their own: someone has to regenerate locks and checksums (docs/dependencies.md), so a Gradle security fix lands only as fast as that happens. |
+| **Local state rollback** (backup restore, crash, copied profile) | Restores an older MLS snapshot | ⚠️ In place: Android backup excluded. Planned in #11/#16: persist before send and before ack, atomic writes, no old snapshots, and freshness anchored at the Delivery Service, because an epoch check alone misses a rollback within an epoch (spikes #3, #4; ADR-0002). Without this, a restore can reuse ratchet keys and nonces. |
+| **Prompt injection against AI agents** | Anyone can write issues, PR comments, or content agents read (dependency docs, API responses) on this public repo | ⚠️ Only owner-authored text counts as instructions (CLAUDE.md rule 7). There is no separate bot identity (owner decision 2026-10-13), so the agent technically has the owner's merge and settings power; the guard is the hard rule in CLAUDE.md plus the deny list (see Accepted risks). |
+| **Supply chain / build pipeline** | Compromised dependency, GitHub Action, GHCR image, deploy SSH key, APK signing key, or web bundle | ✅ Pinned actions, committed lockfiles (Gradle, Cargo, Yarn), secret scanning with push protection, CodeQL (`security-extended`; Actions, Kotlin, Rust; Rust dependencies fetched `--locked`, then extracted offline; `wasm_api.rs` gets syntax-only analysis because it compiles only for wasm32), a CI repo-hygiene check (`scripts/check-repo-hygiene.sh`), SHA-256 dependency verification for every Gradle artifact (trust-on-first-use, no PGP yet), repositories restricted per group, Dependabot alerts, least-privilege workflow tokens, deploy behind an environment that needs owner approval, signing key held by the owner only. ⚠️ Dependabot's *Gradle* security PRs don't pass CI on their own: someone has to regenerate locks and checksums (docs/dependencies.md), so a Gradle security fix lands only as fast as that happens. |
 | Global passive adversary / traffic analysis | | ❌ Out of scope for now |
 
 ## Security goals
@@ -113,4 +113,3 @@ Owner sign-off (shared GIF API key row): ☑ accepted by @paul-learning, 2026-10
 - Web key storage: partly answered by spike #4 (see Limitations). Open: whether to offer an optional passphrase (Argon2id, with a minimum strength) for real stolen-profile protection. That's a product decision for #16.
 - Push notifications: which provider, and what metadata does it reveal?
 - Where the MLS snapshot is encrypted (#11): inside Rust with a platform-supplied key (preferred, so the plaintext snapshot never enters the Kotlin/JS heap), or in Kotlin/JS. If not inside Rust, the plaintext-in-heap exposure becomes an accepted risk here (spikes #3, #4).
-- Reporting: vulnerabilities go through GitHub private vulnerability reporting (`SECURITY.md`).
