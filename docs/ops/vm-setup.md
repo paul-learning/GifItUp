@@ -16,8 +16,8 @@ Placeholders: `gifitup.<domain>` is the real hostname. It's kept out of the repo
 Change nothing yet; just look at the current state.
 ```bash
 lsb_release -ds                       # Ubuntu 24.04.x LTS
-sudo ss -tulpn                        # what listens where (SSH, WireGuard, published container ports)
-sudo ufw status verbose               # firewall state
+sudo ss -tulpn                        # what listens where: SSH, VPN (WireGuard/OpenVPN), published container ports
+command -v ufw >/dev/null && sudo ufw status verbose || echo "ufw is not installed"
 docker network inspect proxy >/dev/null && echo "proxy network exists"
 docker compose version
 ```
@@ -38,12 +38,13 @@ Apply what isn't already in place. Keep a second SSH session open while changing
   sudo sshd -t && sudo systemctl reload ssh
   ```
   Check with `sudo sshd -T | grep -E 'permitrootlogin|passwordauthentication'`.
-- [ ] **Firewall (ufw): deny incoming, allow 22/80/443**, plus anything the VM already needs, such as the WireGuard UDP port from the pre-flight check. Allow these *before* enabling:
+- [ ] **Firewall (ufw): deny incoming, allow 22/80/443**, plus every host service from the pre-flight `ss -tulpn` that must stay reachable, such as a VPN port. ufw isn't always installed (`sudo apt install ufw`). It may already have saved rules: check `sudo ufw show added`. Allow everything needed *before* enabling, or you cut off running services:
   ```bash
   sudo ufw default deny incoming && sudo ufw default allow outgoing
-  sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 443/udp
-  # sudo ufw allow <wireguard-port>/udp   # if WireGuard runs on this VM
-  sudo ufw enable
+  sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 443/udp
+  # sudo ufw allow <vpn-port>/udp          # e.g. WireGuard or OpenVPN on this host
+  sudo ufw show added                      # review before enabling
+  sudo ufw enable && sudo ufw status verbose
   ```
   **Docker caveat:** ports a container publishes (`ports: "X:X"`) bypass ufw. Docker writes its own iptables rules. Every published port is reachable from the internet whatever ufw says. GifItUp publishes none. For other services, publish only through Caddy or bind to `127.0.0.1:`.
 - [ ] **Automatic security updates:** `unattended-upgrades` is installed on Ubuntu 24.04 by default. Check that `/etc/apt/apt.conf.d/20auto-upgrades` has `APT::Periodic::Unattended-Upgrade "1";`, or run `sudo dpkg-reconfigure -plow unattended-upgrades`. Automatic reboots stay off because the VM is shared. When `/var/run/reboot-required` exists, reboot in a quiet moment.
@@ -102,12 +103,17 @@ docker compose up -d postgres && docker compose ps
 The server is started by the first deploy ([deploy.md](deploy.md)). Then check `docker compose ps`: postgres should be `healthy` and server `running`.
 
 ## 5. Caddy site block
-In the existing Caddy project (outside this repo), append the contents of `deploy/caddy/gifitup.caddy` to its Caddyfile and replace `gifitup.example.com` with `gifitup.<domain>`. Then:
-```bash
-docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-curl -sI https://gifitup.<domain>/health      # after the server runs: 200 plus the security headers
-```
+In the existing Caddy project (outside this repo), append the contents of `deploy/caddy/gifitup.caddy` to its Caddyfile and replace `gifitup.example.com` with `gifitup.<domain>`. If the Caddyfile is a single bind-mounted file, append to it or edit it in place: editors that replace the file (new inode) leave the container with the old version, and then only a container restart helps.
+
+Then, from the Caddy project's directory, do **all three steps**. Editing the file alone changes nothing:
+- [ ] **Validate:** `docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`
+- [ ] **Reload:** `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`. Caddy only gets a certificate for the new host after this.
+- [ ] **Check:** `curl -sI https://gifitup.<domain>/health`. Once the server runs, you get `200` plus the security headers.
+
+Reading the result of the check:
+- **TLS error** (e.g. `tlsv1 alert internal error`): Caddy doesn't know the host yet. The reload didn't happen or failed, or the container still sees the old file.
+- **`502`:** Caddy serves the host, but the server isn't reachable. It isn't running yet (before the first deploy) or isn't on the `proxy` network.
+- **`200`:** the server answers through Caddy.
 Caddy reaches the server as `gifitup-server:8080` on the shared `proxy` network. Postgres is not on that network. Every other container on `proxy` can reach the server too (accepted risk, see ADR-0005).
 
 Afterwards, make sure no access log is written for GifItUp. Check that the shared Caddyfile has no global or imported `log` block that covers this host, and that no new file shows up in Caddy's log directory after a request. The snippet's `log_skip` is a second line of defence.
