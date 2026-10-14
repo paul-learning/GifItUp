@@ -4,20 +4,27 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
     repositories {
-        google {
-            mavenContent {
+        // androidx and com.android come only from Google Maven, never from another repository (#38 SEC-5).
+        exclusiveContent {
+            forRepository { google() }
+            filter {
                 includeGroupAndSubgroups("androidx")
                 includeGroupAndSubgroups("com.android")
+            }
+        }
+        // com.google.* is split between Google Maven and Maven Central, so it can't be exclusive.
+        google {
+            mavenContent {
                 includeGroupAndSubgroups("com.google")
             }
         }
-        mavenCentral()
-        // Only for plugins that are not published to Maven Central (#33). Everything else is excluded.
-        gradlePluginPortal {
-            content {
-                includeGroupAndSubgroups("org.jlleitschuh.gradle")
-            }
+        // The Gradle Plugin Portal serves only the ktlint plugin, and the ktlint plugin only comes from there
+        // (#33). Every other plugin resolves from Google Maven or Maven Central.
+        exclusiveContent {
+            forRepository { gradlePluginPortal() }
+            filter { includeGroupAndSubgroups("org.jlleitschuh.gradle") }
         }
+        mavenCentral()
     }
 }
 
@@ -25,10 +32,17 @@ dependencyResolutionManagement {
     // All repositories are declared here; projects (and plugins) may not add their own (#33).
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google {
-            mavenContent {
+        // androidx and com.android come only from Google Maven, never from another repository (#38 SEC-5).
+        exclusiveContent {
+            forRepository { google() }
+            filter {
                 includeGroupAndSubgroups("androidx")
                 includeGroupAndSubgroups("com.android")
+            }
+        }
+        // com.google.* is split between Google Maven and Maven Central, so it can't be exclusive.
+        google {
+            mavenContent {
                 includeGroupAndSubgroups("com.google")
             }
         }
