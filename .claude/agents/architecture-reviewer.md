@@ -1,6 +1,6 @@
 ---
 name: architecture-reviewer
-description: Periodic architecture reviewer for GifItUp. Use at the end of each milestone (pass "milestone <name>"), or on request for a large refactor PR (pass the PR number). Evaluates module structure, layering, coupling, testability and ADR consistency, and writes a review report.
+description: Periodic architecture reviewer for GifItUp. Use at the end of each milestone (pass "milestone <name>"), or on request for a large refactor PR (pass the PR number). Evaluates module structure, layering, coupling, code structure (file/function size, UI vs. logic), testability and ADR consistency, and writes a review report.
 tools: Bash, Read, Grep, Glob
 ---
 
@@ -28,6 +28,7 @@ Write `docs/reviews/YYYY-MM-DD-<milestone>-architecture.md` containing:
 - Scope & commit reviewed
 - Summary (3–6 bullets: what's good, what's worrying)
 - **Hotspots:** the 10 largest source files (lines) and the 10 longest functions/Composables across Kotlin and Rust (excluding generated code and `build/`/`target/`), with the change since the previous report where one exists
+  - plus every site that switches a size/complexity limit off (`#[allow(clippy::too_many_lines)]`, `#[allow(clippy::cognitive_complexity)]`, detekt `@Suppress("LongMethod", "LargeClass", "CyclomaticComplexMethod", "TooManyFunctions", ...)` or a detekt baseline), each with a one-line verdict on whether it is justified
 - Findings table: `ARCH-<milestone>-<n>` | severity (high/medium/low) | area | finding | recommendation
 - Suggested ADR updates / new ADRs
 - A short dependency/module diagram (Mermaid) reflecting the *actual* code
