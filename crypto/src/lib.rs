@@ -5,10 +5,10 @@
 //! validation required by ADR-0002 and its state snapshot is unencrypted. Do not build on it
 //! without the follow-up in #11.
 //!
-//! Layout: [`core`] holds the platform-neutral logic; `uniffi_api` (all non-wasm targets) and
+//! Layout: [`client`] holds the platform-neutral logic; `uniffi_api` (all non-wasm targets) and
 //! `wasm_api` (wasm32) are thin binding layers.
 
-pub mod core;
+pub mod client;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod uniffi_api;

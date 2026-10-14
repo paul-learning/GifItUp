@@ -1,10 +1,10 @@
-//! wasm-bindgen bindings (browser). Thin wrapper around [`crate::core::Client`].
+//! wasm-bindgen bindings (browser). Thin wrapper around [`crate::client::Client`].
 //!
 //! Byte arrays cross the boundary as `Uint8Array` (copied). Errors become JS `Error`s.
 
 use wasm_bindgen::prelude::*;
 
-use crate::core::{Client, CryptoError};
+use crate::client::{Client, CryptoError};
 
 fn js_err(e: CryptoError) -> JsError {
     JsError::new(&e.to_string())

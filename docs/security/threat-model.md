@@ -32,10 +32,11 @@ _This is a living document. Update it whenever a PR changes security assumptions
 ## Limitations (not prevented)
 - The server can **drop, delay, withhold or reorder** messages. It can also show different members different views of a group (**forking**, e.g. by delivering conflicting commits to different members). MLS makes forged messages impossible, but it does not guarantee delivery or consistency. A later partial mitigation: clients compare the epoch authenticator or transcript hash, out of band or in-band.
 
-- **Web client at rest (spike #4):** the planned protection for MLS state in the browser is a snapshot in IndexedDB, encrypted with a non-extractable WebCrypto key.
-  - **Protects against:** offline access to the browser profile on disk.
-  - **Doesn't protect against:** script running in our origin (XSS, a compromised or maliciously served bundle). That script can't export the key, but it can use it, and it can read secrets from wasm/JS memory.
-  - **Mitigations:** strict CSP, SRI, and the phone app as the stronger client.
+- **Web client at rest (spike #4, corrected by SEC-1 on #37):** MLS state in the browser (identity key, all group secrets) is a snapshot in IndexedDB.
+  - **A non-extractable WebCrypto key does *not* protect it against offline access to the profile:** Chromium and Firefox store the key's raw bytes on disk next to the ciphertext. Non-extractability is only enforced through the JS API; Safari/WebKit is the exception and wraps stored keys with the Keychain.
+  - **Without a user passphrase**, anyone with a copy of the browser profile (backup, stolen laptop, malware) can decrypt all of it.
+  - **Script running in our origin** (XSS, a compromised or maliciously served bundle) can use any key and read wasm/JS memory, passphrase or not.
+  - **Mitigations:** optional passphrase-derived key (Argon2/PBKDF2) for real at-rest protection, strict CSP and SRI, and the phone app (Keystore) as the stronger client.
   - **Not yet signed off as an accepted risk:** this goes to the owner with #16.
 
 ## Accepted risks (owner sign-off required)

@@ -4,7 +4,7 @@
 - **Date:** 2026-10-14
 - **Status:** done. The answer is **yes**, with one important constraint on how bytes cross the boundary.
 - **Code:**
-  - `crypto/` (same crate as #3, now split into `core` + `uniffi_api` + `wasm_api`)
+  - `crypto/` (same crate as #3, now split into `client` + `uniffi_api` + `wasm_api`)
   - `spikes/mls-web/` (throwaway Gradle module, opt-in via `-Pgifitup.rust=true`)
 - **Companion:** [openmls-android.md](openmls-android.md). The two spikes share the crate and the follow-up requirements.
 
@@ -12,7 +12,7 @@
 Can the same Rust crate compile to `wasm32-unknown-unknown`, be called from the Kotlin/Wasm (`wasmJs`) Compose app, and persist MLS state in the browser?
 
 ## Result
-**Yes.** The crate now has a platform-neutral `core::Client` with two thin binding layers:
+**Yes.** The crate now has a platform-neutral `client::Client` with two thin binding layers:
 - **Android:** uniffi.
 - **Browser:** wasm-bindgen with `--target web`, which produces an ES module with an async `init()`.
 
@@ -26,7 +26,7 @@ Can the same Rust crate compile to `wasm32-unknown-unknown`, be called from the 
 The same scenarios run as host `cargo test`s (5 tests) and through uniffi on Android (instrumented test). So one crate serves both platforms.
 
 ## Measurements
-Measured on the Windows 11 dev machine, Chrome headless 154, release profile (`opt-level = "z"`, LTO, `panic = "unwind"`).
+Measured on the Windows 11 dev machine, Chrome headless 154, release profile (`opt-level = "z"`, LTO; the profile's `panic` setting has no effect on wasm32, see Panics below).
 
 | What | Value |
 |---|---|
@@ -44,7 +44,8 @@ For comparison, the Compose app's own wasm bundle (`skiko.wasm` + `composeApp.wa
 - **Declarations:** hand-written `external` declarations in a `@file:JsModule("gifitup-crypto")` file (`GifitupCrypto.kt`, ~50 lines), mirroring `gifitup_crypto.d.ts`. That's easy for this small API. Dukat (the .d.ts generator) is gone, so #11 keeps them hand-written and reviewed alongside the Rust API.
 - **Packaging:** the wasm-bindgen output becomes a local npm package (a `package.json` written by the Gradle task), consumed with `implementation(npm("gifitup-crypto", dir))`. Webpack resolves `new URL("gifitup_crypto_bg.wasm", import.meta.url)` as an asset, in both the app bundle and the Karma test bundle, with no custom webpack config.
 - **Init:** `initCrypto(): Promise<JsAny?>` (the wasm-bindgen default export) is awaited once with `kotlinx.coroutines.await()`. After that every call is synchronous.
-- **Errors:** `Result<_, JsError>` in Rust becomes a thrown JS `Error`, which arrives in Kotlin as `kotlin.js.JsException` with the message.
+- **Errors:** `Result<_, JsError>` in Rust becomes a thrown JS `Error`, which arrives in Kotlin as `kotlin.js.JsException` with the message (asserted in the test).
+- **Panics are different from errors.** On wasm32 a Rust panic becomes a wasm **trap** (`RuntimeError: unreachable`). It also arrives as an exception in Kotlin, but the module's state is then undefined and the instance can't be used again. Rule for #11: after a trap, drop the module instance, re-instantiate it (or reload the page), restore from the last persisted snapshot, never persist after a trap, and quarantine the triggering message. Unlike Android, `panic = "unwind"` doesn't help here.
 - **Memory:** Rust objects (`MlsClient`, `AddMemberResult`) live in wasm linear memory and must be `free()`d explicitly. wasm-bindgen also registers a `FinalizationRegistry`, but that's best-effort. The facade in #11 should own the client for the app's lifetime and free short-lived results right away.
 - **Bytes: the important constraint.** A Kotlin/Wasm `ByteArray` lives in the Wasm GC heap, which JS can't see. Every crossing copies element by element, at about **75–95 ms per MiB per direction**. kotlinx-browser's helpers aren't faster. That's fine for MLS messages (a few hundred bytes) and snapshots (KB), but **not for GIF blobs (1–3 MB, ADR-0003)**.
   - **Recommendation for #11/#24 (web):** keep blob bytes on the JS side end to end. `fetch()` gives an `ArrayBuffer`, it goes straight into Rust as a `Uint8Array` (wasm-bindgen copies with `memcpy`, which is fast), the decrypted bytes come back as a `Uint8Array`, and from there go to a `Blob` and an object URL. A Kotlin `ByteArray` should never hold a blob on the web.
@@ -57,7 +58,7 @@ For comparison, the Compose app's own wasm bundle (`skiko.wasm` + `composeApp.wa
 - **Rust target:** `wasm32-unknown-unknown` is already in `crypto/rust-toolchain.toml`.
 - **Randomness:** OpenMLS's `js` feature (getrandom 0.4 `wasm_js` + `web-time`), plus **getrandom 0.2 with the `js` feature** as a target-specific dependency. The RustCrypto curves (`rand_core 0.6`) still use getrandom 0.2, and without that feature the wasm build fails to compile. Randomness comes from `crypto.getRandomValues`.
 - **uniffi** is only a dependency for non-wasm targets, and **wasm-bindgen** only for wasm32 (`[target.'cfg(...)'.dependencies]`).
-- **`wasm-bindgen-cli` must match the `wasm-bindgen` crate version exactly** (0.2.129).
+- **`wasm-bindgen-cli` must match the `wasm-bindgen` crate version exactly** (0.2.129). The crate is therefore pinned with `=0.2.129` in `Cargo.toml`, so a lockfile-only update can't drift.
   - **Locally:** `cargo install wasm-bindgen-cli --version 0.2.129 --locked` (about 10 min).
   - **CI:** the prebuilt release tarball, checked against a SHA-256 pinned in the workflow.
   - A Dependabot bump of the crate needs a manual bump of the CLI version and checksum.
@@ -67,7 +68,7 @@ For comparison, the Compose app's own wasm bundle (`skiko.wasm` + `composeApp.wa
   - **#11:** once the crypto module is part of the normal web build, a single lockfile contains it again.
 
 ## Persistence in the browser
-The persistence building block from the Android spike's option A is now implemented in `core` and tested on all three runtimes: `Client::export_state()` / `Client::restore()`, one versioned binary snapshot covering identity, signature key, group IDs and the OpenMLS key-value store.
+The persistence building block from the Android spike's option A is now implemented in `client` and tested on all three runtimes: `Client::export_state()` / `Client::restore()`, one versioned binary snapshot covering identity, signature key, group IDs and the OpenMLS key-value store.
 
 | Option | Verdict for the web |
 |---|---|
@@ -77,26 +78,36 @@ The persistence building block from the Android spike's option A is now implemen
 
 **At-rest encryption options for the snapshot:**
 1. **WebCrypto, non-extractable AES-GCM key** (`extractable: false`), stored as a `CryptoKey` in IndexedDB (structured-clonable). The snapshot is encrypted with it in JS before it's stored.
-   - **Protects against:** reading the profile's files from disk, and extensions or other origins.
+   - **Protects against:** other origins and extensions without profile access, and casual inspection of IndexedDB in devtools.
+   - **Does *not* protect against offline access to the profile** (corrected after SEC-1 on #37). Chromium and Firefox store the raw key bytes in the profile next to the ciphertext, and non-extractability is enforced only at the JS API. The WebCrypto spec allows this. Safari/WebKit wraps stored keys with a Keychain key. Sources: [Ryan Sleevi on public-webcrypto-comments (2015)](https://lists.w3.org/Archives/Public/public-webcrypto-comments/2015Feb/0037.html), [WebKit bug 164868](https://bugs.webkit.org/show_bug.cgi?id=164868). Not verified by inspecting a current profile.
    - **Doesn't protect against:** script running in our origin (XSS, a compromised bundle). That script can't export the key, but it can use it to decrypt.
 2. **Encrypt inside Rust** with a key derived from (1) or from a user passphrase. Matches SEC-5 on #36 (secrets never sit in the JS/Kotlin heap as plaintext). But wasm memory is equally visible to same-origin script, so the gain on the web is small.
-3. **Passphrase-derived key** (Argon2/PBKDF2): real protection against a stolen device or profile, at a UX cost (unlock on start). This is a product decision.
+3. **Passphrase-derived key** (Argon2/PBKDF2): the **only** real protection against a stolen device or copied profile on the web, at a UX cost (unlock on start). This is a product decision.
 
-**Recommendation for #16 (web part):** option A, the snapshot in IndexedDB encrypted with a non-extractable WebCrypto key, written in one transaction together with the rollback counter. The same persistence rules as on Android apply: persist before send, persist before ack, and no old snapshots.
+**Recommendation for #16 (web part):**
+- Store the snapshot in IndexedDB in one transaction.
+- Encrypt it with a non-extractable WebCrypto key as a baseline (devtools/other-origin hygiene, and real protection on Safari).
+- Offer an **optional passphrase** as the only real at-rest protection on Chromium/Firefox. The owner decides on this.
+- **Where to encrypt (SEC-5 on #37):** decide this once for both platforms. The spike's code comment says "encrypt inside Rust", while this doc encrypts in JS. Recommendation: encrypt inside Rust with a key the platform supplies (Keystore-unwrapped on Android, WebCrypto- or passphrase-derived on the web), so the plaintext snapshot never enters the Kotlin/JS heap. The browser test currently copies it into a `ByteArray` for convenience; that's spike-only.
+- Apply the same persistence rules as on Android: persist before send, persist before ack, no old snapshots.
+- **Rollback (SEC-2 on #37):** a counter in the same store and transaction gets rolled back together with the snapshot. It gives crash consistency, not rollback detection. Freshness must come from outside the local store, e.g. the client compares its epoch per group with the Delivery Service before it encrypts, and refuses to send from an older epoch.
 
-The **threat model must say clearly** that the web client protects state only against offline disk access, not against script in our origin. Script in our origin is the realistic web threat, so the web client needs a strict CSP (SEC-4 on #32) and subresource integrity. Phones (Android Keystore) are the stronger client.
+The threat model now spells out what the web client can't protect (offline profile copies without a passphrase, script in our origin). Script in our origin is the realistic web threat, so the web client needs a strict CSP (SEC-4 on #32) and subresource integrity. Phones (Android Keystore) are the stronger client.
 
 ## Proposed updates to ADR-0002
 These are now applied together with the Android results; see the ADR's "Spike results (2026-10-14)" section.
 
 ## Findings for follow-up issues
 - **#11:**
-  - move `core` + both binding layers out of spike status
+  - move `client` + both binding layers out of spike status
+  - trap recovery on the web (see Panics above), plus a browser test that triggers a panic on purpose and checks recovery (SEC-3 on #37)
+  - snapshot hygiene (SEC-4 on #37): verify the stored username against the stored credential on restore, call `MlsGroup::delete` when leaving or being removed, and test that a removed group's secrets aren't in the next snapshot
+  - make sure a rebuilt wasm package always reaches the npm install. Kotlin copies `file:` npm dependencies, so in incremental local builds a stale copy is possible. Not observed, but not tested either
   - add the requirements from both spike docs
   - `expect/actual` facade in `:shared`: `androidMain` via the uniffi bindings, `wasmJsMain` via the externals
   - blob encryption API that takes and returns platform buffers (see Bytes)
   - run `wasm-opt`
-- **#16:** the IndexedDB + WebCrypto persistence above, plus an atomic counter.
+- **#16:** the IndexedDB persistence above, the passphrase decision, and freshness anchored at the Delivery Service (not a local counter).
 - **#23/#25:** GIF rendering on the web without copying the bytes into Kotlin.
 - **Threat model (#8):** web-client limits (same-origin script, wasm memory), and CSP + SRI as mitigations.
 - **CI:** the `MLS web spike` job pins the `wasm-bindgen-cli` binary by checksum. Dependabot bumps of `wasm-bindgen` will break it until the version and checksum are updated; that's intended.

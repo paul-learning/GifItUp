@@ -33,7 +33,8 @@ uniffi = "0.32.2"
 # Browser: wasm-bindgen bindings; OpenMLS "js" feature = getrandom via crypto.getRandomValues + web-time.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 openmls = { version = "0.9.1", features = ["js"] }
-wasm-bindgen = "0.2.129"
+# Exact pin: must match the wasm-bindgen-cli binary pinned (version + SHA-256) in .github/workflows/ci.yml.
+wasm-bindgen = "=0.2.129"
 # rand_core 0.6 (via openmls_rust_crypto's RustCrypto RNG and RustCrypto curves) uses getrandom 0.2,
 # which needs its "js" feature (crypto.getRandomValues) on wasm32-unknown-unknown. Not used directly.
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }

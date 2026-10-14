@@ -13,6 +13,7 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_memory_storage::MemoryStorage;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
+use openmls_traits::storage::CURRENT_VERSION as STORAGE_VERSION;
 
 /// Ciphersuite fixed by ADR-0002 (mandatory-to-implement).
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
@@ -260,8 +261,8 @@ impl Client {
     /// and apply the persistence rules from the spike docs (persist before send/ack, rollback
     /// protection).
     ///
-    /// Format: magic, version, username, signature public key, group IDs, storage entries; every
-    /// variable-length field is u32-BE length-prefixed.
+    /// Format: magic, snapshot version, OpenMLS storage version (u16-BE), username, signature public
+    /// key, group IDs, storage entries; every variable-length field is u32-BE length-prefixed.
     pub fn export_state(&self) -> Result<Vec<u8>, CryptoError> {
         let groups = self.lock_groups()?;
         let values = self
@@ -273,6 +274,7 @@ impl Client {
         let mut out = Vec::new();
         out.extend_from_slice(SNAPSHOT_MAGIC);
         out.push(SNAPSHOT_VERSION);
+        out.extend_from_slice(&STORAGE_VERSION.to_be_bytes());
         put(&mut out, self.username.as_bytes())?;
         put(&mut out, &self.signer.to_public_vec())?;
         put_len(&mut out, groups.len())?;
@@ -295,15 +297,28 @@ impl Client {
                 "not a GifItUp state snapshot (or unsupported version)",
             ));
         }
+        // An OpenMLS storage format change must be migrated explicitly, never read as-is.
+        if r.take(2)? != STORAGE_VERSION.to_be_bytes() {
+            return Err(invalid(
+                "snapshot was written by a different OpenMLS storage version",
+            ));
+        }
         let username = String::from_utf8(r.field()?.to_vec()).map_err(input_err)?;
         let public_key = r.field()?.to_vec();
-        let group_ids: Vec<Vec<u8>> = (0..r.len()?)
-            .map(|_| r.field().map(<[u8]>::to_vec))
-            .collect::<Result<_, _>>()?;
+        let mut group_ids = Vec::new();
+        for _ in 0..r.len()? {
+            let id = r.field()?.to_vec();
+            if group_ids.contains(&id) {
+                return Err(invalid("duplicate group ID in state snapshot"));
+            }
+            group_ids.push(id);
+        }
         let mut values = HashMap::new();
         for _ in 0..r.len()? {
             let k = r.field()?.to_vec();
-            values.insert(k, r.field()?.to_vec());
+            if values.insert(k, r.field()?.to_vec()).is_some() {
+                return Err(invalid("duplicate storage key in state snapshot"));
+            }
         }
         if !r.0.is_empty() {
             return Err(invalid("trailing bytes in state snapshot"));
@@ -497,5 +512,13 @@ mod tests {
         let mut snapshot = alice.export_state().unwrap();
         snapshot.truncate(snapshot.len() - 1);
         assert!(Client::restore(&snapshot).is_err());
+
+        // A different OpenMLS storage version (bytes 5..7 of the header) is rejected.
+        let mut other_storage = alice.export_state().unwrap();
+        other_storage[6] ^= 0xff;
+        assert!(matches!(
+            Client::restore(&other_storage),
+            Err(CryptoError::InvalidInput { .. })
+        ));
     }
 }

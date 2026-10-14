@@ -1,8 +1,8 @@
-//! uniffi bindings (Android / JVM). Thin wrapper around [`crate::core::Client`].
+//! uniffi bindings (Android / JVM). Thin wrapper around [`crate::client::Client`].
 
 use std::sync::Arc;
 
-use crate::core::{AddMemberResult, Client, CryptoError};
+use crate::client::{AddMemberResult, Client, CryptoError};
 
 /// One MLS client (one device). See [`Client`].
 #[derive(uniffi::Object)]

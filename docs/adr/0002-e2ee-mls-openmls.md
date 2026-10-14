@@ -37,7 +37,7 @@ Use **MLS via OpenMLS**.
 
 ## Spike results (2026-10-14)
 Details: [docs/spikes/openmls-android.md](../spikes/openmls-android.md), [docs/spikes/openmls-web.md](../spikes/openmls-web.md).
-- **One crate, two binding layers.** `crypto/` has a platform-neutral core (`core::Client`), a uniffi layer (non-wasm targets) and a wasm-bindgen layer (wasm32). The same round trips (two parties, a third member via Commit, snapshot restore) pass on the host, on an Android emulator (uniffi + JNA) and in Chrome (Kotlin/Wasm).
+- **One crate, two binding layers.** `crypto/` has a platform-neutral core (`client::Client`), a uniffi layer (non-wasm targets) and a wasm-bindgen layer (wasm32). The same round trips (two parties, a third member via Commit, snapshot restore) pass on the host, on an Android emulator (uniffi + JNA) and in Chrome (Kotlin/Wasm).
 - **Android:**
   - uniffi proc-macros (no UDL); bindings generated in library mode from the unstripped host build; JNA at runtime
   - `cargo-ndk` via Gradle tasks registered as AGP generated sources
@@ -48,8 +48,14 @@ Details: [docs/spikes/openmls-android.md](../spikes/openmls-android.md), [docs/s
   - 452 KiB gzipped `.wasm`
   - Kotlin/JS fallback not needed
 - **Bytes on the web:** a Kotlin/Wasm `ByteArray` can't be shared with JS, and copying costs about 75–95 ms per MiB per direction. Blob (GIF) bytes therefore stay in JS typed arrays end to end on the web, and the facade's blob API uses platform buffers, not `ByteArray`.
-- **Persistence:** one versioned state snapshot (`export_state`/`restore`) over OpenMLS's in-memory store. It's encrypted at rest with a platform key (Android Keystore; on the web a non-extractable WebCrypto key in IndexedDB) and written atomically with a rollback counter. The rules are persist before send, persist before ack, and no old snapshots. Details and remaining requirements are tracked in #11/#16.
-- **Panics:** release builds use `panic = "unwind"`, so a panic becomes a Kotlin exception instead of killing the app. After a caught panic the client is discarded and reloaded from the last snapshot (#11).
+- **Persistence:** one versioned state snapshot (`export_state`/`restore`) over OpenMLS's in-memory store. The rules are persist before send, persist before ack, and no old snapshots. Details and remaining requirements are tracked in #11/#16.
+  - **Android:** encrypted with a key held by the Android Keystore.
+  - **Web:** there is **no** real at-rest protection without a user secret. A non-extractable WebCrypto key in IndexedDB is only enforced at the JS API: Chromium and Firefox store its raw bytes in the profile next to the ciphertext (Safari wraps them with the Keychain). Real protection on the web needs a passphrase-derived key, which is a product decision for #16. Otherwise the web client's state is only as safe as the browser profile.
+  - **Write atomically.** That gives crash consistency, not rollback detection: a counter stored with the snapshot gets rolled back with it. Freshness has to be anchored outside the local store, e.g. clients check their epoch against the Delivery Service before encrypting (#11).
+- **Panics:**
+  - **Android:** release builds use `panic = "unwind"`, so a panic becomes a Kotlin exception instead of killing the app. After a caught panic the client is discarded and reloaded from the last snapshot.
+  - **Web:** a panic is a wasm trap that leaves the whole module unusable (`panic = "unwind"` has no effect there). The facade must re-instantiate the module (or reload the page) and restore from the last snapshot.
+  - **Both:** never persist state after a panic or trap, and quarantine the triggering message (#11).
 - **Toolchain pins:**
   - `crypto/rust-toolchain.toml` is the single source of the Rust version
   - the Android NDK version lives in the version catalog

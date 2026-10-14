@@ -9,6 +9,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.TimeSource
 
 /** SPIKE (#4): the Android round trip, in a real browser (Karma + Chrome headless). */
@@ -88,7 +89,8 @@ class MlsWebRoundTripTest {
             ready()
             val alice = MlsClient("alice")
             val groupId = alice.createGroup()
-            val e = assertFailsWith<Throwable> { alice.addMember(groupId, GARBAGE.toUint8Array()) }
+            val e = assertFailsWith<JsException> { alice.addMember(groupId, GARBAGE.toUint8Array()) }
+            assertTrue(e.message.orEmpty().contains("invalid input"), "unexpected message: ${e.message}")
             println("MlsSpike: error surfaced as ${e::class.simpleName}: ${e.message}")
         }
 
