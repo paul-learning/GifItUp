@@ -1,0 +1,9 @@
+# Overrides on top of detekt's default config (buildUponDefaultConfig = true).
+naming:
+  FunctionNaming:
+    # Composable functions are PascalCase by convention.
+    ignoreAnnotated: ['Composable']
+style:
+  MaxLineLength:
+    # Keep in sync with max_line_length in .editorconfig (ktlint).
+    maxLineLength: 140

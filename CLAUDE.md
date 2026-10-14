@@ -9,7 +9,8 @@ Read this file fully at the start of every session. Read `docs/ROADMAP.md` and t
 
 | Part | Tech | Path |
 |---|---|---|
-| UI (Android + Web) | Compose Multiplatform, targets `androidTarget` + `wasmJs` | `composeApp/` |
+| UI (Android + Web) | Compose Multiplatform shared UI, targets Android (KMP library) + `wasmJs` (browser app) | `composeApp/` |
+| Android app shell | Thin `com.android.application` module (Activity, manifest); AGP 9 keeps the APK out of KMP modules | `androidApp/` |
 | Wire protocol | KMP module with `@Serializable` wire models only (no client logic); used by clients **and** server | `protocol/` |
 | Shared client logic | Kotlin Multiplatform (domain, data, Ktor client, crypto facade) | `shared/` |
 | E2EE core | Rust crate wrapping OpenMLS; uniffi → Android, wasm-bindgen → Web | `crypto/` |
@@ -90,4 +91,16 @@ After opening (or substantially updating) a PR:
 
 ## Commands
 
-_Fill in once the project is scaffolded (issue: scaffold KMP project)._
+Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android builds need the SDK via `ANDROID_HOME` or `sdk.dir` in `local.properties`.
+
+| Task | Command |
+|---|---|
+| Full check (build, all tests, ktlint, detekt) | `./gradlew check` |
+| Tests only | `./gradlew allTests :server:test` |
+| Lint only | `./gradlew ktlintCheck detekt` |
+| Auto-format Kotlin | `./gradlew ktlintFormat` |
+| Android debug APK | `./gradlew :androidApp:assembleDebug` (APK in `androidApp/build/outputs/apk/debug/`) |
+| Install on device/emulator | `./gradlew :androidApp:installDebug` |
+| Web dev server | `./gradlew :composeApp:wasmJsBrowserDevelopmentRun` (opens http://localhost:8080) |
+| Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
+| Run server locally | `./gradlew :server:run` (port from `PORT`, default 8080; `GET /health`) |
