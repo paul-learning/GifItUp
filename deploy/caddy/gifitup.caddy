@@ -1,0 +1,23 @@
+# GifItUp site block for the VM's existing Caddyfile (docs/ops/vm-setup.md, ADR-0005).
+# Replace gifitup.example.com with the real hostname on the VM only: the domain is not committed (public repo).
+gifitup.example.com {
+	# No access log on purpose: logs must not map users to IPs (CLAUDE.md, security rule 4).
+	log_skip
+	# Coarse cap for now. Encrypted blob uploads (M3, ADR-0003) need a per-route limit; the server's limit is authoritative.
+	request_body {
+		max_size 1MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		# API only for now; the web app (#27) needs its own CSP.
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+		Cross-Origin-Resource-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+		-Via
+	}
+	reverse_proxy gifitup-server:8080
+}

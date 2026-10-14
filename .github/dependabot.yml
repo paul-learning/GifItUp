@@ -27,6 +27,18 @@ updates:
       default-days: 7
     open-pull-requests-limit: 5
 
+  # deploy/docker-compose.yml: digest-pinned Postgres image (ADR-0005).
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    # A Postgres major upgrade needs dump + restore (the data path is per major version); never auto-propose it.
+    ignore:
+      - dependency-name: postgres
+        update-types: ['version-update:semver-major']
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

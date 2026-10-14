@@ -1,0 +1,75 @@
+# GifItUp on the owner's shared VM (ADR-0005, docs/ops/vm-setup.md). On the VM this is /opt/gifitup/deploy.
+# TLS and the public hostname come from the VM's existing Caddy, which reaches the server over the external
+# `proxy` network. No host ports are published. Postgres is only on the internal `backend` network.
+name: gifitup
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  server:
+    <<: *hardening
+    # Built and pushed by the deploy workflow (#7); pinned to a commit SHA tag in .env.
+    image: ${GIFITUP_SERVER_IMAGE:?set GIFITUP_SERVER_IMAGE in .env}
+    # Non-root regardless of the image's USER (#46 SEC-3); the image from #7 must work as this UID.
+    user: "10001:10001"
+    environment:
+      PORT: "8080"
+    tmpfs: [/tmp]
+    mem_limit: 512m
+    pids_limit: 256
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Every container on the shared `proxy` network can reach this server directly and could claim the same alias.
+    # Accepted by the owner (ADR-0005, threat model "Shared VM"); the server must not rely on Caddy for limits.
+    networks:
+      proxy:
+        aliases: [gifitup-server]
+      backend: {}
+
+  postgres:
+    <<: *hardening
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    # The entrypoint starts as root to fix volume ownership, then drops to the postgres user.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    environment:
+      POSTGRES_USER: gifitup
+      POSTGRES_DB: gifitup
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    # Postgres 18 images keep the data under /var/lib/postgresql/<major>/docker.
+    volumes:
+      - pgdata:/var/lib/postgresql
+    tmpfs: [/tmp, /var/run/postgresql]
+    shm_size: 128m
+    mem_limit: 512m
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "gifitup", "-d", "gifitup"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [backend]
+
+networks:
+  # Shared with the VM's existing Caddy; created outside this project.
+  proxy:
+    external: true
+  backend:
+    internal: true
+
+volumes:
+  pgdata: {}
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password

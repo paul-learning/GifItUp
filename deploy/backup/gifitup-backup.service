@@ -1,0 +1,14 @@
+# Install: see docs/ops/vm-setup.md ("Backups").
+[Unit]
+Description=GifItUp nightly Postgres dump
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+ExecStart=/opt/gifitup/deploy/backup/gifitup-backup.sh
+# No filesystem sandboxing: the deploy user can use Docker, which is root-equivalent anyway (ADR-0005).
+NoNewPrivileges=true
+PrivateTmp=true
