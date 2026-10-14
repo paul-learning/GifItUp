@@ -1,0 +1,3 @@
+# Docker build context = repo root, but the server image only needs the Gradle install output (server/Dockerfile).
+*
+!server/build/install/

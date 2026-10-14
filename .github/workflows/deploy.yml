@@ -1,0 +1,191 @@
+name: Deploy
+
+# Builds the server image from main, pushes it to GHCR with build provenance, and deploys it to the VM once the
+# owner approves the `production` environment. Design and threat analysis: docs/ops/deploy.md, round-0 security
+# review on #7. Rollback/redeploy: run this workflow on main with `commit` set to an earlier deployed commit.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Rollback/redeploy: full 40-character commit SHA on main whose image to deploy (empty = build HEAD)'
+        required: false
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/paul-learning/gifitup-server
+
+jobs:
+  # Runs Gradle (third-party build code) with a read-only token only; no registry credentials in this job.
+  build:
+    name: Build server distribution
+    if: github.ref == 'refs/heads/main' && inputs.commit == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # No Actions cache: cached task outputs aren't covered by dependency verification, and other main-branch
+      # jobs could write poisoned entries. The release build starts clean (#7 round-0 SEC-4).
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-disabled: true
+
+      - name: Build server distribution
+        run: ./gradlew --no-build-cache --no-configuration-cache :server:installDist
+
+      - name: Upload server distribution
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-dist
+          path: server/build/install/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Only docker build/push and the first-party attestation action run next to the package token.
+  push:
+    name: Push image
+    needs: build
+    if: github.ref == 'refs/heads/main' && inputs.commit == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download server distribution
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-dist
+          path: server/build/install/
+
+      - name: Log in to GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+
+      # One plain manifest (no provenance/SBOM index from buildx), so the pushed digest is the one we attest and deploy.
+      - name: Build and push image
+        id: push
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          docker build --provenance=false --sbom=false --build-arg "REVISION=$SHA" \
+            --file server/Dockerfile --tag "$IMAGE:$SHA" .
+          digest=$(docker push "$IMAGE:$SHA" | sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' | tail -n 1)
+          registry=$(docker buildx imagetools inspect "$IMAGE:$SHA" --format '{{json .Manifest}}' | jq -r .digest)
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || [ "$digest" != "$registry" ]; then
+            echo "::error::pushed digest '$digest' does not match the registry's '$registry'"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io
+
+  deploy:
+    name: Deploy to VM
+    needs: push
+    if: >-
+      github.ref == 'refs/heads/main' && !cancelled() &&
+      (needs.push.result == 'success' || (needs.push.result == 'skipped' && inputs.commit != ''))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Required reviewer = owner, admin bypass off, deployment branches = main (docs/ops/deploy.md).
+    environment: production
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Resolve commit and digest
+        id: target
+        env:
+          INPUT_COMMIT: ${{ inputs.commit }}
+          PUSHED_DIGEST: ${{ needs.push.outputs.digest }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -n "$INPUT_COMMIT" ]; then
+            commit=$INPUT_COMMIT
+            [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-character SHA"; exit 1; }
+            digest=$(docker buildx imagetools inspect "$IMAGE:$commit" --format '{{json .Manifest}}' | jq -r .digest)
+          else
+            commit=$SHA
+            digest=$PUSHED_DIGEST
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no valid image digest for $commit"; exit 1; }
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          printf '| commit | image digest |\n|---|---|\n| %s | %s |\n' "$commit" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+      # Only images built by this workflow from main at exactly this commit can be deployed (#7 round-0 SEC-2).
+      - name: Verify build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ steps.target.outputs.commit }}
+          DIGEST: ${{ steps.target.outputs.digest }}
+        run: >-
+          gh attestation verify "oci://$IMAGE@$DIGEST"
+          --repo paul-learning/GifItUp
+          --signer-workflow paul-learning/GifItUp/.github/workflows/deploy.yml
+          --source-ref refs/heads/main
+          --source-digest "$COMMIT"
+          --deny-self-hosted-runners
+
+      # deploy.sh is the key's forced command on the VM: it only accepts "<commit> <digest>" (docs/ops/deploy.md).
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          COMMIT: ${{ steps.target.outputs.commit }}
+          DIGEST: ${{ steps.target.outputs.digest }}
+        run: |
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          ssh -i "$RUNNER_TEMP/deploy_key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+            -o ConnectTimeout=15 -o ServerAliveInterval=15 \
+            "deploy@$DEPLOY_HOST" "$COMMIT $DIGEST"
+
+      - name: Remove SSH key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/deploy_key" "$RUNNER_TEMP/known_hosts"

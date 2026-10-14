@@ -79,7 +79,7 @@ sudo install -d -o deploy -g deploy -m 0700 /var/backups/gifitup
 ```
 **Membership in `docker` is root-equivalent.** Anyone who can run `docker` can mount the host filesystem. This is the accepted cost of "deploy = `docker compose pull && up`" (see the threat model). So keep the `deploy` user narrow:
 - no password and no sudo
-- CI's SSH key is restricted with `restrict,command="…"` to the single deploy script (set up in #7)
+- CI's SSH key is restricted with `restrict,command="…"` to the single deploy script (see [deploy.md](deploy.md))
 
 ## 4. GifItUp Compose project
 As `deploy` (`sudo -iu deploy`):
@@ -88,7 +88,7 @@ git clone --filter=blob:none --sparse https://github.com/paul-learning/GifItUp.g
 cd /opt/gifitup/repo && git sparse-checkout set deploy
 ln -sfn /opt/gifitup/repo/deploy /opt/gifitup/deploy
 cd /opt/gifitup/deploy
-cp .env.example .env                                       # then set GIFITUP_SERVER_IMAGE (from #7)
+cp .env.example .env                                       # then set GIFITUP_PUBLIC_URL (see deploy.md)
 install -d -m 0700 secrets
 (umask 022; openssl rand -base64 32 | tr -d '\n' > secrets/postgres_password)
 chmod 0444 secrets/postgres_password
@@ -99,7 +99,7 @@ Start Postgres only, until the server image exists (#7):
 ```bash
 docker compose up -d postgres && docker compose ps
 ```
-After #7: `docker compose up -d`. Then check `docker compose ps`: postgres should be `healthy` and server `running`.
+The server is started by the first deploy ([deploy.md](deploy.md)). Then check `docker compose ps`: postgres should be `healthy` and server `running`.
 
 ## 5. Caddy site block
 In the existing Caddy project (outside this repo), append the contents of `deploy/caddy/gifitup.caddy` to its Caddyfile and replace `gifitup.example.com` with `gifitup.<domain>`. Then:
@@ -140,6 +140,5 @@ docker rm -f gifitup-restore-test
 To restore for real: stop `server`, then `pg_restore --clean --if-exists` into the live database through `docker compose exec -T postgres`, and start `server` again.
 
 ## 7. Updating
-- **Server:** the deploy workflow (#7) sets `GIFITUP_SERVER_IMAGE` and runs `docker compose pull && docker compose up -d`.
+- **Server and repo files:** only through the deploy workflow ([deploy.md](deploy.md)). Each deploy checks out the approved commit (detached) and runs its image.
 - **Postgres:** Dependabot proposes new digests for `postgres:18-alpine`. Minor updates: `docker compose pull postgres && docker compose up -d postgres`. Major upgrades (19+) need a dump and restore: take a backup, run the restore test, then switch.
-- **Repo files:** `git -C /opt/gifitup/repo pull --ff-only`.
