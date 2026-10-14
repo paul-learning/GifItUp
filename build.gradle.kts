@@ -11,6 +11,34 @@ plugins {
     alias(libs.plugins.ktlint) apply false
 }
 
+// Dependency locking (#33): every resolvable configuration of every project, plus the plugin classpath,
+// resolves exactly the versions in the committed gradle.lockfile files. Update with --write-locks (see
+// docs/dependencies.md).
+buildscript {
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
+    }
+}
+allprojects {
+    dependencyLocking {
+        lockAllConfigurations()
+    }
+}
+
+// Kotlin/Wasm would add its own project-level repositories for Node.js, Yarn and Binaryen downloads. Those are
+// forbidden (FAIL_ON_PROJECT_REPOS); settings.gradle.kts declares them centrally instead (#33).
+allprojects {
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsEnvSpec>().downloadBaseUrl.set(null as String?)
+    }
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootEnvSpec>().downloadBaseUrl.set(null as String?)
+    }
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
+    }
+}
+
 val detektKotlinVersion = libs.versions.detektKotlin.get()
 val ktlintVersion = libs.versions.ktlint.get()
 

@@ -104,3 +104,4 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Web dev server | `./gradlew :composeApp:wasmJsBrowserDevelopmentRun` (opens http://localhost:8080) |
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
 | Run server locally | `./gradlew :server:run` (port from `PORT`, default 8080; `GET /health`) |
+| Add/update a dependency (locks + checksums) | see [`docs/dependencies.md`](docs/dependencies.md): `--write-locks --write-verification-metadata sha256` over all modules, review the diff |
