@@ -17,7 +17,8 @@ Closes #
 - [ ] ADR added/updated (if a significant decision was made)
 
 ## Review log
-<!-- Filled by the authoring agent after the independent review agent(s) post their comments. -->
+<!-- Filled by the authoring agent after the independent review agent(s) post their comments.
+     Risky work (crypto/, auth, keys/secrets, protocol/, new endpoints) starts with round 0 (plan) by security-reviewer. -->
 | Round | Reviewer | Verdict | Comment |
 |---|---|---|---|
 | 1 | code-reviewer | | |
