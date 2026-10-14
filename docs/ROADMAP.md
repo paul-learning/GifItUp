@@ -14,7 +14,7 @@ _Get the skeleton, CI, deploy pipeline and the two big technical risks (MLS on K
 - CI with GitHub Actions: build + test + lint for every module, required for merge. (#2)
 - Hetzner deployment baseline: Docker Compose (Caddy + Ktor + Postgres), TLS, deploy workflow, hardening checklist. (#6, #7)
 - **Spike: OpenMLS on Android** (uniffi + cargo-ndk) and **on Web** (wasm-bindgen, called from Kotlin/Wasm). Result: ADR-0002 is confirmed or revised. (#3, #4)
-- **Spike: GIF provider** (Giphy vs Klipy). Covers free-tier limits, terms of service on re-hosting, and CORS from the browser. Result: ADR-0003 is confirmed with a delivery mode. (#5)
+- **Spike: GIF provider** (Giphy vs Klipy). Covers free-tier limits, terms of service on re-hosting, and CORS from the browser. Result: ADR-0003 is confirmed with a delivery mode. (#5) → Klipy, Mode B′ (forward the returned URL, validate strictly); see `docs/spikes/gif-provider.md`.
 - Repo security baseline + threat model v1 (#8)
 - 🏛️ Architecture review M0 · 🛡️ Security review M0 — #9, #10
 
@@ -65,4 +65,4 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 3. **Local toolchain:** JDK 21, Android Studio (SDK + NDK), Rust via rustup (+ `wasm32-unknown-unknown` and Android targets, `cargo-ndk`), Docker Desktop (optional, for running the server locally).
 4. **Domain** pointing at the Hetzner VM (A/AAAA record), needed for TLS and the web app (#6).
 5. **VM access** for the deploy workflow: a `deploy` user + SSH key stored as GitHub secret (#6, #7).
-6. **GIF API key** (free) once the spike (#5) has picked a provider.
+6. **GIF API key (Klipy, free; spike #5):** create a Partner Panel account and an API key (testing mode, 100 requests/hour), keep ads **off**, and set the content filter. Give the key to builds via `local.properties` / a GitHub secret, never the repo. **Request production access (free, unlimited) before the friends alpha (#27)**, because all clients share the key's rate limit.

@@ -15,7 +15,7 @@ _This is a living document. Update it whenever a PR changes security assumptions
 | Curious or compromised **server / VM operator** | Reads the DB and traffic, can modify server code, can inject, drop, reorder or withhold messages | ✅ A **passive** server must not learn content or GIF identity. ⚠️ An **active** server can man-in-the-middle a first contact until key verification exists (see Accepted risks). Forged messages are detected by MLS; dropping, withholding and forking are *not* prevented (see Limitations). |
 | **Network attacker** | Passive or active on the client↔server path | ✅ |
 | **Malicious group member / friend** | Valid member who may misbehave | ✅ After removal they cannot read messages from later epochs. |
-| **GIF provider** (Giphy/Klipy) | Sees search queries and sender IP (and recipient IP in Mode B) | ⚠️ Accepted leak (ADR-0003) |
+| **GIF provider** (Klipy, ADR-0003) | Sees search queries and the sender's IP, and every recipient's IP and the GIF when they load it (Mode B′). Controls which media its CDN serves, and can remove GIFs or shut down | ⚠️ Accepted leak (ADR-0003). Our server never sees GIF identity or searches. Recipients only fetch URLs on the provider's media hosts (strict allowlist), with no cookies, `Referer` or `customer_id`. A removed GIF shows a placeholder |
 | **Stolen or unlocked device** | Full access to the app's local state | ⚠️ Partially: OS keystore protection; no defence against an unlocked device |
 | **Malicious group member** (active) | Sends envelope/Commit mismatches, spams commits | ⚠️ Can deny service to a group (stuck/forked). Recovery is a new group (ADR-0002). Cannot read groups it was never in. |
 | **Prompt injection against AI agents** | Anyone can write issues, PR comments, or content agents read (dependency docs, API responses) on this public repo | ✅ Only owner-authored text counts as instructions (CLAUDE.md rule 7). Agents have no merge or settings power once the bot identity exists (roadmap "Owner setup"). |
@@ -53,7 +53,7 @@ Owner sign-off: ☑ accepted by @paul-learning, 2026-10-13 (in chat with the age
 - Group IDs, group membership (explicit by design, ADR-0002), message counts, timing, and ciphertext and blob sizes. Blob sizes are padded, and MLS application messages are padded to 256-byte blocks (spike value, final size set in #11/#24).
 - Invite tree (who invited whom).
 - KeyPackage claims (who is about to add whom), Welcome recipients, which device downloads which blob and when, inbox acks/read cursors, and push-notification tokens and timing once push exists.
-- In Mode B, the GIF provider can link a sender's search to the recipients fetching the same GIF shortly after.
+- _(Not visible to the server, but to the GIF provider:)_ in Mode B′ the provider can link a sender's search to the recipients fetching the same GIF shortly after, and sees how many people load it from which IPs.
 
 ## Assumptions
 - OpenMLS and the platform CSPRNGs are correct.
