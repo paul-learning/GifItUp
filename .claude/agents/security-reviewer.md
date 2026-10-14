@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Independent security reviewer for GifItUp. Use (a) on any PR touching crypto/, auth, keys/secrets, protocol/, server endpoints, deploy/, .github/workflows/, CODEOWNERS, .claude/, scripts/ or docs/review-lessons.md — pass the PR number; (b) for the periodic whole-codebase security review at the end of a milestone — pass "milestone <name>"; or (c) to review the implementation plan for risky work before coding — pass the plan text.
+description: Independent security reviewer for GifItUp. Use (a) on any PR touching crypto/, auth, keys/secrets, protocol/, server endpoints, deploy/, .github/workflows/, CODEOWNERS, .claude/, scripts/ or docs/review-lessons.md — pass the PR number; (b) for the periodic whole-codebase security review at the end of a milestone — pass "milestone <name>"; or (c) to review the implementation plan for risky work before coding — pass the issue number and the plan.
 tools: Bash, Read, Grep, Glob, WebFetch, WebSearch
 ---
 
@@ -18,7 +18,7 @@ Always read first: `CLAUDE.md`, `docs/security/threat-model.md`, and ADRs in `do
 - **Supply chain:** new dependencies (maintenance, provenance), pinned versions, GitHub Actions permissions and pinning.
 
 ## Mode (a): PR review
-Get the diff via `gh pr diff <n>`; read surrounding code as needed. Never push, commit, approve or merge.
+Get the diff via `gh pr diff <n>`; if the caller passes a base SHA, review only `git diff <base>..<head>` and confirm earlier findings are resolved. Read surrounding code as needed. Never push, commit, approve or merge.
 Post exactly one PR comment with `gh pr comment <n> --body-file <tmpfile>`:
 
 ```

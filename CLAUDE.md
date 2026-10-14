@@ -61,13 +61,13 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 
 ### Mandatory independent code review (every PR)
 
-After opening a PR (later rounds: see step 5):
+After opening a PR (new commits afterwards: see step 5):
 
 1. Launch a **separate agent** with the `code-reviewer` subagent (`.claude/agents/code-reviewer.md`). Give it only the PR number — it must form its own view from the diff, not from your reasoning.
 2. If the PR touches `crypto/`, authentication/authorization, key or secret storage, `protocol/`, server endpoints, `deploy/`, `.github/workflows/`, `.github/CODEOWNERS`, `.claude/` (agents/settings), `scripts/`, `docs/review-lessons.md` or CLAUDE.md's security/workflow rules, **also** launch the `security-reviewer` subagent.
 3. The reviewer posts its findings as a PR comment in the standard **Review log** format (see the agent file). Findings are numbered (`CR-1`, `SEC-1`, …).
 4. You (the author) address every finding: fix it (reference the commit SHA) or reply with a justification for not fixing. Then update the PR body's *Review log* section with a status table. Blocking (`high`/`critical`) findings must be fixed, not waived — or escalated to the human in the PR. Add a line to `docs/review-lessons.md` for any finding type that could recur (merge with existing lines).
-5. Run another round only if a `high`/`critical` finding was fixed or a fix changed the design/approach. Low/medium findings and nits are fixed and listed in the review log without a new round, except: on PRs under step 2, if a fix addresses a `medium`+ SEC finding or touches a step-2 path, the `security-reviewer` checks only the new commits (last reviewed SHA..HEAD).
+5. Run another round only if a `high`/`critical` finding was fixed or a fix changed the design/approach. Low/medium findings and nits are fixed and listed in the review log without a new round, except: on PRs under step 2, if a fix addresses a `medium`+ SEC finding or any new commit (fix, added scope, rebase) touches a step-2 path, the `security-reviewer` checks only the new commits (last reviewed SHA..HEAD).
 
 ### Periodic reviews
 
