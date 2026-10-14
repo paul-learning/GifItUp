@@ -12,9 +12,8 @@ captures/
 # Rust
 crypto/target/
 
-# Node / web tooling
+# Node / web tooling (kotlin-js-store/ holds the committed yarn lockfile)
 node_modules/
-kotlin-js-store/
 
 # Secrets & env
 .env
