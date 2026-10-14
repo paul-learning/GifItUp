@@ -39,6 +39,14 @@ updates:
       - dependency-name: postgres
         update-types: ['version-update:semver-major']
 
+  # server/Dockerfile: digest-pinned distroless Java base image (#7).
+  - package-ecosystem: docker
+    directory: /server
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

@@ -50,6 +50,7 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
   - merges any PR (`gh pr merge`, `gh api …/merge`, web UI automation, or any other route)
   - approves PRs, or changes rulesets, branch protection, repo settings, secrets or workflow permissions
   - deletes or rewrites `main` history, or disables or skips CI, hooks or required checks
+  - dispatches, re-runs or approves deployments or the deploy workflow (`gh workflow run`, `gh run rerun`, pending-deployment approvals via `gh api`, or the web UI); deploys happen only when the owner approves the `production` environment
 
   If something seems to need one of these, **stop and ask the owner in chat.** Violating this rule is the worst failure an agent can make in this repo. The deny list in `.claude/settings.json` is a backstop, not the boundary; the rule applies to commands the deny list misses too.
 - The human owner reviews and merges every PR.
