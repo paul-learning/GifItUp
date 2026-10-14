@@ -41,7 +41,7 @@ Secrets live **only in the `production` environment**, never at repo level. Name
    ```
    `restrict` turns off port, agent and X11 forwarding and the PTY. `command=` ignores whatever the client asks to run and passes it to the script as `SSH_ORIGINAL_COMMAND`.
 3. **Known hosts:** run `ssh-keyscan -t ed25519 <host>` from your machine. **Compare the fingerprint** with the one on the VM (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before trusting it.
-   - **On Windows,** the OpenSSH bundled with Windows can fail against an up-to-date VM ("no matching key exchange method", because it lacks `sntrup761x25519`). Alternatives:
+   - **On Windows,** the OpenSSH bundled with Windows may fail with "no matching key exchange method" if the VM's sshd only allows post-quantum key exchange such as `sntrup761x25519`, which older Windows builds lack. Check on the VM with `sudo sshd -T | grep kexalgorithms`. Alternatives:
      - **Git for Windows' copy:** `& "C:\Program Files\Git\usr\bin\ssh-keyscan.exe" -t ed25519 <host>` (PowerShell)
      - **Build the line on the VM**, which also skips the fingerprint comparison, since it's read from the host key itself:
        ```bash

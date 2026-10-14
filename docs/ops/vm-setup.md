@@ -17,7 +17,7 @@ Change nothing yet; just look at the current state.
 ```bash
 lsb_release -ds                       # Ubuntu 24.04.x LTS
 sudo ss -tulpn                        # what listens where: SSH, VPN (WireGuard/OpenVPN), published container ports
-command -v ufw >/dev/null && sudo ufw status verbose || echo "ufw is not installed"
+if command -v ufw >/dev/null; then sudo ufw status verbose; else echo "ufw is not installed"; fi
 docker network inspect proxy >/dev/null && echo "proxy network exists"
 docker compose version
 ```
@@ -38,7 +38,7 @@ Apply what isn't already in place. Keep a second SSH session open while changing
   sudo sshd -t && sudo systemctl reload ssh
   ```
   Check with `sudo sshd -T | grep -E 'permitrootlogin|passwordauthentication'`.
-- [ ] **Firewall (ufw): deny incoming, allow 22/80/443**, plus every host service from the pre-flight `ss -tulpn` that must stay reachable, such as a VPN port. ufw isn't always installed (`sudo apt install ufw`). It may already have saved rules: check `sudo ufw show added`. Allow everything needed *before* enabling, or you cut off running services:
+- [ ] **Firewall (ufw): deny incoming, allow 22/80/443**, plus every host service from the pre-flight `ss -tulpn` that must stay reachable, such as a VPN port. ufw isn't always installed (`sudo apt install ufw`). It may already have saved rules: check `sudo ufw show added`. Allow everything needed *before* enabling, or you cut off running services. If ufw is already active, run the `allow` lines first: `default deny incoming` takes effect immediately.
   ```bash
   sudo ufw default deny incoming && sudo ufw default allow outgoing
   sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 443/udp
@@ -111,9 +111,16 @@ Then, from the Caddy project's directory, do **all three steps**. Editing the fi
 - [ ] **Check:** `curl -sI https://gifitup.<domain>/health`. Once the server runs, you get `200` plus the security headers.
 
 Reading the result of the check:
-- **TLS error** (e.g. `tlsv1 alert internal error`): Caddy doesn't know the host yet. The reload didn't happen or failed, or the container still sees the old file.
+- **TLS error** (e.g. `tlsv1 alert internal error`): Caddy has no certificate for the host. Possible reasons:
+  - the reload didn't happen or failed
+  - the container still sees the old file
+  - the certificate is still being issued (wait a minute)
+  - issuance failed because DNS doesn't point at the VM or port 80 is blocked
+
+  `docker compose logs caddy` tells you which.
 - **`502`:** Caddy serves the host, but the server isn't reachable. It isn't running yet (before the first deploy) or isn't on the `proxy` network.
 - **`200`:** the server answers through Caddy.
+
 Caddy reaches the server as `gifitup-server:8080` on the shared `proxy` network. Postgres is not on that network. Every other container on `proxy` can reach the server too (accepted risk, see ADR-0005).
 
 Afterwards, make sure no access log is written for GifItUp. Check that the shared Caddyfile has no global or imported `log` block that covers this host, and that no new file shows up in Caddy's log directory after a request. The snippet's `log_skip` is a second line of defence.
