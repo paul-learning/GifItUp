@@ -37,3 +37,14 @@ subprojects {
         version.set(ktlintVersion)
     }
 }
+
+// SPIKE (#4): with -Pgifitup.rust=true the web spike adds a local npm package (the wasm-bindgen output),
+// which changes the Kotlin/Wasm yarn lockfile. Spike builds therefore use their own committed lockfile,
+// so both lockfiles stay strictly checked (mismatch = FAIL) and normal builds are unaffected.
+if (providers.gradleProperty("gifitup.rust").orNull == "true") {
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootExtension>()
+            .lockFileNameProperty
+            .set("yarn.spikes.lock")
+    }
+}

@@ -35,8 +35,10 @@ include(":composeApp")
 include(":androidApp")
 include(":server")
 
-// SPIKE (#3): OpenMLS on Android. Needs Rust + cargo-ndk, so it is opt-in: -Pgifitup.rust=true
-// (or gifitup.rust=true in ~/.gradle/gradle.properties). See docs/spikes/openmls-android.md.
+// SPIKES (#3, #4): OpenMLS on Android and in the browser. They need Rust (+ cargo-ndk / wasm-bindgen-cli),
+// so they are opt-in: -Pgifitup.rust=true (or gifitup.rust=true in ~/.gradle/gradle.properties).
+// See docs/spikes/openmls-android.md and docs/spikes/openmls-web.md.
 if (providers.gradleProperty("gifitup.rust").orNull == "true") {
     include(":spikes:mls-android")
+    include(":spikes:mls-web")
 }
