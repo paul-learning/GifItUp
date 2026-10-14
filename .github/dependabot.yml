@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Let new releases age a week before proposing them (security updates are not delayed).
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       # KGP, serialization and Compose compiler plugins share the Kotlin version and must move together.
@@ -19,12 +22,18 @@ updates:
     directory: /crypto
     schedule:
       interval: weekly
+    # Let new releases age a week before proposing them (security updates are not delayed).
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    # Let new releases age a week before proposing them (security updates are not delayed).
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ['*']
