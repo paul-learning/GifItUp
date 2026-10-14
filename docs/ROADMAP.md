@@ -54,6 +54,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 
 ## Later / ideas
 - Own curated GIF collection served by our server, as a fallback if Klipy goes away like Tenor did (spike #5).
+- Group members compare a hash of their GIF provider key over MLS, to detect a server handing out per-user keys (spike #5, SEC-7).
 - iOS target (needs a Mac or CI macOS runners).
 - Metadata reduction (sealed sender-like delivery, padding/timing), Tor/proxy support.
 - Desktop (Compose Desktop) target.

@@ -38,7 +38,7 @@ Every hosted provider needs an app key used from the client, and Giphy and Klipy
 
 **Pick: Klipy.** It is the only option that stays free in production. Giphy would work technically, but a release build on a beta key goes against its intent, and production access costs money.
 
-Klipy media URLs look like `https://static.klipy.com/ii/<32 hex>/<2 hex>/<2 hex>/<name>.<ext>`. They carry no query string and no user or session identifier, which matters for Mode B below.
+Klipy media URLs look like `https://static.klipy.com/ii/<32 hex>/<2 hex>/<2 hex>/<name>.<ext>`. They carry no query string and no user or session identifier, which matters for Mode B′ below.
 
 Typical Klipy GIF sizes (KiB; mean / median, from Klipy's format table):
 
@@ -66,9 +66,13 @@ ADR-0003 had the message carry only a GIF ID, and recipients **build the URL** f
      That alone pins the scheme, the host (exactly one of Klipy's published media hosts `static.klipy.com`, `static1.klipy.com` and `static2.klipy.com`), no user info, no port, no query, no fragment, and bounds the length. Then the URL is parsed with the platform parser, and the **re-serialised URL must equal the input exactly**. That catches parser differences such as uppercase hosts, trailing dots, percent-encoding or IDNA. Matching against a regex first and parsing second avoids validating one string and fetching another.
    - **`provider`:** must be exactly `"klipy"`.
    - **`slug`:** must match `^[A-Za-z0-9_-]{1,128}$`. It's shown, if at all, as plain text only.
-   - **`width` / `height`:** layout hints only (see 4).
+   - **`width` / `height`:** layout hints only, integers from 1 to 2048. Anything else gets a placeholder (see 4 for the real checks).
 3. **Fetch:** no cookies and no `Referer`. Web: `credentials: "omit"`, `referrerPolicy: "no-referrer"`. **Redirects are never followed**: `redirect: "error"` on the web, `followRedirects = false` in Ktor/OkHttp on Android. A browser can't inspect a redirect target, so "follow only if it passes the check" isn't implementable.
-4. **Decode (zero-click attack surface, see below):** the response is capped at 8 MiB. The format is sniffed from the magic bytes; only GIF and WebP are accepted. **Before** full decoding, the real dimensions and frame count are read from the file header, **not** taken from the sender's hints, and checked against limits (starting values for #24: ≤ 2048 px per side, ≤ 1000 frames, decoded size ≤ 128 MiB = width × height × 4 × frames). Decoding uses only the OS/browser decoders (Android `ImageDecoder`, browser `<img>`/`ImageDecoder`), never a bundled third-party decoder.
+4. **Decode (zero-click attack surface, see below):** the response is capped at 8 MiB. The format is sniffed from the magic bytes; only GIF and WebP are accepted. **Before** any native decoder sees the bytes, our own **bounded, pure-Kotlin structure scanner** walks the file and checks it. GIF and WebP don't store a frame count in a header, so the scanner counts frames by walking the GIF blocks or the RIFF/`ANMF` chunks, with a hard limit on steps. It reads the real canvas size, **not** the sender's hints, and enforces the limits (starting values for #24: ≤ 2048 px per side, ≤ 1000 frames, decoded size ≤ 128 MiB = width × height × 4 × frames). A malformed or truncated structure means a placeholder. Which decoder then runs:
+   - **Android, API 28+:** the OS `ImageDecoder` / `AnimatedImageDrawable`. These come with OS (Mainline) updates.
+   - **Android, API 26–27** (current `minSdk` is 26): there is no OS decoder for animated WebP. **Recommendation for #24: raise `minSdk` to 28.** Otherwise only the first frame is shown, decoded by the OS (`BitmapFactory`).
+   - **Web:** Compose Multiplatform on wasmJs decodes with **Skiko**, which is Skia compiled to wasm with its **own** GIF/WebP codecs, not the browser's. Preferred: decode with the browser (`ImageDecoder` / `createImageBitmap`) and hand frames to Compose. Fallback if that's impractical: accept Skiko's codecs explicitly, with a rule to ship a Compose/Skiko update within **14 days** of a published codec CVE. #24/#25 decide this, and the threat-model assumption names both cases.
+   - **Web loading:** media is loaded with `fetch()` (`redirect: "error"`, `credentials: "omit"`, `referrerPolicy: "no-referrer"`, streamed with the 8 MiB cap) and then shown from a `blob:` URL, never through a plain `<img src>` pointing at Klipy, which would skip all of these checks.
 5. Chat history stores the message (URL and slug), not the media bytes. Normal HTTP caching by the client's image loader (Klipy sends `Cache-Control: public, max-age=86400`) is fine. A persistent media cache is not, because it would count as "retaining copies".
 
 Why this keeps ADR-0003's security goals:
@@ -91,15 +95,18 @@ All clients use the same key, so **all users share one limit**. In testing mode 
 
 ## The API key (decided with the owner, 2026-10-14)
 - **Not in the build.** The key is never in the repo, the APK or the web bundle. Those are public (GitHub Releases, a web app anyone can load), so anything baked in can be extracted by anyone.
-- **Our server hands it to authenticated clients only.** The server reads the key from its environment (a deploy secret) and returns it from an authenticated endpoint. Clients keep it in memory, or in app storage next to their other state, and use it for direct calls to Klipy.
+- **Our server hands it to authenticated clients only.** The server reads the key from its environment (a deploy secret) and returns it from an authenticated endpoint. Clients keep it **in memory only** and use it for direct calls to Klipy.
+  - **When clients fetch it (CR-7, SEC-10):** together with the normal startup/login traffic, and refreshed on a fixed schedule (e.g. every 6 h while running). **Never** lazily when the picker opens, and never in reaction to a Klipy 401/403. Either of those would tell the server when someone is about to send a GIF. If Klipy rejects the key, the picker shows "GIF search temporarily unavailable" until the next scheduled refresh.
+  - **Clients don't trust the response (SEC-7):** the provider is hard-coded in the client (`klipy`), and any provider value from the server is ignored. The key must match a strict charset and length (starting rule `^[A-Za-z0-9_-]{16,128}$`; #23 confirms it against the real key format), and it is inserted as one percent-encoded path segment.
   - Only invited users ever see the key. Leaking it beyond the circle needs one of them to extract and share it.
-  - Rotation is a server config change that takes effect at the next fetch. No rebuild or release is needed.
-  - The server learns nothing about GIF use: it only hands out the key. Searches and media loads still go straight from the client to Klipy.
+  - Rotation is a server config change that takes effect at the next scheduled refresh. No rebuild or release is needed.
+  - An **honest** server learns nothing about GIF use: it only hands out the key, and searches and media loads still go straight from the client to Klipy.
+  - **A malicious server could hand each user a different key** from Klipy accounts the operator controls. If Klipy's Partner Panel shows per-key analytics (not verified), the operator could then tie search terms to individual users. An APK-embedded key wouldn't have this problem, but it would be public. This is recorded as a limitation against an active server, in the threat model. A later mitigation: group members compare a hash of their key over MLS (ROADMAP "Later / ideas").
   - New server-visible data: none about users. The server stores one more secret (the key) and sees when clients fetch it (at login/startup, along with other traffic). The response gets `Cache-Control: no-store`, and the key is never logged (CLAUDE.md rule 4).
   - Implemented in a separate issue (server endpoint, wire model in `protocol/`), which #23 depends on.
 - **Residual availability risk:** a member could extract and abuse the key, and Klipy could revoke it. GIF search and trending then stop for everyone until the key is rotated; already-sent GIFs still load, because media fetches don't use the key. With the production key there is no hourly limit to exhaust. Runbook: create a new key in the Partner Panel, revoke the old one, update the server's secret and restart it.
 - Partner Panel settings: ads **off**, content filter set by the owner (Klipy's `content_filter` request parameter is the per-request alternative). In case ads are ever switched on, the client renders `type: "ad"` items as plain placeholders and never loads their content or calls their tracking URLs.
-- **Web CSP (deployment, #6/#27):** `connect-src` and `img-src` list only `https://api.klipy.com` and `https://static.klipy.com https://static1.klipy.com https://static2.klipy.com` for the GIF features. Klipy's media hosts send no `Cross-Origin-Resource-Policy` header, so the web app must not enable `Cross-Origin-Embedder-Policy: require-corp` without testing it.
+- **Web CSP (deployment, #6/#27):** `connect-src` lists `https://api.klipy.com https://static.klipy.com https://static1.klipy.com https://static2.klipy.com` for the GIF features. `img-src` is `'self' blob:` and does **not** list Klipy's hosts, so a plain `<img>` can't bypass the fetch checks. Klipy's media hosts send no `Cross-Origin-Resource-Policy` header, so the web app must not enable `Cross-Origin-Embedder-Policy: require-corp` without testing it.
 
 ## `GifProvider` sketch (spike-quality, for #23)
 ```kotlin
