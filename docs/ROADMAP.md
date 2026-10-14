@@ -12,7 +12,7 @@ _Get the skeleton, CI, deploy pipeline and the two big technical risks (MLS on K
 
 - Scaffold the KMP monorepo: `composeApp` (Android + wasmJs), `protocol`, `shared`, `server`, version catalog, ktlint/detekt. (#1)
 - CI with GitHub Actions: build + test + lint for every module, required for merge. (#2)
-- Hetzner deployment baseline: Docker Compose (Caddy + Ktor + Postgres), TLS, deploy workflow, hardening checklist. (#6, #7)
+- Hetzner deployment baseline: Docker Compose (Ktor + Postgres) behind the VM's shared Caddy (TLS), deploy workflow, hardening checklist (ADR-0005). (#6, #7)
 - **Spike: OpenMLS on Android** (uniffi + cargo-ndk) and **on Web** (wasm-bindgen, called from Kotlin/Wasm). Result: ADR-0002 is confirmed or revised. (#3, #4)
 - **Spike: GIF provider** (Giphy vs Klipy). Covers free-tier limits, terms of service on re-hosting, and CORS from the browser. Result: ADR-0003 is confirmed with a delivery mode. (#5) → Klipy, Mode B′ (forward the returned URL, validate strictly); see `docs/spikes/gif-provider.md`.
 - Repo security baseline + threat model v1 (#8)

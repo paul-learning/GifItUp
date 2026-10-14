@@ -2,6 +2,8 @@
 # Replace gifitup.example.com with the real hostname on the VM only: the domain is not committed (public repo).
 gifitup.example.com {
 	# No access log on purpose: logs must not map users to IPs (CLAUDE.md, security rule 4).
+	log_skip
+	# Coarse cap for now. Encrypted blob uploads (M3, ADR-0003) need a per-route limit; the server's limit is authoritative.
 	request_body {
 		max_size 1MB
 	}

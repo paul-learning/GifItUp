@@ -108,7 +108,9 @@ docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter
 docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 curl -sI https://gifitup.<domain>/health      # after the server runs: 200 plus the security headers
 ```
-Caddy reaches the server as `gifitup-server:8080` on the shared `proxy` network. Postgres is not on that network.
+Caddy reaches the server as `gifitup-server:8080` on the shared `proxy` network. Postgres is not on that network. Every other container on `proxy` can reach the server too (accepted risk, see ADR-0005).
+
+Afterwards, make sure no access log is written for GifItUp. Check that the shared Caddyfile has no global or imported `log` block that covers this host, and that no new file shows up in Caddy's log directory after a request. The snippet's `log_skip` is a second line of defence.
 
 The block deliberately has **no access log**. Logs must not map users to IPs (CLAUDE.md, security rule 4). Caddy's error log can still include a client IP for failed requests (e.g. while the server is down); it stays in Docker's rotated container log. It also caps request bodies at 1 MB and sets an API-only CSP, which the web app (#27) will replace.
 
@@ -119,13 +121,19 @@ sudo cp /opt/gifitup/deploy/backup/gifitup-backup.{service,timer} /etc/systemd/s
 sudo systemctl daemon-reload && sudo systemctl enable --now gifitup-backup.timer
 sudo systemctl start gifitup-backup.service && journalctl -u gifitup-backup.service -n 5
 ```
+**Check that backups keep running.** A failed run shows up only in the journal. Check at least weekly, and wire this into the VM's monitoring if it has one (e.g. a push-based uptime monitor):
+```bash
+systemctl list-timers gifitup-backup.timer
+find /var/backups/gifitup -name 'gifitup-*.dump' -mtime -2 | grep -q . && echo "recent backup OK" || echo "NO BACKUP IN 2 DAYS"
+```
 
 **Restore test** (monthly, and after any Postgres major upgrade). Restore the newest dump into a throwaway container, never into the live database:
 ```bash
 f=$(ls -t /var/backups/gifitup/gifitup-*.dump | head -1)
+img=$(grep -o 'postgres:18-alpine@sha256:[0-9a-f]*' /opt/gifitup/deploy/docker-compose.yml)   # same pinned image
 docker run -d --name gifitup-restore-test -e POSTGRES_PASSWORD=throwaway --network none \
-  -v /var/backups/gifitup:/backups:ro postgres:18-alpine
-sleep 5
+  -v /var/backups/gifitup:/backups:ro "$img"
+until docker exec gifitup-restore-test pg_isready -U postgres -q; do sleep 1; done
 docker exec gifitup-restore-test sh -c "createdb -U postgres restored && pg_restore -U postgres -d restored --no-owner /backups/$(basename "$f") && psql -U postgres -d restored -c '\dt'"
 docker rm -f gifitup-restore-test
 ```

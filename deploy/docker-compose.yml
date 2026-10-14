@@ -19,6 +19,8 @@ services:
     <<: *hardening
     # Built and pushed by the deploy workflow (#7); pinned to a commit SHA tag in .env.
     image: ${GIFITUP_SERVER_IMAGE:?set GIFITUP_SERVER_IMAGE in .env}
+    # Non-root regardless of the image's USER (#46 SEC-3); the image from #7 must work as this UID.
+    user: "10001:10001"
     environment:
       PORT: "8080"
     tmpfs: [/tmp]
@@ -27,6 +29,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Every container on the shared `proxy` network can reach this server directly and could claim the same alias.
+    # Accepted by the owner (ADR-0005, threat model "Shared VM"); the server must not rely on Caddy for limits.
     networks:
       proxy:
         aliases: [gifitup-server]
