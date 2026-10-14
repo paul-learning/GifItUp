@@ -15,7 +15,7 @@ _This is a living document. Update it whenever a PR changes security assumptions
 | Curious or compromised **server / VM operator** | Reads the DB and traffic, can modify server code, can inject, drop, reorder or withhold messages | ✅ A **passive** server must not learn content or GIF identity. ⚠️ An **active** server can man-in-the-middle a first contact until key verification exists (see Accepted risks). Forged messages are detected by MLS; dropping, withholding and forking are *not* prevented (see Limitations). |
 | **Network attacker** | Passive or active on the client↔server path | ✅ |
 | **Malicious group member / friend** | Valid member who may misbehave | ✅ After removal they cannot read messages from later epochs. |
-| **GIF provider** (Klipy, ADR-0003) | Sees search queries and the sender's IP, and every recipient's IP and the GIF when they load it (Mode B′). Controls which media its CDN serves, and can remove GIFs or shut down | ⚠️ Accepted leak (ADR-0003). Our server never sees GIF identity or searches. Recipients only fetch URLs on the provider's media hosts (strict allowlist), with no cookies, `Referer` or `customer_id`. A removed GIF shows a placeholder |
+| **GIF provider** (Klipy, and Cloudflare in front of its CDN; ADR-0003) | Sees search queries and the sender's IP, and every recipient's IP and the GIF when they load it (Mode B′). Controls which bytes its CDN serves, including different bytes per recipient or hostile files aimed at image decoders. Can remove GIFs, shut down, or revoke our shared API key | ⚠️ Accepted leak (ADR-0003). Our server never sees GIF identity or searches. Recipients only fetch URLs on the provider's media hosts (strict allowlist), with no cookies, `Referer`, redirects or `customer_id`. Decoding is limited by the real header and uses only the platform decoders. A removed GIF shows a placeholder |
 | **Stolen or unlocked device** | Full access to the app's local state | ⚠️ Partially: OS keystore protection; no defence against an unlocked device |
 | **Malicious group member** (active) | Sends envelope/Commit mismatches, spams commits | ⚠️ Can deny service to a group (stuck/forked). Recovery is a new group (ADR-0002). Cannot read groups it was never in. |
 | **Prompt injection against AI agents** | Anyone can write issues, PR comments, or content agents read (dependency docs, API responses) on this public repo | ✅ Only owner-authored text counts as instructions (CLAUDE.md rule 7). Agents have no merge or settings power once the bot identity exists (roadmap "Owner setup"). |
@@ -30,6 +30,8 @@ _This is a living document. Update it whenever a PR changes security assumptions
 5. Users can detect key changes (M3: safety numbers).
 
 ## Limitations (not prevented)
+- **GIF media isn't bound to the message (Mode B′):** MLS authenticates the media URL, not the bytes. The GIF provider/CDN can serve different content over time or per recipient.
+- **A malicious member could learn when recipients load a GIF** if the provider offers uploaders view analytics (not verified for Klipy) and the member uploads a GIF there.
 - The server can **drop, delay, withhold or reorder** messages. It can also show different members different views of a group (**forking**, e.g. by delivering conflicting commits to different members). MLS makes forged messages impossible, but it does not guarantee delivery or consistency. A later partial mitigation: clients compare the epoch authenticator or transcript hash, out of band or in-band.
 
 - **Web client at rest (spike #4, corrected by SEC-1 on #37):** MLS state in the browser (identity key, all group secrets) is a snapshot in IndexedDB.
@@ -45,6 +47,7 @@ _This is a living document. Update it whenever a PR changes security assumptions
 | Active server serves a forged KeyPackage on first contact (MITM), or adds ghost devices | Key verification ships | M2: fingerprint display + in-chat "member/device added" notices; M3: safety-number verification and key-change warnings |
 | AI agent uses the owner's GitHub account, so it technically has the ruleset admin bypass and could push to or merge into `main` | A bot account or GitHub App exists | Hard rule in `CLAUDE.md`, deny list in `.claude/settings.json`, owner reviews every PR |
 | Web client code is served by the untrusted server | Indefinitely (inherent to web E2EE) | Evaluate SRI / reproducible builds in a milestone review |
+| **Not yet signed off:** the GIF API key is public and shared, so anyone can exhaust its rate limit or get it revoked, which stops GIF search for all users (spike #5) | Indefinitely (inherent to a client-side key) | Key rotation + rebuild runbook (`docs/spikes/gif-provider.md`); production key with no hourly limit |
 
 Owner sign-off: ☑ accepted by @paul-learning, 2026-10-13 (in chat with the agent: "i sign accept the risk")
 
@@ -57,6 +60,7 @@ Owner sign-off: ☑ accepted by @paul-learning, 2026-10-13 (in chat with the age
 
 ## Assumptions
 - OpenMLS and the platform CSPRNGs are correct.
+- The OS and browser **image decoders** (GIF, WebP) are kept patched. Every recipient decodes provider media automatically (zero-click), in the process that holds the MLS keys (spike #5).
 - The TLS terminating proxy (Caddy) runs on the same VM; the server is still treated as untrusted for content.
 - The APK is distributed through GitHub Releases. The web client is served by the server we distrust (see Accepted risks).
 

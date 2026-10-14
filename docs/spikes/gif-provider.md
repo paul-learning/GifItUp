@@ -2,7 +2,7 @@
 
 - **Issue:** #5
 - **Date:** 2026-10-14
-- **Status:** done. **Klipy**, delivered by **direct reference (Mode B)**: the MLS message carries the media URL exactly as Klipy returned it, and recipients validate it strictly before fetching.
+- **Status:** done. **Klipy**, delivered by **direct reference (Mode B′)**: the MLS message carries the media URL exactly as Klipy returned it, and recipients validate it strictly before fetching.
 - **Code:** none committed. The `GifProvider` sketch below is spike-quality; the real implementation is part of #23 (picker) and #24 (send/receive).
 - **Decision record:** ADR-0003 (updated in this PR).
 
@@ -49,12 +49,16 @@ ADR-0003 had the message carry only a GIF ID, and recipients **build the URL** f
 
 ### Mode B′ (chosen): forward the returned URL, validate strictly
 1. The sender's client picks a rendition from the search result. Default: `md` **webp**, falling back to `md` gif. It sends `{provider: "klipy", slug, url, width, height}` inside the MLS application message. The final wire shape is defined in #24.
-2. Every client (sender **and** recipient) treats the URL as untrusted and accepts it only if all of these hold. Otherwise it shows a "GIF unavailable" placeholder and **fetches nothing**:
-   - It parses as an absolute URL with scheme `https`, no user info, no port (or 443), no query, no fragment, and is at most 256 characters.
-   - The host is **exactly** one of `static.klipy.com`, `static1.klipy.com`, `static2.klipy.com` (Klipy's published media hosts).
-   - The path matches `^/ii/[0-9a-f]{32}/[0-9a-f]{2}/[0-9a-f]{2}/[A-Za-z0-9_-]{1,64}\.(gif|webp)$`.
-3. The fetch sends no cookies and no `Referer`. Web: `credentials: "omit"`, `referrerPolicy: "no-referrer"`. Redirects are not followed unless the target passes the same check. The response is capped at 8 MiB, and the format is sniffed: only GIF and WebP are decoded, with the platform decoders.
-4. Chat history stores the message (URL and slug), not the media bytes. Normal HTTP caching by the client's image loader (Klipy sends `Cache-Control: public, max-age=86400`) is fine. A persistent media cache is not, because it would count as "retaining copies".
+2. Every client (sender **and** recipient) treats the message fields as untrusted. Anything that fails these checks shows a "GIF unavailable" placeholder, and **nothing is fetched**:
+   - **`url`:** the **raw string** must match this regex as a **full-string match** (Kotlin `Regex.matches`; a `$` that allows a trailing newline isn't enough), case-sensitive, with no normalisation first:
+     `^https://static[12]?\.klipy\.com/ii/[0-9a-f]{32}/[0-9a-f]{2}/[0-9a-f]{2}/[A-Za-z0-9_-]{1,64}\.(gif|webp)$`
+     That alone pins the scheme, the host (exactly one of Klipy's published media hosts `static.klipy.com`, `static1.klipy.com` and `static2.klipy.com`), no user info, no port, no query, no fragment, and bounds the length. Then the URL is parsed with the platform parser, and the **re-serialised URL must equal the input exactly**. That catches parser differences such as uppercase hosts, trailing dots, percent-encoding or IDNA. Matching against a regex first and parsing second avoids validating one string and fetching another.
+   - **`provider`:** must be exactly `"klipy"`.
+   - **`slug`:** must match `^[A-Za-z0-9_-]{1,128}$`. It's shown, if at all, as plain text only.
+   - **`width` / `height`:** layout hints only (see 4).
+3. **Fetch:** no cookies and no `Referer`. Web: `credentials: "omit"`, `referrerPolicy: "no-referrer"`. **Redirects are never followed**: `redirect: "error"` on the web, `followRedirects = false` in Ktor/OkHttp on Android. A browser can't inspect a redirect target, so "follow only if it passes the check" isn't implementable.
+4. **Decode (zero-click attack surface, see below):** the response is capped at 8 MiB. The format is sniffed from the magic bytes; only GIF and WebP are accepted. **Before** full decoding, the real dimensions and frame count are read from the file header, **not** taken from the sender's hints, and checked against limits (starting values for #24: ≤ 2048 px per side, ≤ 1000 frames, decoded size ≤ 128 MiB = width × height × 4 × frames). Decoding uses only the OS/browser decoders (Android `ImageDecoder`, browser `<img>`/`ImageDecoder`), never a bundled third-party decoder.
+5. Chat history stores the message (URL and slug), not the media bytes. Normal HTTP caching by the client's image loader (Klipy sends `Cache-Control: public, max-age=86400`) is fine. A persistent media cache is not, because it would count as "retaining copies".
 
 Why this keeps ADR-0003's security goals:
 - **The backend still sees nothing.** The URL is inside MLS ciphertext, and the fetch goes from the client straight to Klipy's CDN.
@@ -62,7 +66,10 @@ Why this keeps ADR-0003's security goals:
 - **The URL carries no sender identifier.** Klipy URLs have no query string, and we don't send `customer_id`.
 
 What it costs (recorded in the threat model):
-- Klipy (behind Cloudflare) sees every recipient's IP fetching the GIF, and can link the sender's search to those fetches by timing.
+- Klipy, and Cloudflare in front of its CDN, see every recipient's IP fetching the GIF. Klipy can link the sender's search to those fetches by timing.
+- **Zero-click decoder exposure.** Every recipient automatically fetches and decodes media at a path the sender chose. A decoder bug (libwebp CVE-2023-4863 is the precedent) would run in the process that holds the MLS keys. Hostile bytes could come from Klipy/Cloudflare, from anyone who can get content onto Klipy's CDN, or, if a member found such a way, from a malicious member. Mitigations: decode limits checked against the real header (step 4), platform decoders only, and patched OS/browsers as an explicit assumption. Mode A wouldn't have helped here, because the sender would choose the bytes outright.
+- **The media isn't bound to the message.** MLS authenticates the URL, not the bytes. Klipy or its CDN can serve different content over time, or per recipient IP. Mode A's sha256 binding is lost.
+- **A malicious member could learn who loaded a GIF, and when.** That works if Klipy offers uploaders view analytics and the member uploads a GIF there; it isn't verified whether Klipy offers such analytics. Their own membership already shows them that the message was delivered, so the extra leak is load timing.
 - If Klipy removes a GIF or shuts down (like Tenor), it disappears from chat history, and the placeholder shows instead. That's accepted; slug and provider are kept so a later migration could re-resolve them.
 - The path pattern is based on observed URLs, not on documentation. If Klipy changes its URL layout, GIFs show the placeholder until the client is updated. That fails closed, which is the safe direction.
 
@@ -73,7 +80,9 @@ The key ships inside every client, so **all users share one limit**. In testing 
 
 ## The API key
 - The key isn't secret in the cryptographic sense: it's embedded in every APK and web bundle. But CLAUDE.md rule 3 keeps it **out of the repo**. Builds read it from `local.properties` / an env var locally and from a GitHub secret in CI. Wiring that up is part of #23.
-- Partner Panel settings: ads **off**, content filter set by the owner (Klipy's `content_filter` request parameter is the per-request alternative).
+- **Availability risk:** anyone can extract the key and use up the shared rate limit, or get it revoked through abuse. GIF search and trending then stop for everyone; already-sent GIFs still load, because media fetches don't use the key. Runbook: create a new key in the Partner Panel, revoke the old one, update the GitHub secret, rebuild and release the APK and web app. This needs owner sign-off as an accepted risk (threat model).
+- Partner Panel settings: ads **off**, content filter set by the owner (Klipy's `content_filter` request parameter is the per-request alternative). In case ads are ever switched on, the client renders `type: "ad"` items as plain placeholders and never loads their content or calls their tracking URLs.
+- **Web CSP (deployment, #6/#27):** `connect-src` and `img-src` list only `https://api.klipy.com` and `https://static.klipy.com https://static1.klipy.com https://static2.klipy.com` for the GIF features. Klipy's media hosts send no `Cross-Origin-Resource-Policy` header, so the web app must not enable `Cross-Origin-Embedder-Policy: require-corp` without testing it.
 
 ## `GifProvider` sketch (spike-quality, for #23)
 ```kotlin
