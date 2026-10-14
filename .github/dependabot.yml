@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # KGP, serialization and Compose compiler plugins share the Kotlin version and must move together.
+      kotlin:
+        patterns: ['org.jetbrains.kotlin*']
+      ktor:
+        patterns: ['io.ktor*']
+      compose:
+        patterns: ['org.jetbrains.compose*']
+
+  # The crate does not exist yet (#3, #4, #11); until then Dependabot reports "no manifest" for this entry.
+  - package-ecosystem: cargo
+    directory: /crypto
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
