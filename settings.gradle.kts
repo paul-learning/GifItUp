@@ -12,11 +12,18 @@ pluginManagement {
             }
         }
         mavenCentral()
-        gradlePluginPortal()
+        // Only for plugins that are not published to Maven Central (#33). Everything else is excluded.
+        gradlePluginPortal {
+            content {
+                includeGroupAndSubgroups("org.jlleitschuh.gradle")
+            }
+        }
     }
 }
 
 dependencyResolutionManagement {
+    // All repositories are declared here; projects (and plugins) may not add their own (#33).
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google {
             mavenContent {
@@ -26,6 +33,40 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+
+        // Tool distributions the Kotlin/Wasm plugin downloads (Node.js, Yarn, Binaryen). The plugin's own
+        // project-level repositories are switched off in the root build (downloadBaseUrl = null), so these
+        // are the only source, and each one may serve exactly one module. Patterns copied from KGP's setup tasks.
+        exclusiveContent {
+            forRepository {
+                ivy("https://nodejs.org/dist") {
+                    name = "Node.js distributions"
+                    patternLayout { artifact("v[revision]/[artifact](-v[revision]-[classifier]).[ext]") }
+                    metadataSources { artifact() }
+                }
+            }
+            filter { includeModule("org.nodejs", "node") }
+        }
+        exclusiveContent {
+            forRepository {
+                ivy("https://github.com/yarnpkg/yarn/releases/download") {
+                    name = "Yarn distributions"
+                    patternLayout { artifact("v[revision]/[artifact](-v[revision]).[ext]") }
+                    metadataSources { artifact() }
+                }
+            }
+            filter { includeModule("com.yarnpkg", "yarn") }
+        }
+        exclusiveContent {
+            forRepository {
+                ivy("https://github.com/WebAssembly/binaryen/releases/download") {
+                    name = "Binaryen distributions"
+                    patternLayout { artifact("version_[revision]/binaryen-version_[revision]-[classifier].[ext]") }
+                    metadataSources { artifact() }
+                }
+            }
+            filter { includeModule("com.github.webassembly", "binaryen") }
+        }
     }
 }
 
