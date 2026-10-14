@@ -49,10 +49,16 @@ Secrets live **only in the `production` environment**, never at repo level. Name
      - `DEPLOY_HOST`: the VM's hostname or IP
      - `DEPLOY_SSH_KEY`: the private key file's contents; then delete the local private key or keep it offline
      - `DEPLOY_KNOWN_HOSTS`: the line from step 3
-5. **VM `.env`:** add `GIFITUP_PUBLIC_URL=https://gifitup.<domain>` (see `deploy/.env.example`). The `GIFITUP_SERVER_IMAGE` line is managed by `deploy.sh`.
-6. **After the first push:** under *Packages → gifitup-server → Package settings*, make sure the package is **public** (owner decision, #7). The image contains only code that is already public. The VM pulls without credentials.
+5. **VM checkout and `.env`** (once, after this PR is merged). A VM set up for #6 has a checkout without `deploy.sh`, so the forced command would fail:
+   ```bash
+   sudo -iu deploy git -C /opt/gifitup/repo pull --ff-only
+   ls -l /opt/gifitup/deploy/deploy.sh          # must exist and be executable
+   ```
+   Then add `GIFITUP_PUBLIC_URL=https://gifitup.<domain>` to `/opt/gifitup/deploy/.env` (see `deploy/.env.example`). The `GIFITUP_SERVER_IMAGE` line is managed by `deploy.sh`. From now on, deploys keep the checkout up to date (detached at the deployed commit).
+6. **Make the package public before approving the first deploy.** New GHCR packages start private. Once the first run has pushed the image (the deploy job then waits for approval), go to *Packages → gifitup-server → Package settings → Change visibility → Public* (owner decision, #7), **then** approve. The provenance check, the rollback lookup and the VM's pull all read the registry without credentials. The image contains only code that is already public.
 
 ## Notes
 - **Hostname:** it's kept out of the repo as hygiene, but it **isn't secret**. Every TLS certificate shows up in public Certificate Transparency logs. `DEPLOY_HOST` is masked in Actions logs, and `deploy.sh` never prints the URL.
-- **Concurrency:** deploy runs queue (`deploy-production`, never cancelled). On the VM, `flock` serialises `deploy.sh`.
+- **Concurrency:** only the deploy job is serialised (`deploy-production`), so every `main` commit still gets an image, and with it a rollback target. GitHub keeps one *pending* deploy per group: a newer run replaces an older one that is still waiting for approval. To skip a deploy, **reject** it instead of leaving it pending. On the VM, `flock` serialises `deploy.sh`.
+- **What the VM doesn't check:** the VM doesn't verify provenance; CI does. Whoever holds the CI SSH key can deploy any image in the package, or an older commit's `deploy.sh` (commits from before #7 are refused). Guard the key like any deploy secret, and rotate it if in doubt (replace the `authorized_keys` line and the secret).
 - **First deploy:** with no earlier deploy, a failed health check stops `server` instead of rolling back.

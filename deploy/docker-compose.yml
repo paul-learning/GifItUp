@@ -17,7 +17,7 @@ x-hardening: &hardening
 services:
   server:
     <<: *hardening
-    # Built and pushed by the deploy workflow (#7); pinned to a commit SHA tag in .env.
+    # Built and pushed by the deploy workflow; deploy.sh pins it by digest in .env (docs/ops/deploy.md).
     image: ${GIFITUP_SERVER_IMAGE:?set GIFITUP_SERVER_IMAGE in .env}
     # Non-root regardless of the image's USER (#46 SEC-3); the image from #7 must work as this UID.
     user: "10001:10001"

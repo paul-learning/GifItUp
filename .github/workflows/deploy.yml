@@ -15,10 +15,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
-
 env:
   IMAGE: ghcr.io/paul-learning/gifitup-server
 
@@ -130,6 +126,11 @@ jobs:
     timeout-minutes: 20
     # Required reviewer = owner, admin bypass off, deployment branches = main (docs/ops/deploy.md).
     environment: production
+    # Only the deploy step is serialised, so images for every main commit still get built and stay rollback targets.
+    # GitHub keeps one pending run per group: a newer deploy replaces an older one that is still waiting.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     permissions:
       contents: read
       attestations: read

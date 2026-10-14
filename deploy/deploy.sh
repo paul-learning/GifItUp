@@ -43,11 +43,14 @@ if [ "$#" -eq 0 ]; then
 
   quiet git -C "$repo" fetch --quiet origin main || reject "git fetch failed"
   quiet git -C "$repo" merge-base --is-ancestor "$commit" origin/main || reject "$commit is not on main"
+  # Commits from before #7 have no deploy.sh; checking one out would delete this forced command.
+  quiet git -C "$repo" cat-file -e "$commit:deploy/deploy.sh" || reject "$commit has no deploy/deploy.sh"
   quiet git -C "$repo" checkout --quiet --detach "$commit" || reject "checkout of $commit failed"
   exec "$repo/deploy/deploy.sh" --stage2 "$commit" "$digest"   # fd 9 (the lock) stays open
 fi
 
-# Stage 2: running from the checked-out commit.
+# Stage 2: running from the checked-out commit. Stage 1 always runs from the *previously* deployed commit, so this
+# hand-off (--stage2 <commit> <digest>) is a compatibility contract: keep it stable across all deployable commits.
 if [ "$#" -ne 3 ] || [ "$1" != --stage2 ] || ! valid_pair "$2 $3"; then
   reject "bad stage-2 arguments"
 fi
