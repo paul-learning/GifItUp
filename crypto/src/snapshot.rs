@@ -40,14 +40,26 @@ pub(crate) fn take_key(mut key: Vec<u8>) -> Result<SnapshotKey, ErrorCode> {
     result
 }
 
-/// Decoded snapshot contents. Secret values are wiped when it is dropped.
-#[derive(Debug, PartialEq, Eq)]
+/// Decoded snapshot contents. Secret values are wiped when it is dropped, and `Debug` never
+/// prints them (#65 SEC-3).
+#[derive(PartialEq, Eq)]
 pub(crate) struct Snapshot {
     pub(crate) username: String,
     pub(crate) signature_public_key: Vec<u8>,
     pub(crate) group_ids: Vec<Vec<u8>>,
     pub(crate) key_package_refs: Vec<Vec<u8>>,
     pub(crate) values: HashMap<Vec<u8>, Vec<u8>>,
+}
+
+impl std::fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Snapshot")
+            .field("username", &self.username)
+            .field("group_ids", &self.group_ids.len())
+            .field("key_package_refs", &self.key_package_refs.len())
+            .field("values", &format_args!("<{} redacted>", self.values.len()))
+            .finish_non_exhaustive()
+    }
 }
 
 impl Drop for Snapshot {
@@ -65,6 +77,10 @@ impl Snapshot {
         key: &SnapshotKey,
         crypto: &(impl OpenMlsCrypto + OpenMlsRand),
     ) -> Result<Vec<u8>, ErrorCode> {
+        // Never write a snapshot that `open` would refuse (CR-3 on #65).
+        if HEADER_LEN + self.inner_len() + TAG_LEN > MAX_SNAPSHOT_BYTES {
+            return Err(ErrorCode::Internal);
+        }
         let nonce: [u8; NONCE_LEN] = crypto.random_array().map_err(|_| ErrorCode::Internal)?;
         let mut out = header(&nonce);
         let inner = self.encode_inner()?;
@@ -104,8 +120,21 @@ impl Snapshot {
         Self::decode_inner(&Zeroizing::new(inner))
     }
 
+    /// Exact encoded size, so the buffer is allocated once: a growing `Vec` would leave
+    /// unwiped copies of key material behind on every reallocation (CR-4 on #65).
+    fn inner_len(&self) -> usize {
+        let list = |items: &[Vec<u8>]| 4 + items.iter().map(|i| 4 + i.len()).sum::<usize>();
+        let values: usize = self.values.iter().map(|(k, v)| 8 + k.len() + v.len()).sum();
+        8 + self.username.len()
+            + self.signature_public_key.len()
+            + list(&self.group_ids)
+            + list(&self.key_package_refs)
+            + 4
+            + values
+    }
+
     pub(crate) fn encode_inner(&self) -> Result<Zeroizing<Vec<u8>>, ErrorCode> {
-        let mut out = Zeroizing::new(Vec::new());
+        let mut out = Zeroizing::new(Vec::with_capacity(self.inner_len()));
         put(&mut out, self.username.as_bytes())?;
         put(&mut out, &self.signature_public_key)?;
         put_list(&mut out, &self.group_ids)?;
@@ -125,17 +154,19 @@ impl Snapshot {
         let signature_public_key = r.field()?.to_vec();
         let group_ids = r.unique_list()?;
         let key_package_refs = r.unique_list()?;
-        let values = r.values()?;
-        if !r.0.is_empty() {
-            return Err(ErrorCode::SnapshotInvalid);
-        }
-        Ok(Self {
+        // Built before the trailing-bytes check, so a rejected snapshot is wiped on drop too.
+        let snapshot = Self {
             username,
             signature_public_key,
             group_ids,
             key_package_refs,
-            values,
-        })
+            values: r.values()?,
+        };
+        if r.0.is_empty() {
+            Ok(snapshot)
+        } else {
+            Err(ErrorCode::SnapshotInvalid)
+        }
     }
 }
 
@@ -203,15 +234,25 @@ impl<'a> Reader<'a> {
         Ok(items)
     }
 
+    /// Storage entries; on an error, everything decoded so far is wiped before it is dropped.
     fn values(&mut self) -> Result<HashMap<Vec<u8>, Vec<u8>>, ErrorCode> {
         let mut values = HashMap::new();
+        let result = self.read_values(&mut values);
+        if result.is_err() {
+            values.values_mut().for_each(Zeroize::zeroize);
+        }
+        result.map(|()| values)
+    }
+
+    fn read_values(&mut self, values: &mut HashMap<Vec<u8>, Vec<u8>>) -> Result<(), ErrorCode> {
         for _ in 0..self.len()? {
             let k = self.field()?.to_vec();
-            if values.insert(k, self.field()?.to_vec()).is_some() {
+            if let Some(mut duplicate) = values.insert(k, self.field()?.to_vec()) {
+                duplicate.zeroize();
                 return Err(ErrorCode::SnapshotInvalid);
             }
         }
-        Ok(values)
+        Ok(())
     }
 }
 
@@ -309,6 +350,34 @@ mod tests {
             Snapshot::open(&huge, &key(1), &crypto),
             Err(ErrorCode::SnapshotInvalid)
         );
+    }
+
+    #[test]
+    fn debug_output_redacts_secrets() {
+        let mut secret = sample();
+        secret
+            .values
+            .insert(b"key".to_vec(), b"TOP-SECRET".to_vec());
+        let printed = format!("{secret:?}");
+        assert!(
+            !printed.contains("TOP") && !printed.contains("84, 79, 80"),
+            "{printed}"
+        );
+    }
+
+    #[test]
+    fn encoding_allocates_exactly_once() {
+        let inner = sample().encode_inner().unwrap();
+        assert_eq!(inner.len(), sample().inner_len());
+        assert_eq!(inner.capacity(), inner.len());
+    }
+
+    #[test]
+    fn refuses_to_seal_what_it_could_not_open() {
+        let crypto = RustCrypto::default();
+        let mut big = sample();
+        big.values.insert(vec![0], vec![0; MAX_SNAPSHOT_BYTES]);
+        assert_eq!(big.seal(&key(1), &crypto), Err(ErrorCode::Internal));
     }
 
     #[test]

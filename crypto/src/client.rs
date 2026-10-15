@@ -129,6 +129,21 @@ impl Client {
     }
 }
 
+/// Best effort (#65 SEC-2): wipes every stored value (private keys, group secrets) when the
+/// client goes away, e.g. on `close()`. Entries OpenMLS deleted earlier (a forgotten group, a
+/// used or pruned KeyPackage) were freed without wiping; that is outside our control.
+impl Drop for Client {
+    fn drop(&mut self) {
+        let values = self
+            .provider
+            .storage
+            .values
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        values.values_mut().for_each(zeroize::Zeroize::zeroize);
+    }
+}
+
 /// Loads every group and checks that our own leaf in it carries this identity: the username in
 /// its credential and the signature key we hold (#11 plan review SEC-10).
 fn load_groups(

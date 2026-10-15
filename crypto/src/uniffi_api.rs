@@ -29,7 +29,8 @@ impl NativeMlsClient {
 #[uniffi::export]
 impl NativeMlsClient {
     /// Creates a new identity for `username`. `snapshot_key` (32 bytes) encrypts every state
-    /// export; it is copied and the passed buffer is wiped on the Rust side.
+    /// export; it is copied and our copy of the passed bytes is wiped (best effort: the uniffi
+    /// transfer buffer it arrived in is freed unwiped, ADR-0007).
     #[uniffi::constructor]
     pub fn new(username: String, snapshot_key: Vec<u8>) -> Result<Arc<Self>, ErrorCode> {
         install_silent_panic_hook();

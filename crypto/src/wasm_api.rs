@@ -95,7 +95,7 @@ impl NativeMlsClient {
 #[wasm_bindgen]
 impl NativeMlsClient {
     /// Creates a new identity for `username`. `snapshot_key` (32 bytes) encrypts every state
-    /// export; it is copied and the passed buffer (copied into wasm memory) is wiped.
+    /// export; it is copied and its copy in wasm memory is wiped (best effort, ADR-0007).
     #[wasm_bindgen(constructor)]
     pub fn new(username: String, snapshot_key: Vec<u8>) -> Result<NativeMlsClient, JsError> {
         install_silent_panic_hook();

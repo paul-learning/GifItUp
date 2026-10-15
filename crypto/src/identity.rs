@@ -3,6 +3,7 @@
 
 use openmls::prelude::tls_codec::{Deserialize, Serialize};
 use openmls::prelude::*;
+use openmls::treesync::errors::LifetimeError;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::StorageProvider;
 
@@ -58,7 +59,8 @@ impl Client {
             return Err(ErrorCode::InvalidInput);
         }
         let mut refs = self.lock_key_package_refs()?;
-        refs.retain(|r| self.stored_key_package(r).is_ok_and(|kp| kp.is_some()));
+        // Forget only refs a Welcome provably used; a failed lookup keeps the ref tracked.
+        refs.retain(|r| !matches!(self.stored_key_package(r), Ok(None)));
         if refs.len() + count as usize > MAX_KEY_PACKAGES_HELD {
             return Err(ErrorCode::InvalidInput);
         }
@@ -92,23 +94,22 @@ impl Client {
         Ok((created, key_package_ref))
     }
 
-    /// Deletes the private keys of own KeyPackages that have expired, and forgets the ones a
-    /// Welcome already used. Returns how many were deleted.
+    /// Deletes the private keys of own KeyPackages whose `not_after` has passed, and forgets the
+    /// ones a Welcome already used. Returns how many were deleted. Only "expired" counts: a
+    /// KeyPackage that looks not-yet-valid because the clock went back is kept. On an error the
+    /// tracked list stays as it was, so no ref is lost while its keys are still stored.
     pub fn prune_expired_key_packages(&self) -> Result<u32, ErrorCode> {
         let mut refs = self.lock_key_package_refs()?;
-        let mut deleted = 0;
         let mut kept = Vec::with_capacity(refs.len());
-        for r in refs.drain(..) {
-            match self.stored_key_package(&r)? {
-                None => {}
-                Some(kp) if kp.key_package().life_time().validate().is_err() => {
-                    self.provider
-                        .storage()
-                        .delete_key_package(&r)
-                        .map_err(mls)?;
+        let mut deleted = 0;
+        for r in refs.iter() {
+            match self.stored_key_package(r) {
+                Ok(None) => {}
+                Ok(Some(kp)) if is_expired(kp.key_package().life_time()) => {
+                    self.provider.storage().delete_key_package(r).map_err(mls)?;
                     deleted += 1;
                 }
-                Some(_) => kept.push(r),
+                _ => kept.push(r.clone()),
             }
         }
         *refs = kept;
@@ -154,6 +155,10 @@ impl Client {
             signature_public_key: leaf.signature_key().as_slice().to_vec(),
         })
     }
+}
+
+fn is_expired(lifetime: &Lifetime) -> bool {
+    matches!(lifetime.validate(), Err(LifetimeError::Expired { .. }))
 }
 
 fn check_key_package(key_package: &KeyPackage, expected_username: &str) -> Result<(), ErrorCode> {
@@ -290,41 +295,44 @@ mod tests {
         );
     }
 
+    /// Creates an own KeyPackage with the given lifetime and tracks it like the others.
+    fn tracked_key_package(client: &Client, lifetime: Lifetime) -> KeyPackageRef {
+        let bundle = KeyPackage::builder()
+            .key_package_lifetime(lifetime)
+            .build(
+                CIPHERSUITE,
+                &client.provider,
+                &client.signer,
+                client.credential.clone(),
+            )
+            .unwrap();
+        let r = bundle
+            .key_package()
+            .hash_ref(client.provider.crypto())
+            .unwrap();
+        client.lock_key_package_refs().unwrap().push(r.clone());
+        r
+    }
+
     #[test]
     fn prunes_expired_and_forgets_used_key_packages() {
         let alice = client("alice");
         let bob = client("bob");
         let used = key_package(&bob);
         bob.create_key_packages(1).unwrap();
-        // An expired one, tracked like the others.
-        let expired = KeyPackage::builder()
-            .key_package_lifetime(Lifetime::init(now() - 200, now() - 100))
-            .build(
-                CIPHERSUITE,
-                &bob.provider,
-                &bob.signer,
-                bob.credential.clone(),
-            )
-            .unwrap();
-        let expired_ref = expired
-            .key_package()
-            .hash_ref(bob.provider.crypto())
-            .unwrap();
-        bob.lock_key_package_refs()
-            .unwrap()
-            .push(expired_ref.clone());
+        let expired = tracked_key_package(&bob, Lifetime::init(now() - 200, now() - 100));
+        // Looks not yet valid, as after the clock jumped back: must survive (CR-2 on #65).
+        let future = tracked_key_package(&bob, Lifetime::init(now() + 100, now() + 200));
 
         let group_id = alice.create_group().unwrap();
         let welcome = alice.add_member(&group_id, &used).unwrap().welcome;
         bob.join_from_welcome(&welcome).unwrap();
 
         assert_eq!(bob.prune_expired_key_packages().unwrap(), 1);
-        assert_eq!(
-            bob.lock_key_package_refs().unwrap().len(),
-            1,
-            "only the unused, valid one"
-        );
-        assert!(bob.stored_key_package(&expired_ref).unwrap().is_none());
+        let left = bob.lock_key_package_refs().unwrap().len();
+        assert_eq!(left, 2, "the unused valid one and the not-yet-valid one");
+        assert!(bob.stored_key_package(&expired).unwrap().is_none());
+        assert!(bob.stored_key_package(&future).unwrap().is_some());
     }
 
     #[test]
