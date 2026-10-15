@@ -1,5 +1,7 @@
 # Spike: OpenMLS in the browser via wasm-bindgen + Kotlin/Wasm
 
+> **Spike code removed** in #11 (third PR): the Gradle wiring now lives in `:mls`, the opt-in flag and the spike CI jobs are gone (ADR-0007). This document is the spike's record.
+
 - **Issue:** #4
 - **Date:** 2026-10-14
 - **Status:** done. The answer is **yes**, with one important constraint on how bytes cross the boundary.
@@ -115,7 +117,7 @@ _Update 2026-10-15: ADR-0007 settles the #11 items below differently in two plac
 - **#16:** the IndexedDB persistence above, the passphrase decision, and freshness anchored at the Delivery Service (not a local counter).
 - **#23/#25:** GIF rendering on the web without copying the bytes into Kotlin.
 - **Threat model (#8):** web-client limits (same-origin script, wasm memory), and CSP + SRI as mitigations.
-- **CI:** the `MLS web spike` job pins the `wasm-bindgen-cli` binary by checksum. Dependabot bumps of `wasm-bindgen` will break it until the version and checksum are updated; that's intended.
+- **CI:** the `MLS web spike` job pinned the `wasm-bindgen-cli` binary by checksum (now the `Gradle check` job does). Dependabot bumps of `wasm-bindgen` will break it until the version and checksum are updated; that's intended.
 
 ## Throwaway parts
-`spikes/mls-web/` and `kotlin-js-store/wasm/yarn.spikes.lock` are deleted when #11 moves the wiring into `:shared`.
+`spikes/mls-web/` and `kotlin-js-store/wasm/yarn.spikes.lock` were deleted when #11 moved the wiring into `:mls` (ADR-0007).

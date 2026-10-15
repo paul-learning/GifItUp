@@ -1,5 +1,7 @@
 # Spike: OpenMLS on Android via uniffi + cargo-ndk
 
+> **Spike code removed** in #11 (third PR): the Gradle wiring now lives in `:mls`, the opt-in flag and the spike CI jobs are gone (ADR-0007). This document is the spike's record.
+
 - **Issue:** #3
 - **Date:** 2026-10-14
 - **Status:** done. The answer is **yes**.
@@ -102,7 +104,7 @@ _Update 2026-10-15: ADR-0007 settles the #11 items below differently in two plac
   - commit merging only after the Delivery Service accepts it (the spike merges right away)
   - typed errors without `Debug` strings of OpenMLS internals
   - `cargo-deny`/`cargo-audit` in CI
-  - move the Kotlin wiring from `spikes/mls-android` into `:shared` (androidMain `actual` of the crypto facade)
+  - move the Kotlin wiring from `spikes/mls-android` into `:mls` (ADR-0007; it went to `:mls`, not `:shared`)
 - **Panics (SEC-1 on #36):** the release profile now uses `panic = "unwind"`, so uniffi turns a Rust panic into a Kotlin exception instead of killing the app. With `abort`, a crafted message that makes OpenMLS panic would crash the app on every start if it gets re-fetched, and a malicious server could replay it forever. #11 must also quarantine any message that keeps failing to process (don't re-process it on every launch) and fuzz the parse paths (KeyPackage, Welcome, message). On wasm (#4) a panic is a trap, which the facade has to catch.
 - **After a caught panic (SEC-9 on #36):** with unwind, a panic poisons the client's lock and may leave OpenMLS state half-updated. #11 must treat a caught panic or a poisoned lock as fatal for that in-memory client: drop it, reload the last persisted snapshot, **never persist state after a panic**, and quarantine the triggering message. Use per-group locks/state, so one bad group can't block the others.
 - **Typed results for `process()` (CR-3, SEC-3 on #36):** the spike returns `None` both for a merged Commit and for messages it ignores (standalone Proposals), and it drops the sender. #11 must return a typed result that includes the **MLS-authenticated sender** (leaf credential) for application messages, so the UI never trusts the server envelope for "who sent this". For Commits, it must return a **staged** commit with its add/remove list, so the client can check it against the DS envelope (ADR-0002) *before* merging.
@@ -112,4 +114,4 @@ _Update 2026-10-15: ADR-0007 settles the #11 items below differently in two plac
 - **CI cost:** the spike job adds a cargo-ndk release build of about 5 min per run. Caching `crypto/target` (keyed on `Cargo.lock`) and building only arm64 for PRs would cut that down.
 
 ## Throwaway parts
-`spikes/mls-android/` is deleted when #11 moves the wiring into `:shared`. The crate in `crypto/` is kept as the starting point for #11, but it is not production code.
+`spikes/mls-android/` was deleted when #11 moved the wiring into `:mls` (ADR-0007). The crate in `crypto/` is kept as the starting point for #11, but it is not production code.

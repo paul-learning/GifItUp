@@ -39,6 +39,8 @@ pub(crate) fn mls<E>(_: E) -> ErrorCode {
 }
 
 /// Maps a failure to parse untrusted input to [`ErrorCode::InvalidInput`], dropping its details.
+/// Only the test-only spike group code uses it until #22.
+#[cfg(test)]
 pub(crate) fn input<E>(_: E) -> ErrorCode {
     ErrorCode::InvalidInput
 }

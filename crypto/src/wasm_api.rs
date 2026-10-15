@@ -16,26 +16,6 @@ fn js_err(code: ErrorCode) -> JsError {
     JsError::new(&code.to_string())
 }
 
-/// Result of adding a member: the Commit goes to existing members, the Welcome to the new one.
-#[wasm_bindgen]
-pub struct AddMemberResult {
-    commit: Vec<u8>,
-    welcome: Vec<u8>,
-}
-
-#[wasm_bindgen]
-impl AddMemberResult {
-    #[wasm_bindgen(getter)]
-    pub fn commit(&self) -> Vec<u8> {
-        self.commit.clone()
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn welcome(&self) -> Vec<u8> {
-        self.welcome.clone()
-    }
-}
-
 /// See [`PublicIdentity`]. Getters copy bytes the caller already received (no MLS state).
 #[wasm_bindgen(js_name = PublicIdentity)]
 pub struct WasmPublicIdentity(PublicIdentity);
@@ -155,62 +135,6 @@ impl NativeMlsClient {
     pub fn export_state(&self) -> Result<Vec<u8>, JsError> {
         self.guard
             .run(|| self.client.export_state())
-            .map_err(js_err)
-    }
-
-    /// SPIKE (#4), removed with the spikes; group ops come with #22.
-    #[wasm_bindgen(js_name = createGroup)]
-    pub fn create_group(&self) -> Result<Vec<u8>, JsError> {
-        self.guard
-            .run(|| self.client.create_group())
-            .map_err(js_err)
-    }
-
-    /// SPIKE (#4), removed with the spikes; group ops come with #22.
-    #[wasm_bindgen(js_name = addMember)]
-    pub fn add_member(
-        &self,
-        group_id: &[u8],
-        key_package: &[u8],
-    ) -> Result<AddMemberResult, JsError> {
-        let r = self
-            .guard
-            .run(|| self.client.add_member(group_id, key_package))
-            .map_err(js_err)?;
-        Ok(AddMemberResult {
-            commit: r.commit,
-            welcome: r.welcome,
-        })
-    }
-
-    /// SPIKE (#4), removed with the spikes; group ops come with #22.
-    #[wasm_bindgen(js_name = joinFromWelcome)]
-    pub fn join_from_welcome(&self, welcome: &[u8]) -> Result<Vec<u8>, JsError> {
-        self.guard
-            .run(|| self.client.join_from_welcome(welcome))
-            .map_err(js_err)
-    }
-
-    /// SPIKE (#4), removed with the spikes; group ops come with #22.
-    pub fn encrypt(&self, group_id: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, JsError> {
-        self.guard
-            .run(|| self.client.encrypt(group_id, plaintext))
-            .map_err(js_err)
-    }
-
-    /// SPIKE (#4), removed with the spikes. Returns the plaintext for application messages,
-    /// `undefined` for handshake messages.
-    pub fn process(&self, group_id: &[u8], message: &[u8]) -> Result<Option<Vec<u8>>, JsError> {
-        self.guard
-            .run(|| self.client.process(group_id, message))
-            .map_err(js_err)
-    }
-
-    /// SPIKE (#4), removed with the spikes; group ops come with #22.
-    #[wasm_bindgen(js_name = memberCount)]
-    pub fn member_count(&self, group_id: &[u8]) -> Result<u32, JsError> {
-        self.guard
-            .run(|| self.client.member_count(group_id))
             .map_err(js_err)
     }
 }

@@ -1,9 +1,9 @@
 //! Group operations from the spikes (#3, #4).
 //!
-//! **SPIKE QUALITY, not part of the v1 facade** (ADR-0007; owner decision: group ops come with #22).
-//! Callable only through the SPIKE-labelled FFI exports until PR 3 of #11 deletes the spikes; then
-//! test-only until #22 adds member validation, staged commits checked against the DS envelope and a
-//! typed `process()` result (see the checklist in #22). Commits are merged right away here.
+//! **SPIKE QUALITY, test-only** (ADR-0007; owner decision: group ops come with #22). Compiled only
+//! for tests (padding, empty AAD, `forget_group`, mutation tests) until #22 adds member validation,
+//! staged commits checked against the DS envelope and a typed `process()` result (see the checklist
+//! in #22). Commits are merged right away here.
 
 use openmls::prelude::tls_codec::{Deserialize, Serialize};
 use openmls::prelude::*;
@@ -20,7 +20,6 @@ pub(crate) const PADDING_SIZE: usize = 1024;
 pub(crate) const MAX_APPLICATION_CONTENT: usize = 896;
 
 /// Result of adding a member: the Commit goes to existing members, the Welcome to the new one.
-#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
 pub struct AddMemberResult {
     pub commit: Vec<u8>,
     pub welcome: Vec<u8>,
