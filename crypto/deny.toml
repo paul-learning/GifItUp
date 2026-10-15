@@ -1,0 +1,54 @@
+# cargo-deny policy for the crypto crate (#35 SEC-5, #36 SEC-8, ADR-0007). CI runs
+# `cargo deny --locked check` on every pull request and push to main. Between PRs, Dependabot
+# security alerts cover GitHub-reviewed advisories only, not yanked crates or RustSec-only entries;
+# those surface on the next CI run (no scheduled run; adding one is the owner's call).
+
+[graph]
+# Every platform we ship plus the dev hosts, with every feature of our own crate.
+targets = [
+  "aarch64-linux-android",
+  "x86_64-linux-android",
+  "wasm32-unknown-unknown",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+]
+all-features = true
+
+[advisories]
+yanked = "deny"
+# Every entry needs a reason and a linked issue.
+ignore = []
+
+[licenses]
+# Taken from the crates in Cargo.lock (`cargo deny list`); add a license only after reading it.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "Unicode-3.0",
+  "MPL-2.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Default-deny for the OpenMLS crates: exactly these features may be enabled (exact = true), so any
+# other one fails the check, e.g. `crypto-debug` (derives Debug on secrets), `content-debug`,
+# `test-utils`, `backtrace`, drafts, `unchecked-conversions`, or `openmls_memory_storage/persistence`,
+# which writes every private key to a plaintext file (#11 plan review SEC-13, #63 SEC-21).
+# `js` is the browser randomness source (crypto/Cargo.toml); `openmls_traits` declares an empty `default`.
+features = [
+  { crate = "openmls", allow = ["js"], exact = true },
+  { crate = "openmls_traits", allow = ["default"], exact = true },
+  { crate = "openmls_rust_crypto", allow = [], exact = true },
+  { crate = "openmls_memory_storage", allow = [], exact = true },
+  { crate = "openmls_basic_credential", allow = [], exact = true },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

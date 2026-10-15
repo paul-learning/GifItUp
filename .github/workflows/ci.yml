@@ -131,6 +131,8 @@ jobs:
     name: Rust crypto crate
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CARGO_DENY_VERSION: 0.20.2
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,6 +145,31 @@ jobs:
       - name: Show Rust toolchain
         working-directory: crypto
         run: rustup show active-toolchain && cargo --version
+
+      # Only main writes this cache (restore-only on PRs, like the Gradle cache), so a PR can't poison it.
+      # Release builds (#27) must not use it.
+      - name: Restore cargo cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/bin/cargo-deny
+            crypto/target
+          key: crypto-${{ runner.os }}-deny${{ env.CARGO_DENY_VERSION }}-${{ hashFiles('crypto/Cargo.lock', 'crypto/rust-toolchain.toml') }}
+
+      # Dependency audit: advisories, yanked crates, licenses, sources, banned OpenMLS features
+      # (crypto/deny.toml; #35 SEC-5, #36 SEC-8). Pinned version, built from crates.io with its lockfile.
+      - name: Install cargo-deny
+        run: |
+          if ! cargo deny --version 2>/dev/null | grep -qxF "cargo-deny ${CARGO_DENY_VERSION}"; then
+            cargo install cargo-deny --locked --version "${CARGO_DENY_VERSION}"
+          fi
+          cargo deny --version
+
+      - name: cargo deny check
+        working-directory: crypto
+        run: cargo deny --locked check
 
       - name: cargo fmt --check
         working-directory: crypto
@@ -160,6 +187,17 @@ jobs:
       - name: cargo test
         working-directory: crypto
         run: cargo test --locked
+
+      - name: Save cargo cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/bin/cargo-deny
+            crypto/target
+          key: crypto-${{ runner.os }}-deny${{ env.CARGO_DENY_VERSION }}-${{ hashFiles('crypto/Cargo.lock', 'crypto/rust-toolchain.toml') }}
 
   # SPIKE (#3): builds crypto/ for Android with cargo-ndk, generates the uniffi Kotlin bindings and
   # compiles the instrumented round-trip test. The test itself needs an emulator and runs locally only.

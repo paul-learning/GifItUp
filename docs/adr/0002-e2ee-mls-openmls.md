@@ -33,7 +33,7 @@ Use **MLS via OpenMLS**.
 - Up front, we pay for the Rust toolchain, the binding build in CI, and Android↔Web interop testing.
 - The server still sees metadata: group IDs, group membership (by design, see above), message timing and sizes. This is documented in the threat model.
 - Client state (group secrets) must be persisted securely and carefully. Losing it means losing access to the group, so restore requires a re-add.
-- Application messages are padded (`padding_size`, set in both the create and the join config) so that ciphertext length reveals plaintext length only in coarse steps. The block size is 1024 bytes with a content cap of 896 bytes, so every v1 message is one block (ADR-0006; Planned in #11, the code is still at the spike value of 256). `authenticated_data` stays empty: it is cleartext and unpadded.
+- Application messages are padded (`padding_size`, set in both the create and the join config) so that ciphertext length reveals plaintext length only in coarse steps. The block size is 1024 bytes with a content cap of 896 bytes, so every v1 message is one block (ADR-0006, ADR-0007). `authenticated_data` stays empty: it is cleartext and unpadded.
 
 ## Spike results (2026-10-14)
 Details: [docs/spikes/openmls-android.md](../spikes/openmls-android.md), [docs/spikes/openmls-web.md](../spikes/openmls-web.md).
@@ -48,14 +48,14 @@ Details: [docs/spikes/openmls-android.md](../spikes/openmls-android.md), [docs/s
   - 452 KiB gzipped `.wasm`
   - Kotlin/JS fallback not needed
 - **Bytes on the web:** a Kotlin/Wasm `ByteArray` can't be shared with JS, and copying costs about 75–95 ms per MiB per direction. Blob (GIF) bytes therefore stay in JS typed arrays end to end on the web, and the facade's blob API uses platform buffers, not `ByteArray`.
-- **Persistence:** one versioned state snapshot (`export_state`/`restore`) over OpenMLS's in-memory store. The rules are persist before send, persist before ack, and no old snapshots. Details and remaining requirements are tracked in #11/#16.
+- **Persistence:** one versioned state snapshot (`export_state`/`restore`) over OpenMLS's in-memory store. The rules are persist before send, persist before ack, and no old snapshots. The snapshot is encrypted inside Rust (ADR-0007, #11); the key source and the persist rules are #16's.
   - **Android:** encrypted with a key held by the Android Keystore.
   - **Web:** there is **no** real at-rest protection without a user secret. A non-extractable WebCrypto key in IndexedDB is only enforced at the JS API: Chromium and Firefox store its raw bytes in the profile next to the ciphertext (Safari wraps them with the Keychain). Real protection on the web needs a passphrase-derived key, which is a product decision for #16. Otherwise the web client's state is only as safe as the browser profile.
   - **Write atomically.** That gives crash consistency, not rollback detection: a counter stored with the snapshot gets rolled back with it. Freshness has to be anchored outside the local store, and an epoch check alone is not enough: a rollback *within* an epoch keeps the epoch but rewinds the client's own sender-ratchet generation, so the client would reuse key/nonce generations (SEC-6 on #37). #11/#16 must therefore either have the Delivery Service remember the last accepted send per group and device (the client stores its last-sent ID in the snapshot and refuses to encrypt if the server knows a later one), or send a self-update Commit before the first application message after any restore whose freshness can't be confirmed. The first option fails if the server colludes with whoever rolled the state back.
 - **Panics:**
-  - **Android:** release builds use `panic = "unwind"`, so a panic becomes a Kotlin exception instead of killing the app. After a caught panic the client is discarded and reloaded from the last snapshot.
-  - **Web:** a panic is a wasm trap that leaves the whole module unusable (`panic = "unwind"` has no effect there). The facade must re-instantiate the module (or reload the page) and restore from the last snapshot.
-  - **Both:** never persist state after a panic or trap, and quarantine the triggering message (#11).
+  - Superseded in detail by ADR-0007. **Android/JVM:** release builds use `panic = "unwind"`; the crate catches every panic itself and returns `ErrorCode::Poisoned` (no exception message reaches Kotlin). The client is then discarded and reloaded from the last snapshot.
+  - **Web:** a panic is a wasm trap that leaves the whole module unusable (`panic = "unwind"` has no effect there). Recovery is a page reload and a restore from the last snapshot; re-instantiating the module in place is not safe (ADR-0007).
+  - **Both:** never persist state after a panic or trap (enforced per instance in Rust, ADR-0007), and quarantine the triggering message (#22).
 - **Toolchain pins:**
   - `crypto/rust-toolchain.toml` is the single source of the Rust version
   - the Android NDK version lives in the version catalog

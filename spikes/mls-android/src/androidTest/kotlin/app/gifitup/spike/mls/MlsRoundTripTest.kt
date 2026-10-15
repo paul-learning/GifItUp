@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
-import uniffi.gifitup_crypto.MlsClient
+import uniffi.gifitup_crypto.NativeMlsClient
 
 /** SPIKE (#3): full MLS round trip through the uniffi bindings on a device/emulator. */
 @RunWith(AndroidJUnit4::class)
@@ -15,8 +15,8 @@ class MlsRoundTripTest {
     @Test
     fun aliceAndBobExchangeMessages() {
         val start = System.nanoTime()
-        MlsClient("alice").use { alice ->
-            MlsClient("bob").use { bob ->
+        NativeMlsClient("alice").use { alice ->
+            NativeMlsClient("bob").use { bob ->
                 val groupId = alice.createGroup()
                 val added = alice.addMember(groupId, bob.createKeyPackage())
                 assertArrayEquals(groupId, bob.joinFromWelcome(added.welcome))
@@ -35,9 +35,9 @@ class MlsRoundTripTest {
 
     @Test
     fun thirdMemberJoinsAndExistingMemberProcessesCommit() {
-        MlsClient("alice").use { alice ->
-            MlsClient("bob").use { bob ->
-                MlsClient("carol").use { carol ->
+        NativeMlsClient("alice").use { alice ->
+            NativeMlsClient("bob").use { bob ->
+                NativeMlsClient("carol").use { carol ->
                     val groupId = alice.createGroup()
                     bob.joinFromWelcome(alice.addMember(groupId, bob.createKeyPackage()).welcome)
 

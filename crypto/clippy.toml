@@ -1,0 +1,9 @@
+# Same function-size limit as detekt for Kotlin (ARCH-M0-7, CLAUDE.md "Periodic reviews").
+too-many-lines-threshold = 60
+
+# MLS authenticated data is sent in the clear and isn't padded: it must stay empty (ADR-0006 B6, SEC-M0-9).
+disallowed-methods = [
+  { path = "openmls::group::MlsGroup::set_aad", reason = "AAD is cleartext and unpadded (ADR-0006 B6)" },
+  # Only exists with the `extensions-draft` feature (denied in deny.toml); kept so enabling it stays covered.
+  { path = "openmls::group::MlsGroup::set_safe_aad", reason = "AAD is cleartext and unpadded (ADR-0006 B6)", allow-invalid = true },
+]
