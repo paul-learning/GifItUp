@@ -71,7 +71,8 @@ jobs:
       # and targets. Installing it once here keeps parallel cargo calls from installing it concurrently (#67 CR-1).
       - name: Install the pinned Rust toolchain
         working-directory: crypto
-        run: rustup show active-toolchain && cargo --version
+        # Explicit install from rust-toolchain.toml; relying on rustup's implicit auto-install is deprecated (#67 CR-8).
+        run: rustup toolchain install && rustup show active-toolchain && cargo --version
 
       # wasm-bindgen-cli is a prebuilt release binary, verified against a pinned SHA-256.
       - name: Install wasm-bindgen-cli
@@ -97,8 +98,11 @@ jobs:
         run: |
           dist=composeApp/build/dist/wasmJs/productionExecutable
           ls "$dist"/*.wasm
-          if grep -rlaF gifitup_test_panic_marker "$dist"; then echo "::error::test-panic code in the web bundle"; exit 1; fi
-          if grep -laF "$HOME" "$dist"/*.wasm; then echo "::error::build-machine paths in the web bundle"; exit 1; fi
+          # grep exits 0 = found (fail), 1 = not found (ok), 2 = read error (fail).
+          rc=0; grep -rlaF gifitup_test_panic_marker "$dist" || rc=$?
+          [ "$rc" -eq 1 ] || { echo "::error::test-panic code in the web bundle (or scan error $rc)"; exit 1; }
+          rc=0; grep -laF "$HOME" "$dist"/*.wasm || rc=$?
+          [ "$rc" -eq 1 ] || { echo "::error::build-machine paths in the web bundle (or scan error $rc)"; exit 1; }
 
       - name: Upload test and lint reports
         if: failure()
@@ -274,8 +278,14 @@ jobs:
           for apk in androidApp/build/outputs/apk/debug/*.apk androidApp/build/outputs/apk/release/*.apk; do
             for abi in arm64-v8a x86_64; do
               so="lib/${abi}/libgifitup_crypto.so"
-              unzip -l "$apk" | grep -q "$so" || { echo "::error::$apk lacks ${abi}"; exit 1; }
-              if unzip -p "$apk" "$so" | grep -qaF gifitup_test_panic_marker; then echo "::error::test-panic code in $apk ($abi)"; exit 1; fi
-              if unzip -p "$apk" "$so" | grep -qaF "$HOME"; then echo "::error::build-machine paths in $apk ($abi)"; exit 1; fi
+              lib="$RUNNER_TEMP/scan.so"
+              rm -f "$lib"
+              unzip -p "$apk" "$so" > "$lib" || { echo "::error::$apk lacks ${abi}"; exit 1; }
+              [ -s "$lib" ] || { echo "::error::$apk lacks ${abi}"; exit 1; }
+              # grep exits 0 = found (fail), 1 = not found (ok), 2 = read error (fail).
+              for needle in gifitup_test_panic_marker "$HOME"; do
+                rc=0; grep -qaF "$needle" "$lib" || rc=$?
+                [ "$rc" -eq 1 ] || { echo "::error::$apk ($abi): found '$needle' (or scan error $rc)"; exit 1; }
+              done
             done
           done

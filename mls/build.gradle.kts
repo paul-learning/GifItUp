@@ -41,12 +41,14 @@ val crateSources =
     )
 
 /**
- * RUSTFLAGS for builds that ship: rewrite the build machine's cargo home and checkout paths, which would otherwise
- * end up in panic-location strings of the .so/.wasm files (account name, non-reproducible builds; #67 SEC-3).
+ * RUSTFLAGS for builds that ship: rewrite the build machine's cargo home and the repository checkout (crypto/ and
+ * the cargo target dirs under mls/build), which would otherwise end up in panic-location strings of the .so/.wasm
+ * files (account name, non-reproducible builds; #67 SEC-3, SEC-9). Setting CARGO_ENCODED_RUSTFLAGS replaces any
+ * rustflags from a .cargo/config.toml for these builds (there is none; switch to `trim-paths` once it's stable).
  */
-fun releaseRustFlags(crate: File): String {
+fun releaseRustFlags(repo: File): String {
     val cargoHome = System.getenv("CARGO_HOME") ?: File(System.getProperty("user.home"), ".cargo").path
-    return listOf("--remap-path-prefix=$cargoHome=/cargo", "--remap-path-prefix=${crate.path}=/crypto").joinToString("\u001f")
+    return listOf("--remap-path-prefix=$cargoHome=/cargo", "--remap-path-prefix=${repo.path}=/repo").joinToString("\u001f")
 }
 
 /**
@@ -56,6 +58,12 @@ fun releaseRustFlags(crate: File): String {
 abstract class CargoSerializer : BuildService<BuildServiceParameters.None>
 
 val cargoSerializer = gradle.sharedServices.registerIfAbsent("cargoSerializer", CargoSerializer::class) { maxParallelUsages.set(1) }
+
+/** The build machine's home directory in the spellings a binary may contain it. */
+fun homePathVariants(): List<String> {
+    val home = System.getProperty("user.home")
+    return listOf(home, home.replace('\\', '/')).distinct()
+}
 
 /** Host library name of the crate on this OS (what JNA loads in JVM tests). */
 fun hostLibraryName(): String {
@@ -215,13 +223,18 @@ abstract class VerifyNoTestPanic : DefaultTask() {
     @get:OutputFile
     abstract val stamp: RegularFileProperty
 
+    /** Paths that must not appear either (the build machine's home), for release binaries; empty to skip. */
+    @get:Input
+    abstract val forbiddenPaths: ListProperty<String>
+
     @TaskAction
     fun verify() {
-        val marker = "gifitup_test_panic_marker".encodeToByteArray()
+        val markers = listOf("gifitup_test_panic_marker") + forbiddenPaths.get()
+        val needles = markers.map { it.encodeToByteArray() }
         val files = artifacts.asFileTree.files
         check(files.isNotEmpty()) { "no artifacts to scan" }
-        val tainted = files.filter { file -> file.readBytes().indexOf(marker) >= 0 }
-        check(tainted.isEmpty()) { "test-panic code found in: ${tainted.joinToString()}" }
+        val tainted = files.filter { file -> file.readBytes().let { bytes -> needles.any { bytes.indexOf(it) >= 0 } } }
+        check(tainted.isEmpty()) { "test-panic code or build-machine paths found in: ${tainted.joinToString()}" }
         logger.lifecycle("No test-panic marker in ${files.size} files.")
         stamp.get().asFile.writeText("ok\n")
     }
@@ -323,7 +336,7 @@ val wasmBindgenPackage =
         targetDir.set(wasmTargetDir)
         testBuild.set(false)
         packageName.set("gifitup-crypto")
-        rustFlags.set(releaseRustFlags(cryptoDir.asFile))
+        rustFlags.set(releaseRustFlags(rootProject.projectDir))
         outputDir.set(wasmPkgDir)
     }
 
@@ -431,7 +444,7 @@ val cargoNdkBuild =
                 .map { it.dir("ndk/${libs.versions.android.ndk.get()}") },
         )
         targetDir.set(androidTargetDir)
-        rustFlags.set(releaseRustFlags(cryptoDir.asFile))
+        rustFlags.set(releaseRustFlags(rootProject.projectDir))
         outputDir.set(layout.buildDirectory.dir("rust/jniLibs"))
     }
 
@@ -473,11 +486,20 @@ tasks.matching { it.name == "wasmJsBrowserTest" }.configureEach {
 val verifyNoTestPanic =
     tasks.register<VerifyNoTestPanic>("verifyNoTestPanic") {
         artifacts.from(wasmBindgenPackage, uniffiBindgen.flatMap { it.outputDir })
+        forbiddenPaths.set(emptyList())
         stamp.set(layout.buildDirectory.file("verify/no-test-panic.txt"))
     }
-tasks.named("check") { dependsOn(verifyNoTestPanic) }
+// The release wasm on its own also must not carry the build machine's home path (#67 SEC-9).
+val verifyReleaseWasmPaths =
+    tasks.register<VerifyNoTestPanic>("verifyReleaseWasmPaths") {
+        artifacts.from(wasmBindgenPackage.map { it.outputDir.file("gifitup_crypto_bg.wasm") })
+        forbiddenPaths.set(homePathVariants())
+        stamp.set(layout.buildDirectory.file("verify/release-wasm-paths.txt"))
+    }
+tasks.named("check") { dependsOn(verifyNoTestPanic, verifyReleaseWasmPaths) }
 tasks.register<VerifyNoTestPanic>("verifyNoTestPanicAndroid") {
     artifacts.from(cargoNdkBuild)
+    forbiddenPaths.set(homePathVariants())
     stamp.set(layout.buildDirectory.file("verify/no-test-panic-android.txt"))
 }
 tasks
