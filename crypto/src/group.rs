@@ -138,6 +138,14 @@ impl Client {
         }
     }
 
+    /// Leaves this device's copy of a group: deletes the group's state and secrets from storage,
+    /// so they are absent from the next snapshot (#37 SEC-4; used by #22 for leave/removal).
+    pub fn forget_group(&self, group_id: &[u8]) -> Result<(), ErrorCode> {
+        let mut groups = self.lock_groups()?;
+        let mut group = groups.remove(group_id).ok_or(ErrorCode::UnknownGroup)?;
+        group.delete(self.provider.storage()).map_err(mls)
+    }
+
     /// Number of members in the group (for tests and UI).
     pub fn member_count(&self, group_id: &[u8]) -> Result<u32, ErrorCode> {
         let groups = self.lock_groups()?;
@@ -149,17 +157,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn pair() -> (Client, Client, Vec<u8>) {
-        let alice = Client::new("alice".into()).unwrap();
-        let bob = Client::new("bob".into()).unwrap();
-        let group_id = alice.create_group().unwrap();
-        let added = alice
-            .add_member(&group_id, &bob.create_key_package().unwrap())
-            .unwrap();
-        assert_eq!(bob.join_from_welcome(&added.welcome).unwrap(), group_id);
-        (alice, bob, group_id)
-    }
+    use crate::test_support::{client, key, key_package, pair, storage_keys};
 
     #[test]
     fn alice_and_bob_exchange_messages() {
@@ -179,11 +177,9 @@ mod tests {
     #[test]
     fn third_member_joins_and_existing_member_processes_commit() {
         let (alice, bob, group_id) = pair();
-        let carol = Client::new("carol".into()).unwrap();
+        let carol = client("carol");
 
-        let add_carol = alice
-            .add_member(&group_id, &carol.create_key_package().unwrap())
-            .unwrap();
+        let add_carol = alice.add_member(&group_id, &key_package(&carol)).unwrap();
         assert_eq!(bob.process(&group_id, &add_carol.commit).unwrap(), None);
         carol.join_from_welcome(&add_carol.welcome).unwrap();
         assert_eq!(bob.member_count(&group_id).unwrap(), 3);
@@ -243,7 +239,7 @@ mod tests {
 
         let snapshot = bob.export_state().unwrap();
         drop(bob);
-        let bob = Client::restore(&snapshot).unwrap();
+        let bob = Client::restore(&snapshot, key()).unwrap();
         assert_eq!(bob.member_count(&group_id).unwrap(), 2);
 
         let second = alice.encrypt(&group_id, b"after restart").unwrap();
@@ -258,9 +254,59 @@ mod tests {
         );
     }
 
+    /// #11 plan review SEC-8: after forgetting a group, the storage holds exactly what it held
+    /// before the group existed (minus the KeyPackage a joiner used), even after a self-update
+    /// and with a commit still pending. A search for the group ID alone would miss secrets that
+    /// OpenMLS stores under a public key.
+    #[test]
+    fn forgetting_a_group_leaves_no_secrets_behind() {
+        let alice = client("alice");
+        let bob = client("bob");
+        let alice_before = storage_keys(&alice);
+        let bob_key_package = key_package(&bob);
+        let bob_before = storage_keys(&bob);
+
+        let group_id = alice.create_group().unwrap();
+        let added = alice.add_member(&group_id, &bob_key_package).unwrap();
+        bob.join_from_welcome(&added.welcome).unwrap();
+        {
+            let mut groups = alice.lock_groups().unwrap();
+            let group = groups.get_mut(&group_id).unwrap();
+            let update = group
+                .self_update(
+                    &alice.provider,
+                    &alice.signer,
+                    LeafNodeParameters::default(),
+                )
+                .unwrap();
+            group.merge_pending_commit(&alice.provider).unwrap();
+            bob.process(
+                &group_id,
+                &update.commit().tls_serialize_detached().unwrap(),
+            )
+            .unwrap();
+            // A second update stays pending.
+            group
+                .self_update(
+                    &alice.provider,
+                    &alice.signer,
+                    LeafNodeParameters::default(),
+                )
+                .unwrap();
+        }
+
+        alice.forget_group(&group_id).unwrap();
+        bob.forget_group(&group_id).unwrap();
+        assert_eq!(storage_keys(&alice), alice_before);
+        // Bob's KeyPackage was used by the Welcome, so it is gone as well.
+        assert!(storage_keys(&bob).is_subset(&bob_before));
+        assert_eq!(bob_before.len() - storage_keys(&bob).len(), 1);
+        assert_eq!(alice.forget_group(&group_id), Err(ErrorCode::UnknownGroup));
+    }
+
     #[test]
     fn rejects_garbage_input() {
-        let alice = Client::new("alice".into()).unwrap();
+        let alice = client("alice");
         let group_id = alice.create_group().unwrap();
         assert_eq!(
             alice.add_member(&group_id, &[1, 2, 3]).err(),

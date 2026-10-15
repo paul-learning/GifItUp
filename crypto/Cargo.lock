@@ -779,6 +779,7 @@ dependencies = [
  "thiserror",
  "uniffi",
  "wasm-bindgen",
+ "zeroize",
 ]
 
 [[package]]

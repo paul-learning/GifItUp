@@ -15,10 +15,10 @@ class MlsRoundTripTest {
     @Test
     fun aliceAndBobExchangeMessages() {
         val start = System.nanoTime()
-        NativeMlsClient("alice").use { alice ->
-            NativeMlsClient("bob").use { bob ->
+        NativeMlsClient("alice", key()).use { alice ->
+            NativeMlsClient("bob", key()).use { bob ->
                 val groupId = alice.createGroup()
-                val added = alice.addMember(groupId, bob.createKeyPackage())
+                val added = alice.addMember(groupId, bob.keyPackage())
                 assertArrayEquals(groupId, bob.joinFromWelcome(added.welcome))
                 assertEquals(2u, alice.memberCount(groupId))
                 assertEquals(2u, bob.memberCount(groupId))
@@ -35,13 +35,13 @@ class MlsRoundTripTest {
 
     @Test
     fun thirdMemberJoinsAndExistingMemberProcessesCommit() {
-        NativeMlsClient("alice").use { alice ->
-            NativeMlsClient("bob").use { bob ->
-                NativeMlsClient("carol").use { carol ->
+        NativeMlsClient("alice", key()).use { alice ->
+            NativeMlsClient("bob", key()).use { bob ->
+                NativeMlsClient("carol", key()).use { carol ->
                     val groupId = alice.createGroup()
-                    bob.joinFromWelcome(alice.addMember(groupId, bob.createKeyPackage()).welcome)
+                    bob.joinFromWelcome(alice.addMember(groupId, bob.keyPackage()).welcome)
 
-                    val addCarol = alice.addMember(groupId, carol.createKeyPackage())
+                    val addCarol = alice.addMember(groupId, carol.keyPackage())
                     assertNull(bob.process(groupId, addCarol.commit))
                     carol.joinFromWelcome(addCarol.welcome)
 
@@ -51,5 +51,14 @@ class MlsRoundTripTest {
                 }
             }
         }
+    }
+
+    private fun key() = ByteArray(KEY_SIZE) { KEY_BYTE }
+
+    private fun NativeMlsClient.keyPackage() = createKeyPackages(1u).single().keyPackage
+
+    private companion object {
+        const val KEY_SIZE = 32
+        const val KEY_BYTE: Byte = 7
     }
 }
