@@ -89,19 +89,15 @@ impl Client {
         if !is_valid_username(&username) {
             return Err(ErrorCode::SnapshotInvalid);
         }
-        let provider = Provider {
+        let mut provider = Provider {
             crypto: RustCrypto::default(),
             storage: MemoryStorage {
                 values: RwLock::new(std::mem::take(&mut snapshot.values)),
             },
         };
-        let signer = SignatureKeyPair::read(
-            provider.storage(),
-            &snapshot.signature_public_key,
-            CIPHERSUITE.signature_algorithm(),
-        )
-        .ok_or(ErrorCode::SnapshotInvalid)?;
-        let groups = load_groups(&provider, &snapshot.group_ids, &username, &signer)?;
+        // If a check fails there is no Client yet whose Drop would wipe the storage (#65 SEC-7).
+        let (signer, groups, refs) = load_state(&provider, &snapshot, &username)
+            .inspect_err(|_| wipe(&mut provider.storage))?;
         let credential = credential_with_key(&username, &signer);
         Ok(Self {
             provider,
@@ -109,7 +105,7 @@ impl Client {
             signer,
             credential,
             groups: Mutex::new(groups),
-            key_package_refs: Mutex::new(decode_refs(&snapshot.key_package_refs)?),
+            key_package_refs: Mutex::new(refs),
             snapshot_key,
         })
     }
@@ -134,14 +130,39 @@ impl Client {
 /// used or pruned KeyPackage) were freed without wiping; that is outside our control.
 impl Drop for Client {
     fn drop(&mut self) {
-        let values = self
-            .provider
-            .storage
-            .values
-            .get_mut()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        values.values_mut().for_each(zeroize::Zeroize::zeroize);
+        wipe(&mut self.provider.storage);
     }
+}
+
+fn wipe(storage: &mut MemoryStorage) {
+    let values = storage
+        .values
+        .get_mut()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    values.values_mut().for_each(zeroize::Zeroize::zeroize);
+}
+
+type LoadedState = (
+    SignatureKeyPair,
+    HashMap<Vec<u8>, MlsGroup>,
+    Vec<KeyPackageRef>,
+);
+
+/// Reads the signing key, every group (with its leaf checks) and the KeyPackage refs.
+fn load_state(
+    provider: &Provider,
+    snapshot: &Snapshot,
+    username: &str,
+) -> Result<LoadedState, ErrorCode> {
+    let signer = SignatureKeyPair::read(
+        provider.storage(),
+        &snapshot.signature_public_key,
+        CIPHERSUITE.signature_algorithm(),
+    )
+    .ok_or(ErrorCode::SnapshotInvalid)?;
+    let groups = load_groups(provider, &snapshot.group_ids, username, &signer)?;
+    let refs = decode_refs(&snapshot.key_package_refs)?;
+    Ok((signer, groups, refs))
 }
 
 /// Loads every group and checks that our own leaf in it carries this identity: the username in
@@ -217,6 +238,15 @@ mod tests {
         assert_eq!(restored.public_identity(), bob.public_identity());
         assert_eq!(restored.member_count(&group_id).unwrap(), 2);
         assert_eq!(restored.lock_key_package_refs().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn wipe_zeroes_every_stored_value() {
+        let mut storage = MemoryStorage {
+            values: RwLock::new(HashMap::from([(vec![1], vec![0xAB; 8])])),
+        };
+        wipe(&mut storage);
+        assert_eq!(storage.values.read().unwrap()[&vec![1]], vec![0; 8]);
     }
 
     #[test]
