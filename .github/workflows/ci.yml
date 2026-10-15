@@ -120,11 +120,12 @@ jobs:
           shellcheck --version
           git ls-files -z '*.sh' | xargs -0 --no-run-if-empty shellcheck
 
-      # Also runs the pinned shellcheck over every workflow `run:` block.
+      # Also runs the pinned shellcheck over every workflow `run:` block. An empty -pyflakes= keeps the
+      # runner's unpinned pyflakes out (no `shell: python` steps today).
       - name: actionlint
         run: |
           actionlint -version
-          actionlint -shellcheck "$(command -v shellcheck)"
+          actionlint -shellcheck "$(command -v shellcheck)" -pyflakes=
 
   crypto:
     name: Rust crypto crate
