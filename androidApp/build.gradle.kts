@@ -41,3 +41,6 @@ dependencies {
     implementation(projects.mls)
     implementation(libs.androidx.activity.compose)
 }
+
+// No APK is written before the .so files passed the test-panic and build-path scan (ADR-0007, #67 SEC-12).
+tasks.matching { it.name.startsWith("package") }.configureEach { dependsOn(":mls:verifyNoTestPanicAndroid") }

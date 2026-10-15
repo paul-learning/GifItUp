@@ -264,6 +264,10 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      - name: Install the pinned Rust toolchain
+        working-directory: crypto
+        run: rustup toolchain install && rustup show active-toolchain
+
       - name: Install cargo-ndk
         working-directory: crypto
         run: cargo install cargo-ndk --locked --version 4.1.2

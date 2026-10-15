@@ -497,11 +497,12 @@ val verifyReleaseWasmPaths =
         stamp.set(layout.buildDirectory.file("verify/release-wasm-paths.txt"))
     }
 tasks.named("check") { dependsOn(verifyNoTestPanic, verifyReleaseWasmPaths) }
-val verifyNoTestPanicAndroid = tasks.register<VerifyNoTestPanic>("verifyNoTestPanicAndroid") {
-    artifacts.from(cargoNdkBuild)
-    forbiddenPaths.set(homePathVariants())
-    stamp.set(layout.buildDirectory.file("verify/no-test-panic-android.txt"))
-}
+val verifyNoTestPanicAndroid =
+    tasks.register<VerifyNoTestPanic>("verifyNoTestPanicAndroid") {
+        artifacts.from(cargoNdkBuild)
+        forbiddenPaths.set(homePathVariants())
+        stamp.set(layout.buildDirectory.file("verify/no-test-panic-android.txt"))
+    }
 tasks
     .matching { it.name.contains("PackageJson", ignoreCase = true) }
     .configureEach { dependsOn(wasmBindgenPackage) }
