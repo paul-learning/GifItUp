@@ -353,16 +353,12 @@ mod tests {
     }
 
     #[test]
-    fn debug_output_redacts_secrets() {
-        let mut secret = sample();
-        secret
-            .values
-            .insert(b"key".to_vec(), b"TOP-SECRET".to_vec());
-        let printed = format!("{secret:?}");
-        assert!(
-            !printed.contains("TOP") && !printed.contains("84, 79, 80"),
-            "{printed}"
-        );
+    fn debug_output_redacts_stored_values() {
+        let mut snapshot = sample();
+        snapshot.values.insert(b"k".to_vec(), b"MARKER".to_vec());
+        let printed = format!("{snapshot:?}");
+        // Neither the text nor its byte values ("77, 65, 82" = "MAR") may appear.
+        assert!(!printed.contains("MARKER") && !printed.contains("77, 65, 82"));
     }
 
     #[test]

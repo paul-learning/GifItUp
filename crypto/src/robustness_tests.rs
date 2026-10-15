@@ -46,8 +46,9 @@ impl Mutator {
     }
 }
 
-fn check(seed: &[u8], salt: u64, mut parse: impl FnMut(&[u8]) -> bool) {
-    let mut mutator = Mutator(0x9E37_79B9_7F4A_7C15 ^ salt);
+/// `stream` picks a different, fixed mutation sequence per test (not cryptographic).
+fn check(seed: &[u8], stream: u64, mut parse: impl FnMut(&[u8]) -> bool) {
+    let mut mutator = Mutator(0x9E37_79B9_7F4A_7C15 ^ stream);
     for _ in 0..ITERATIONS {
         let mutated = mutator.mutate(seed);
         if mutated != seed {
