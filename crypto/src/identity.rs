@@ -136,6 +136,8 @@ impl Client {
         key_package: &[u8],
         expected_username: &str,
     ) -> Result<PublicIdentity, ErrorCode> {
+        #[cfg(feature = "test-panic")]
+        crate::test_panic::maybe_panic(expected_username);
         if key_package.len() > MAX_KEY_PACKAGE_BYTES || !is_valid_username(expected_username) {
             return Err(ErrorCode::InvalidInput);
         }

@@ -28,6 +28,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.shared)
+            // MlsClient implementations (ADR-0007); built into AppGraph by each composition root.
+            implementation(projects.mls)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
@@ -35,3 +37,14 @@ kotlin {
         }
     }
 }
+
+// The web bundle must contain the freshly built crypto package, not a stale copy in node_modules (#66 CR-1, CR-11).
+tasks
+    .matching { it.name.startsWith("wasmJsBrowser") && (it.name.contains("Webpack") || it.name.contains("Distribution")) }
+    .configureEach {
+        dependsOn(":mls:syncWasmPackage")
+        inputs
+            .dir(rootProject.layout.buildDirectory.dir("wasm/node_modules/gifitup-crypto"))
+            .withPropertyName("cryptoPackage")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    }

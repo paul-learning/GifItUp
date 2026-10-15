@@ -62,7 +62,13 @@ The third #11 PR deletes `spikes/`, the `gifitup.rust` Gradle property, `kotlin-
 1. **In place with this ADR:** closed error codes, `PanicGuard` on every FFI call, silent panic hook, `overflow-checks`, padding 1024/896, the `set_aad` ban, `cargo-deny`, the module split of the crate. The spike FFI exports stay (labelled SPIKE) so the spike jobs keep running.
 2. **In place with the second #11 PR:** username rule, KeyPackage creation (at most 100 per call, 200 held), pruning of expired ones, inspection of others' KeyPackages (incl. `has_acceptable_range()`, ciphersuite, username, no last-resort), the encrypted snapshot and its restore checks, `forget_group` (test: storage equals the pre-group baseline after a self-update and with a pending commit), mutation tests of the parse paths.
 3. **In place with the third #11 PR:** `MlsClient`/`MlsClientFactory` and a fake in `:shared`, the `:mls` module (`UniffiMlsClient` on Android/JVM, `WasmMlsClient` in the browser), one contract-test suite run on the JVM and in headless Chrome, spike removal. `:mls` is not wired into the apps yet.
-4. Planned (#11, PR 4): panic and trap tests with a test-only feature that can't reach release builds, wiring `:mls` into the composition roots.
+4. **In place with the fourth #11 PR:** panic and trap tests through a real Rust panic (JVM: `Poisoned`, no payload, no export; browser: the trap is caught on the call itself, the module is dead, both key copies are zeroed, and the Rust trap detector refuses the next call); `:mls` wired into the composition roots (`AppGraph`, factory loaded lazily) and its `.so` files shipped in the APK.
+
+### Test-only panic trigger
+- A cargo feature `test-panic` makes `inspect_key_package` panic on the reserved username `__panic__`. It adds **no FFI function**, so the uniffi bindings and their checksums are the same with and without it (the production bindings are generated from the production library; the JVM tests load a feature build of the same API).
+- It can't be built with the release profile (`compile_error!` in `crypto/src/test_panic.rs`). Test builds use their own cargo target dirs and, on the web, their own npm package (`gifitup-crypto-test`), so the trap test never touches the production module the contract tests use.
+- A marker symbol (`gifitup_test_panic_marker`) exists only with the feature. `:mls:verifyNoTestPanic` (part of `check`) scans the release wasm package and the generated bindings for it; `:mls:verifyNoTestPanicAndroid` scans the release `.so` files in the "MLS bindings" job.
+- Android ships `arm64-v8a` and `x86_64` only (`abiFilters`), the ABIs the crate is built for.
 
 ## Consequences
 - Building the apps needs the Rust toolchain, cargo-ndk and wasm-bindgen-cli; working on `:shared`, `:protocol` or `:server` doesn't.

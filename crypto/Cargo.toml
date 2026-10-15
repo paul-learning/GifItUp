@@ -17,6 +17,9 @@ required-features = ["bindgen"]
 
 [features]
 bindgen = ["uniffi/cli"]
+# Test builds only (debug profile; a release build fails to compile): makes inspect_key_package panic on a
+# reserved username, for the panic and trap tests in :mls (ADR-0007). See src/test_panic.rs.
+test-panic = []
 
 [dependencies]
 openmls = "0.9.1"

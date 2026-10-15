@@ -21,9 +21,12 @@ val minSdkVersion = libs.versions.android.minSdk.get().toInt()
 
 // Each build flavour gets its own cargo target dir, so artifacts can't leak between them (#11 plan SEC-5).
 val hostTargetDir = layout.buildDirectory.dir("cargo/host")
+val hostTestTargetDir = layout.buildDirectory.dir("cargo/host-test")
 val wasmTargetDir = layout.buildDirectory.dir("cargo/wasm")
+val wasmTestTargetDir = layout.buildDirectory.dir("cargo/wasm-test")
 val androidTargetDir = layout.buildDirectory.dir("cargo/android")
 val wasmPkgDir = layout.buildDirectory.dir("wasm-pkg")
+val wasmTestPkgDir = layout.buildDirectory.dir("wasm-pkg-test")
 val uniffiKotlinDir = layout.buildDirectory.dir("generated/uniffi/kotlin")
 
 val crateSources =
@@ -151,9 +154,59 @@ abstract class CargoNdkBuild
         }
     }
 
+/** Builds the host library in debug with the `test-panic` feature, for the JVM panic tests only (ADR-0007). */
+abstract class CargoHostTestLibrary
+    @Inject
+    constructor(
+        private val exec: ExecOperations,
+    ) : DefaultTask() {
+        @get:InputFiles
+        @get:PathSensitive(PathSensitivity.RELATIVE)
+        abstract val sources: ConfigurableFileCollection
+
+        @get:Internal
+        abstract val crateDir: DirectoryProperty
+
+        @get:OutputDirectory
+        abstract val targetDir: DirectoryProperty
+
+        @TaskAction
+        fun build() {
+            exec.exec {
+                workingDir = crateDir.get().asFile
+                executable = "cargo"
+                args("build", "--lib", "--locked", "--features", "test-panic", "--target-dir", targetDir.get().asFile.absolutePath)
+            }
+        }
+    }
+
 /**
- * Builds the crate for wasm32 (release) and runs wasm-bindgen (`--target web`) into an npm package directory
- * that Kotlin consumes via `npm("gifitup-crypto", dir)`.
+ * Fails if any file contains the `test-panic` marker symbol: release artifacts and the generated production
+ * bindings must never contain the test-only panic trigger (#11 plan review SEC-5).
+ */
+abstract class VerifyNoTestPanic : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val artifacts: ConfigurableFileCollection
+
+    @TaskAction
+    fun verify() {
+        val marker = "gifitup_test_panic_marker".encodeToByteArray()
+        val files = artifacts.asFileTree.files
+        check(files.isNotEmpty()) { "no artifacts to scan" }
+        val tainted = files.filter { file -> file.readBytes().indexOf(marker) >= 0 }
+        check(tainted.isEmpty()) { "test-panic code found in: ${tainted.joinToString()}" }
+        logger.lifecycle("No test-panic marker in ${files.size} files.")
+    }
+
+    private fun ByteArray.indexOf(needle: ByteArray): Int =
+        (0..size - needle.size).firstOrNull { start -> needle.indices.all { this[start + it] == needle[it] } } ?: -1
+}
+
+/**
+ * Builds the crate for wasm32 and runs wasm-bindgen (`--target web`) into an npm package directory that Kotlin
+ * consumes via `npm(packageName, dir)`. The production package is a release build; the test package is a debug
+ * build with the `test-panic` feature under its own name, so the two can never be mixed up (ADR-0007).
  */
 abstract class WasmBindgenPackage
     @Inject
@@ -170,6 +223,12 @@ abstract class WasmBindgenPackage
         @get:Internal
         abstract val targetDir: DirectoryProperty
 
+        @get:Input
+        abstract val testBuild: Property<Boolean>
+
+        @get:Input
+        abstract val packageName: Property<String>
+
         @get:OutputDirectory
         abstract val outputDir: DirectoryProperty
 
@@ -178,19 +237,16 @@ abstract class WasmBindgenPackage
             val crate = crateDir.get().asFile
             val target = targetDir.get().asFile
             val out = outputDir.get().asFile
+            val test = testBuild.get()
+            val cargoArgs = mutableListOf("build", "--target", "wasm32-unknown-unknown", "--locked")
+            cargoArgs += if (test) listOf("--features", "test-panic") else listOf("--release")
+            cargoArgs += listOf("--target-dir", target.absolutePath)
             exec.exec {
                 workingDir = crate
                 executable = "cargo"
-                args(
-                    "build",
-                    "--target",
-                    "wasm32-unknown-unknown",
-                    "--release",
-                    "--locked",
-                    "--target-dir",
-                    target.absolutePath,
-                )
+                args(cargoArgs)
             }
+            val profile = if (test) "debug" else "release"
             out.deleteRecursively()
             exec.exec {
                 workingDir = crate
@@ -200,13 +256,13 @@ abstract class WasmBindgenPackage
                     "web",
                     "--out-dir",
                     out.absolutePath,
-                    target.resolve("wasm32-unknown-unknown/release/gifitup_crypto.wasm").absolutePath,
+                    target.resolve("wasm32-unknown-unknown/$profile/gifitup_crypto.wasm").absolutePath,
                 )
             }
             out.resolve("package.json").writeText(
                 """
                 {
-                  "name": "gifitup-crypto",
+                  "name": "${packageName.get()}",
                   "version": "0.0.0",
                   "private": true,
                   "type": "module",
@@ -232,12 +288,32 @@ val wasmBindgenPackage =
         sources.from(crateSources)
         crateDir.set(cryptoDir)
         targetDir.set(wasmTargetDir)
+        testBuild.set(false)
+        packageName.set("gifitup-crypto")
         outputDir.set(wasmPkgDir)
     }
 
-// Kotlin validates npm(name, dir) at configuration time, before wasmBindgenPackage can run, so the
-// directory has to exist up front (the task fills it before npm install).
+val wasmBindgenTestPackage =
+    tasks.register<WasmBindgenPackage>("wasmBindgenTestPackage") {
+        sources.from(crateSources)
+        crateDir.set(cryptoDir)
+        targetDir.set(wasmTestTargetDir)
+        testBuild.set(true)
+        packageName.set("gifitup-crypto-test")
+        outputDir.set(wasmTestPkgDir)
+    }
+
+val hostTestLibrary =
+    tasks.register<CargoHostTestLibrary>("hostTestLibrary") {
+        sources.from(crateSources)
+        crateDir.set(cryptoDir)
+        targetDir.set(hostTestTargetDir)
+    }
+
+// Kotlin validates npm(name, dir) at configuration time, before the package tasks can run, so the
+// directories have to exist up front (the tasks fill them before npm install).
 wasmPkgDir.get().asFile.mkdirs()
+wasmTestPkgDir.get().asFile.mkdirs()
 
 kotlin {
     jvmToolchain(21)
@@ -267,6 +343,10 @@ kotlin {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
         }
+        // Debug build with the test-panic feature, only for the trap test (ADR-0007).
+        wasmJsTest.dependencies {
+            implementation(npm("gifitup-crypto-test", wasmTestPkgDir.get().asFile))
+        }
         // uniffi's Kotlin output is plain JVM Kotlin: the same generated files and wrapper compile for both
         // JVM targets (a shared intermediate source set would need JNA in its metadata compilation).
         jvmMain {
@@ -287,15 +367,16 @@ kotlin {
     }
 }
 
-// JVM contract tests load the host library built by uniffiBindgen. It is a declared input, so a change to the
-// Rust code alone reruns the tests (and changes their build-cache key; #66 CR-1).
+// JVM tests load a debug host library with the test-panic feature (same FFI surface as production, so the
+// generated bindings match). It is a declared input, so a change to the Rust code alone reruns the tests (and
+// changes their build-cache key; #66 CR-1).
 tasks.named<Test>("jvmTest") {
-    dependsOn(uniffiBindgen)
+    dependsOn(uniffiBindgen, hostTestLibrary)
     inputs
-        .file(hostTargetDir.map { it.file("debug/${hostLibraryName()}") })
+        .file(hostTestTargetDir.map { it.file("debug/${hostLibraryName()}") })
         .withPropertyName("hostLibrary")
         .withPathSensitivity(PathSensitivity.NONE)
-    systemProperty("jna.library.path", hostTargetDir.get().dir("debug").asFile.absolutePath)
+    systemProperty("jna.library.path", hostTestTargetDir.get().dir("debug").asFile.absolutePath)
 }
 
 val cargoNdkBuild =
@@ -315,9 +396,16 @@ val cargoNdkBuild =
         outputDir.set(layout.buildDirectory.dir("rust/jniLibs"))
     }
 
+// The Android .so files are part of the AAR, so every app that depends on :mls ships them.
+extensions.configure<com.android.build.api.variant.KotlinMultiplatformAndroidComponentsExtension> {
+    onVariants { variant ->
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(cargoNdkBuild, CargoNdkBuild::outputDir)
+    }
+}
+
 // The npm package directory must be filled before Kotlin's npm/yarn install runs.
 val rootNpmInstall = rootProject.tasks.matching { it.name == "kotlinWasmNpmInstall" || it.name == "wasmKotlinNpmInstall" }
-rootNpmInstall.configureEach { dependsOn(wasmBindgenPackage) }
+rootNpmInstall.configureEach { dependsOn(wasmBindgenPackage, wasmBindgenTestPackage) }
 
 // Kotlin copies `file:` npm dependencies into node_modules once and may keep a stale copy when only the Rust
 // code changed. This replaces the copy with the fresh package, and the browser tests declare the package as an
@@ -328,9 +416,26 @@ val syncWasmPackage =
         from(wasmBindgenPackage)
         into(rootProject.layout.buildDirectory.dir("wasm/node_modules/gifitup-crypto"))
     }
+val syncWasmTestPackage =
+    tasks.register<Sync>("syncWasmTestPackage") {
+        dependsOn(rootNpmInstall)
+        from(wasmBindgenTestPackage)
+        into(rootProject.layout.buildDirectory.dir("wasm/node_modules/gifitup-crypto-test"))
+    }
 tasks.matching { it.name == "wasmJsBrowserTest" }.configureEach {
-    dependsOn(syncWasmPackage)
+    dependsOn(syncWasmPackage, syncWasmTestPackage)
     inputs.files(wasmBindgenPackage).withPropertyName("wasmPackage").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(wasmBindgenTestPackage).withPropertyName("wasmTestPackage").withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+// Release artifacts and the production bindings never contain the test-only panic trigger (#11 plan SEC-5).
+val verifyNoTestPanic =
+    tasks.register<VerifyNoTestPanic>("verifyNoTestPanic") {
+        artifacts.from(wasmBindgenPackage, uniffiBindgen)
+    }
+tasks.named("check") { dependsOn(verifyNoTestPanic) }
+tasks.register<VerifyNoTestPanic>("verifyNoTestPanicAndroid") {
+    artifacts.from(cargoNdkBuild)
 }
 tasks
     .matching { it.name.contains("PackageJson", ignoreCase = true) }

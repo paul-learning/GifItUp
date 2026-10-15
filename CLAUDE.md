@@ -103,7 +103,7 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Tests only | `./gradlew allTests :server:test` |
 | Lint only | `./gradlew ktlintCheck detekt` |
 | Auto-format Kotlin | `./gradlew ktlintFormat` |
-| Android debug APK | `./gradlew :androidApp:assembleDebug` (APK in `androidApp/build/outputs/apk/debug/`) |
+| Android debug APK (needs `cargo-ndk` for the crypto `.so` files) | `./gradlew :androidApp:assembleDebug` (APK in `androidApp/build/outputs/apk/debug/`) |
 | Install on device/emulator | `./gradlew :androidApp:installDebug` |
 | Web dev server | `./gradlew :composeApp:wasmJsBrowserDevelopmentRun` (opens http://localhost:8080) |
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |

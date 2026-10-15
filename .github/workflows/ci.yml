@@ -79,11 +79,11 @@ jobs:
 
       # check = all tests (jvm, Android host, wasmJs/Node, server, :mls contract tests on the JVM and in
       # headless Chrome, which the runner ships) + ktlint + detekt + Android lint.
-      - name: Check, Android debug APK, wasmJs production bundle
+      # The Android APKs need cargo-ndk for crypto/'s .so files and are built in the "MLS bindings" job.
+      - name: Check, wasmJs production bundle
         run: >-
           ./gradlew --continue
           check
-          :androidApp:assembleDebug
           :composeApp:wasmJsBrowserDistribution
 
       - name: Upload test and lint reports
@@ -203,6 +203,13 @@ jobs:
         working-directory: crypto
         run: cargo test --locked
 
+      # The test-only panic trigger used by the :mls panic and trap tests (debug builds only, ADR-0007).
+      - name: cargo clippy and test with the test-panic feature
+        working-directory: crypto
+        run: |
+          cargo clippy --all-targets --locked --features test-panic -- -D warnings
+          cargo test --locked --features test-panic
+
       - name: Save cargo cache
         if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -214,8 +221,9 @@ jobs:
             crypto/target
           key: crypto-${{ runner.os }}-deny${{ env.CARGO_DENY_VERSION }}-${{ hashFiles('crypto/Cargo.lock', 'crypto/rust-toolchain.toml') }}
 
-  # Android libraries of crypto/ (ADR-0007): cargo-ndk release build for every shipped ABI. The JVM and browser
-  # bindings are built and tested in the Gradle check job.
+  # Android side of crypto/ (ADR-0007): cargo-ndk release build of the .so files, the debug and release APKs that
+  # ship them, and the check that no test-only code is in them. The JVM and browser bindings are built and tested
+  # in the Gradle check job.
   mls-bindings:
     name: MLS bindings
     runs-on: ubuntu-latest
@@ -242,5 +250,13 @@ jobs:
         working-directory: crypto
         run: cargo install cargo-ndk --locked --version 4.1.2
 
-      - name: Build the Android libraries
-        run: ./gradlew :mls:cargoNdkBuild
+      - name: Build the Android libraries and APKs
+        run: ./gradlew :mls:cargoNdkBuild :mls:verifyNoTestPanicAndroid :androidApp:assembleDebug :androidApp:assembleRelease
+
+      - name: APKs contain the crypto library for every shipped ABI
+        run: |
+          for apk in androidApp/build/outputs/apk/debug/*.apk androidApp/build/outputs/apk/release/*.apk; do
+            for abi in arm64-v8a x86_64; do
+              unzip -l "$apk" | grep -q "lib/${abi}/libgifitup_crypto.so" || { echo "::error::$apk lacks ${abi}"; exit 1; }
+            done
+          done
