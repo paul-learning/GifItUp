@@ -56,6 +56,9 @@
       "Bash(git config*)",
       "Bash(git -* config*)",
       "Bash(*GIT_CONFIG_*)",
+      "Bash(gh pr review -a*)",
+      "Bash(*git-credential*)",
+      "Bash(*.git/config*)",
       "PowerShell(git push)",
       "PowerShell(git push *main)",
       "PowerShell(git push *main *)",
@@ -115,14 +118,17 @@
       "PowerShell(git config*)",
       "PowerShell(git -* config*)",
       "PowerShell(*GIT_CONFIG_*)",
+      "PowerShell(gh pr review -a*)",
+      "PowerShell(*git-credential*)",
+      "PowerShell(*.git/config*)",
       "Read(**/.env)",
       "Read(**/.env.local)",
       "Read(**/.env.prod*)",
       "Read(**/local.properties)",
       "Read(**/*.jks)",
       "Read(**/*.keystore)",
-      "Edit(.git/**)",
-      "Write(.git/**)"
+      "Edit(**/.git/**)",
+      "Write(**/.git/**)"
     ]
   },
   "hooks": {
