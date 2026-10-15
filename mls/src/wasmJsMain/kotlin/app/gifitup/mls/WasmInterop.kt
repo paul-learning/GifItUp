@@ -1,3 +1,5 @@
+@file:Suppress("MatchingDeclarationName") // JS-interop helpers; JsTryResult is just one of them.
+
 package app.gifitup.mls
 
 import app.gifitup.shared.data.crypto.MlsErrorCode
@@ -9,7 +11,7 @@ import org.khronos.webgl.set
 // JS interop for the wasm module: the JS try/catch around every call, error classification and byte copies.
 
 /** What [jsTry] returns: the call's value, or what it threw. */
-private external interface JsTryResult : JsAny {
+internal external interface JsTryResult : JsAny {
     val failed: Boolean
     val value: JsAny?
     val error: JsAny?
@@ -21,7 +23,7 @@ private external interface JsTryResult : JsAny {
  * catch it (#66 SEC-1).
  */
 @Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
-private fun jsTry(block: () -> JsAny?): JsTryResult =
+internal fun jsTry(block: () -> JsAny?): JsTryResult =
     js("(() => { try { return { failed: false, value: block() }; } catch (e) { return { failed: true, error: e }; } })()")
 
 /**

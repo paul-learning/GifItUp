@@ -48,9 +48,10 @@ class TrapTest {
             // Every later call is refused, on the Kotlin side...
             assertEquals(MlsErrorCode.Poisoned, assertFailsWith<MlsException> { guarded<JsAny?> { null } }.code)
             // ...and by the Rust trap detector, which sees the unfinished call (constructors included).
-            WasmModule.dead = false
-            val later = assertFailsWith<MlsException> { guarded { TestNativeMlsClient("bob", Uint8Array(KEY_SIZE)) } }
-            assertEquals(MlsErrorCode.Poisoned, later.code)
+            // The raw error is a plain Error "Poisoned" from Rust, not a second trap (#67 SEC-2).
+            val raw = jsTry { TestNativeMlsClient("bob", Uint8Array(KEY_SIZE)) }
+            assertTrue(raw.failed)
+            assertEquals(MlsErrorCode.Poisoned, classifyJsError(raw.error), "a plain Error, not a RuntimeError")
         }
 
     private companion object {

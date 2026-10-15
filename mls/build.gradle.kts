@@ -7,6 +7,8 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
 import org.gradle.process.ExecOperations
 import javax.inject.Inject
 
@@ -37,6 +39,23 @@ val crateSources =
         cryptoDir.dir("src"),
         cryptoDir.file("uniffi-bindgen.rs"),
     )
+
+/**
+ * RUSTFLAGS for builds that ship: rewrite the build machine's cargo home and checkout paths, which would otherwise
+ * end up in panic-location strings of the .so/.wasm files (account name, non-reproducible builds; #67 SEC-3).
+ */
+fun releaseRustFlags(crate: File): String {
+    val cargoHome = System.getenv("CARGO_HOME") ?: File(System.getProperty("user.home"), ".cargo").path
+    return listOf("--remap-path-prefix=$cargoHome=/cargo", "--remap-path-prefix=${crate.path}=/crypto").joinToString("\u001f")
+}
+
+/**
+ * Only one cargo build runs at a time: parallel cargo calls block on cargo's package-cache lock anyway, and on a
+ * fresh machine each would make rustup install the pinned toolchain at the same moment and collide (#67 CR-1).
+ */
+abstract class CargoSerializer : BuildService<BuildServiceParameters.None>
+
+val cargoSerializer = gradle.sharedServices.registerIfAbsent("cargoSerializer", CargoSerializer::class) { maxParallelUsages.set(1) }
 
 /** Host library name of the crate on this OS (what JNA loads in JVM tests). */
 fun hostLibraryName(): String {
@@ -133,6 +152,9 @@ abstract class CargoNdkBuild
         @get:Internal
         abstract val ndkDir: DirectoryProperty
 
+        @get:Input
+        abstract val rustFlags: Property<String>
+
         @get:Internal
         abstract val targetDir: DirectoryProperty
 
@@ -150,6 +172,7 @@ abstract class CargoNdkBuild
                 executable = "cargo"
                 args(args)
                 environment("ANDROID_NDK_HOME", ndkDir.get().asFile.absolutePath)
+                environment("CARGO_ENCODED_RUSTFLAGS", rustFlags.get())
             }
         }
     }
@@ -189,6 +212,9 @@ abstract class VerifyNoTestPanic : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val artifacts: ConfigurableFileCollection
 
+    @get:OutputFile
+    abstract val stamp: RegularFileProperty
+
     @TaskAction
     fun verify() {
         val marker = "gifitup_test_panic_marker".encodeToByteArray()
@@ -197,6 +223,7 @@ abstract class VerifyNoTestPanic : DefaultTask() {
         val tainted = files.filter { file -> file.readBytes().indexOf(marker) >= 0 }
         check(tainted.isEmpty()) { "test-panic code found in: ${tainted.joinToString()}" }
         logger.lifecycle("No test-panic marker in ${files.size} files.")
+        stamp.get().asFile.writeText("ok\n")
     }
 
     private fun ByteArray.indexOf(needle: ByteArray): Int =
@@ -229,6 +256,9 @@ abstract class WasmBindgenPackage
         @get:Input
         abstract val packageName: Property<String>
 
+        @get:Input
+        abstract val rustFlags: Property<String>
+
         @get:OutputDirectory
         abstract val outputDir: DirectoryProperty
 
@@ -245,6 +275,7 @@ abstract class WasmBindgenPackage
                 workingDir = crate
                 executable = "cargo"
                 args(cargoArgs)
+                if (!test) environment("CARGO_ENCODED_RUSTFLAGS", rustFlags.get())
             }
             val profile = if (test) "debug" else "release"
             out.deleteRecursively()
@@ -276,6 +307,7 @@ abstract class WasmBindgenPackage
 
 val uniffiBindgen =
     tasks.register<UniffiBindgen>("uniffiBindgen") {
+        usesService(cargoSerializer)
         sources.from(crateSources)
         crateDir.set(cryptoDir)
         libraryName.set(hostLibraryName())
@@ -285,26 +317,31 @@ val uniffiBindgen =
 
 val wasmBindgenPackage =
     tasks.register<WasmBindgenPackage>("wasmBindgenPackage") {
+        usesService(cargoSerializer)
         sources.from(crateSources)
         crateDir.set(cryptoDir)
         targetDir.set(wasmTargetDir)
         testBuild.set(false)
         packageName.set("gifitup-crypto")
+        rustFlags.set(releaseRustFlags(cryptoDir.asFile))
         outputDir.set(wasmPkgDir)
     }
 
 val wasmBindgenTestPackage =
     tasks.register<WasmBindgenPackage>("wasmBindgenTestPackage") {
+        usesService(cargoSerializer)
         sources.from(crateSources)
         crateDir.set(cryptoDir)
         targetDir.set(wasmTestTargetDir)
         testBuild.set(true)
         packageName.set("gifitup-crypto-test")
+        rustFlags.set("")
         outputDir.set(wasmTestPkgDir)
     }
 
 val hostTestLibrary =
     tasks.register<CargoHostTestLibrary>("hostTestLibrary") {
+        usesService(cargoSerializer)
         sources.from(crateSources)
         crateDir.set(cryptoDir)
         targetDir.set(hostTestTargetDir)
@@ -381,6 +418,7 @@ tasks.named<Test>("jvmTest") {
 
 val cargoNdkBuild =
     tasks.register<CargoNdkBuild>("cargoNdkBuild") {
+        usesService(cargoSerializer)
         sources.from(crateSources)
         crateDir.set(cryptoDir)
         abis.set(androidAbis)
@@ -393,6 +431,7 @@ val cargoNdkBuild =
                 .map { it.dir("ndk/${libs.versions.android.ndk.get()}") },
         )
         targetDir.set(androidTargetDir)
+        rustFlags.set(releaseRustFlags(cryptoDir.asFile))
         outputDir.set(layout.buildDirectory.dir("rust/jniLibs"))
     }
 
@@ -428,14 +467,18 @@ tasks.matching { it.name == "wasmJsBrowserTest" }.configureEach {
     inputs.files(wasmBindgenTestPackage).withPropertyName("wasmTestPackage").withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
-// Release artifacts and the production bindings never contain the test-only panic trigger (#11 plan SEC-5).
+// The production wasm package never contains the test-only panic trigger (#11 plan SEC-5). The generated bindings
+// are scanned as a tripwire (the trigger adds no FFI function, so it can only show up there if that changes).
+// What actually ships (the web bundle, the .so files inside the APKs) is scanned in CI as well (#67 SEC-1).
 val verifyNoTestPanic =
     tasks.register<VerifyNoTestPanic>("verifyNoTestPanic") {
-        artifacts.from(wasmBindgenPackage, uniffiBindgen)
+        artifacts.from(wasmBindgenPackage, uniffiBindgen.flatMap { it.outputDir })
+        stamp.set(layout.buildDirectory.file("verify/no-test-panic.txt"))
     }
 tasks.named("check") { dependsOn(verifyNoTestPanic) }
 tasks.register<VerifyNoTestPanic>("verifyNoTestPanicAndroid") {
     artifacts.from(cargoNdkBuild)
+    stamp.set(layout.buildDirectory.file("verify/no-test-panic-android.txt"))
 }
 tasks
     .matching { it.name.contains("PackageJson", ignoreCase = true) }

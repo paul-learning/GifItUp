@@ -37,5 +37,11 @@ for build in server/build.gradle.kts protocol/build.gradle.kts; do
   fi
 done
 
+# The test-panic guard in crypto/src/test_panic.rs keys on debug_assertions, so the release profile must never
+# turn them on (ADR-0007, #67 SEC-5).
+if sed -n '/^\[profile\.release\]/,/^\[/p' crypto/Cargo.toml | grep -nE '^[[:space:]]*debug-assertions[[:space:]]*=[[:space:]]*true'; then
+  fail "crypto/Cargo.toml: the release profile must not enable debug-assertions (test-panic guard)"
+fi
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

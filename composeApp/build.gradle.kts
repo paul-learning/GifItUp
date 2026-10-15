@@ -26,10 +26,12 @@ kotlin {
     }
 
     sourceSets {
+        // The web composition root (Main.kt) builds the MlsClient factory (ADR-0007); Android's lives in :androidApp.
+        wasmJsMain.dependencies {
+            implementation(projects.mls)
+        }
         commonMain.dependencies {
             implementation(projects.shared)
-            // MlsClient implementations (ADR-0007); built into AppGraph by each composition root.
-            implementation(projects.mls)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
@@ -39,8 +41,9 @@ kotlin {
 }
 
 // The web bundle must contain the freshly built crypto package, not a stale copy in node_modules (#66 CR-1, CR-11).
+// Every webpack task (bundles and the dev/production run servers) gets the synced package (#67 CR-4).
 tasks
-    .matching { it.name.startsWith("wasmJsBrowser") && (it.name.contains("Webpack") || it.name.contains("Distribution")) }
+    .withType<org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpack>()
     .configureEach {
         dependsOn(":mls:syncWasmPackage")
         inputs
