@@ -27,10 +27,10 @@ class MlsWebRoundTripTest {
         runTest {
             ready()
             val mark = TimeSource.Monotonic.markNow()
-            val alice = NativeMlsClient("alice")
-            val bob = NativeMlsClient("bob")
+            val alice = NativeMlsClient("alice", key())
+            val bob = NativeMlsClient("bob", key())
             val groupId = alice.createGroup()
-            val added = alice.addMember(groupId, bob.createKeyPackage())
+            val added = alice.addMember(groupId, bob.keyPackage())
             assertContentEquals(groupId.toByteArray(), bob.joinFromWelcome(added.welcome).toByteArray())
             assertEquals(2, bob.memberCount(groupId))
 
@@ -49,13 +49,13 @@ class MlsWebRoundTripTest {
     fun thirdMemberJoinsAndExistingMemberProcessesCommit() =
         runTest {
             ready()
-            val alice = NativeMlsClient("alice")
-            val bob = NativeMlsClient("bob")
-            val carol = NativeMlsClient("carol")
+            val alice = NativeMlsClient("alice", key())
+            val bob = NativeMlsClient("bob", key())
+            val carol = NativeMlsClient("carol", key())
             val groupId = alice.createGroup()
-            bob.joinFromWelcome(alice.addMember(groupId, bob.createKeyPackage()).welcome)
+            bob.joinFromWelcome(alice.addMember(groupId, bob.keyPackage()).welcome)
 
-            val addCarol = alice.addMember(groupId, carol.createKeyPackage())
+            val addCarol = alice.addMember(groupId, carol.keyPackage())
             assertNull(bob.process(groupId, addCarol.commit))
             carol.joinFromWelcome(addCarol.welcome)
 
@@ -68,15 +68,15 @@ class MlsWebRoundTripTest {
     fun stateSurvivesExportAndRestore() =
         runTest {
             ready()
-            val alice = NativeMlsClient("alice")
-            val bob = NativeMlsClient("bob")
+            val alice = NativeMlsClient("alice", key())
+            val bob = NativeMlsClient("bob", key())
             val groupId = alice.createGroup()
-            bob.joinFromWelcome(alice.addMember(groupId, bob.createKeyPackage()).welcome)
+            bob.joinFromWelcome(alice.addMember(groupId, bob.keyPackage()).welcome)
 
             val snapshot = bob.exportState().toByteArray()
             println("MlsSpike: snapshot with 1 group is ${snapshot.size} bytes")
             bob.free()
-            val restored = NativeMlsClient.restore(snapshot.toUint8Array())
+            val restored = NativeMlsClient.restore(snapshot.toUint8Array(), key())
 
             val msg = alice.encrypt(groupId, "after restore".encodeToByteArray().toUint8Array())
             assertEquals("after restore", restored.process(groupId, msg)?.toByteArray()?.decodeToString())
@@ -86,7 +86,7 @@ class MlsWebRoundTripTest {
     fun rustErrorsSurfaceAsKotlinExceptions() =
         runTest {
             ready()
-            val alice = NativeMlsClient("alice")
+            val alice = NativeMlsClient("alice", key())
             val groupId = alice.createGroup()
             val e = assertFailsWith<JsException> { alice.addMember(groupId, GARBAGE.toUint8Array()) }
             // Closed error codes (ADR-0007): the message is exactly the code name, nothing about the input.
@@ -115,8 +115,14 @@ class MlsWebRoundTripTest {
             assertContentEquals(data, back2)
         }
 
+    private fun key() = ByteArray(KEY_SIZE) { KEY_BYTE }.toUint8Array()
+
+    private fun NativeMlsClient.keyPackage() = createKeyPackages(1)[0]!!.keyPackage
+
     private companion object {
         const val BLOB_SIZE = 2 * 1024 * 1024
+        const val KEY_SIZE = 32
+        const val KEY_BYTE: Byte = 7
         val GARBAGE = byteArrayOf(0x01, 0x02, 0x03)
         var initialized = false
     }

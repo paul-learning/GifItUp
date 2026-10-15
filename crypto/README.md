@@ -6,7 +6,7 @@ Rust crate wrapping [OpenMLS](https://github.com/openmls/openmls). This is the o
 - **Web:** `wasm-bindgen` module, called from Kotlin/Wasm.
 - Kotlin code reaches this crate only through the crypto facade in `shared`.
 
-> **Status:** being turned into the production crate in #11 ([ADR-0007](../docs/adr/0007-crypto-facade-and-rust-build.md)). Errors are closed codes and every FFI call is panic-guarded. The group operations in `src/group.rs` are still spike quality (no member validation) and come with #22; the state snapshot is still unencrypted until the next #11 PR. Spike results: [docs/spikes/openmls-android.md](../docs/spikes/openmls-android.md).
+> **Status:** being turned into the production crate in #11 ([ADR-0007](../docs/adr/0007-crypto-facade-and-rust-build.md)). Errors are closed codes and every FFI call is panic-guarded. The group operations in `src/group.rs` are still spike quality (no member validation) and come with #22; the state snapshot is encrypted inside Rust (AES-256-GCM, key handed over once). Spike results: [docs/spikes/openmls-android.md](../docs/spikes/openmls-android.md).
 
 Supply chain: `cargo deny --locked check` (policy in `deny.toml`, pinned `cargo-deny` version in `.github/workflows/ci.yml`).
 

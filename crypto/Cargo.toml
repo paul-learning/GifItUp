@@ -25,6 +25,8 @@ openmls_basic_credential = "0.6.0"
 openmls_memory_storage = "0.6.0"
 openmls_traits = "0.6.0"
 thiserror = "2"
+# Wipes the snapshot key and plaintext snapshot buffers from memory (ADR-0007). Already in the tree via RustCrypto.
+zeroize = "1.9"
 
 # Android / JVM: uniffi bindings.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

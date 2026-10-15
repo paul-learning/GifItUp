@@ -8,6 +8,7 @@
 pub mod client;
 pub mod error;
 pub mod group;
+pub mod identity;
 mod provider;
 mod snapshot;
 
@@ -21,3 +22,8 @@ mod wasm_api;
 
 #[cfg(not(target_arch = "wasm32"))]
 uniffi::setup_scaffolding!();
+
+#[cfg(test)]
+mod robustness_tests;
+#[cfg(test)]
+pub(crate) mod test_support;

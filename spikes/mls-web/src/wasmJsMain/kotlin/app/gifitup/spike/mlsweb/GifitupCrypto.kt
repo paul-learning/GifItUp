@@ -15,8 +15,9 @@ external fun initCrypto(): Promise<JsAny?>
 
 external class NativeMlsClient(
     username: String,
+    snapshotKey: Uint8Array,
 ) : JsAny {
-    fun createKeyPackage(): Uint8Array
+    fun createKeyPackages(count: Int): JsArray<CreatedKeyPackage>
 
     fun createGroup(): Uint8Array
 
@@ -46,8 +47,17 @@ external class NativeMlsClient(
     fun free()
 
     companion object {
-        fun restore(state: Uint8Array): NativeMlsClient
+        fun restore(
+            state: Uint8Array,
+            snapshotKey: Uint8Array,
+        ): NativeMlsClient
     }
+}
+
+external class CreatedKeyPackage : JsAny {
+    val keyPackage: Uint8Array
+
+    fun free()
 }
 
 external class AddMemberResult : JsAny {
