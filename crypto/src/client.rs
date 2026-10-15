@@ -246,7 +246,8 @@ mod tests {
             values: RwLock::new(HashMap::from([(vec![1], vec![0xAB; 8])])),
         };
         wipe(&mut storage);
-        assert_eq!(storage.values.read().unwrap()[&vec![1]], vec![0; 8]);
+        // `Vec::zeroize` overwrites the bytes, then truncates the vector to length 0.
+        assert!(storage.values.read().unwrap()[&vec![1]].is_empty());
     }
 
     #[test]
