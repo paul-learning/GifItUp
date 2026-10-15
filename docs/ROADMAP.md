@@ -7,7 +7,7 @@ Status legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ---
 
-## M0 — Foundations 🟨
+## M0 — Foundations ✅
 _Get the skeleton, CI, deploy pipeline and the two big technical risks (MLS on KMP, GIF provider) de-risked._
 
 - Scaffold the KMP monorepo: `composeApp` (Android + wasmJs), `protocol`, `shared`, `server`, version catalog, ktlint/detekt. (#1)
@@ -27,6 +27,8 @@ _Users can join through an invite, devices register keys, and the server can rel
 - Server: KeyPackage directory (upload, single-use claim, low-water-mark refill). (#14)
 - Client: onboarding (redeem invite → choose username → generate keys → register), secure local key storage (Android Keystore / browser IndexedDB plus wrapping). (#16, #17)
 - Client: contacts list (users from the same invite tree). (#18)
+- Build logic: convention plugins, detekt 2.x when stable (#34, moved from M0).
+- Follow-ups from the M0 reviews: deny-list gaps, SSH key handling, Android hardening, threat-model updates, protocol-versioning and presentation-layer ADRs, cleanups (#52–#58).
 - 🏛️ Architecture review M1 · 🛡️ Security review M1 — #19, #20
 
 ## M2 — Encrypted GIF messaging MVP ⬜ → first friends alpha
@@ -69,4 +71,4 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 4. **Domain** pointing at the Hetzner VM (A/AAAA record), needed for TLS and the web app (#6).
 5. **VM access** for the deploy workflow: a `deploy` user, a restricted SSH key and the `production` environment (#6, #7; steps in `docs/ops/deploy.md`).
 6. **GIF API key (Klipy, free; spike #5):** create a Partner Panel account and an API key (testing mode, 100 requests/hour), keep ads **off**, and set the content filter. The key goes into the server's environment (deploy secret), never into the repo or a client build; the server hands it to logged-in clients. **Request production access (free, unlimited) before the friends alpha (#27)**, because all clients share the key's rate limit.
-7. **Repository security features (#8):** verified on 2026-10-14: secret scanning and push protection, Dependabot alerts and security updates are on. **To do:** enable *Private vulnerability reporting* (Settings → Advanced Security), which `SECURITY.md` relies on. Optional: secret scanning for non-provider patterns (generic private keys, passwords).
+7. **Repository security features (#8):** verified on 2026-10-14: secret scanning and push protection, Dependabot alerts and security updates are on. *Private vulnerability reporting*, which `SECURITY.md` relies on, is enabled (verified 2026-10-15). **To do:** secret scanning for non-provider patterns (generic private keys, passwords; #53), and under Settings → Actions, require SHA-pinned actions and an allowlist of actions (SEC-M0-11).
