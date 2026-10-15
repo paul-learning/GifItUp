@@ -1,6 +1,7 @@
 package app.gifitup.server
 
 import app.gifitup.protocol.HealthResponse
+import app.gifitup.protocol.MIN_SUPPORTED_PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.ProtocolJson
 import io.ktor.client.call.body
@@ -22,7 +23,14 @@ class HealthRouteTest {
             val response = client.get("/health")
 
             assertEquals(HttpStatusCode.OK, response.status)
-            assertEquals(HealthResponse(status = "ok", protocolVersion = PROTOCOL_VERSION), response.body())
+            assertEquals(
+                HealthResponse(
+                    status = "ok",
+                    protocolVersion = PROTOCOL_VERSION,
+                    minProtocolVersion = MIN_SUPPORTED_PROTOCOL_VERSION,
+                ),
+                response.body(),
+            )
         }
 
     @Test

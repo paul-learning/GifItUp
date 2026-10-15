@@ -74,6 +74,8 @@ What crosses each boundary:
 - **A malicious member could learn when recipients load a GIF** if the provider offers uploaders view analytics (not verified for Klipy) and the member uploads a GIF there.
 - The server can **drop, delay, withhold or reorder** messages. It can also show different members different views of a group (**forking**, e.g. by delivering conflicting commits to different members). MLS makes forged messages impossible, but it does not guarantee delivery or consistency. A later partial mitigation: clients compare the epoch authenticator or transcript hash, out of band or in-band.
 
+- **Displayed message times come from the server.** Message content carries no timestamp (ADR-0006), so the untrusted server can back-date messages as well as reorder them.
+
 - **Web client at rest (spike #4, corrected by SEC-1 on #37):** MLS state in the browser (identity key, all group secrets) is a snapshot in IndexedDB.
   - **A non-extractable WebCrypto key does *not* protect it against offline access to the profile:** Chromium and Firefox store the key's raw bytes on disk next to the ciphertext. Non-extractability is only enforced through the JS API; Safari/WebKit is the exception and wraps stored keys with the Keychain.
   - **Without a user passphrase**, anyone with a copy of the browser profile (backup, stolen laptop, malware) can decrypt all of it.
@@ -100,13 +102,15 @@ Owner sign-off (shared GIF API key row): ☑ accepted by @paul-learning, 2026-10
 
 ## Known metadata visible to the server
 - Usernames, devices, IP addresses, connection times.
-- Group IDs, group membership (explicit by design, ADR-0002), message counts, timing, and ciphertext and blob sizes (blobs: own uploads, M3). Blob sizes are padded, and MLS application messages are padded to 256-byte blocks (spike value, final size set in #11/#24).
+- Group IDs, group membership (explicit by design, ADR-0002), message counts, timing, and ciphertext and blob sizes (blobs: own uploads, M3). Blob sizes are padded, and MLS application messages are padded to 1024-byte blocks with a content cap of 896 bytes, so a passive server can't tell v1 content types apart by length; timing and context still can (ADR-0006; Planned in #11, the code is still at the spike value of 256). MLS `authenticated_data` stays empty, because it is sent in the clear.
+- The client's protocol version (`GifItUp-Protocol` header, ADR-0006), i.e. the coarse app release; the same for everyone on that release.
 - Invite tree (who invited whom).
 - KeyPackage claims (who is about to add whom), Welcome recipients, which device downloads which blob and when, inbox acks/read cursors, and push-notification tokens and timing once push exists.
 - _(Not visible to the server, but to the GIF provider:)_ in Mode B′ the provider can link a sender's search to the recipients fetching the same GIF shortly after, and sees how many people load it from which IPs.
 
 ## Assumptions
 - OpenMLS and the platform CSPRNGs are correct.
+- **Wire and content changes fail closed** (ADR-0006): a field whose absence would weaken a security check has no permissive default, so an older, rolled-back or malicious server (or member) can't switch a check off by omitting it. Clients never negotiate down to an older protocol version, and decoder errors never echo their input.
 - The **image decoders** (GIF, WebP) are kept patched. Every recipient decodes provider media automatically (zero-click), in the process that holds the MLS keys (spike #5).
   - **Android:** OS decoders, patched only through OEM security updates, not Mainline. **This doesn't hold on phones out of support.** Mitigation: a security patch level older than 12 months switches received GIFs to tap-to-load (#24). A user who taps still runs the old decoder; that is the user's choice.
   - **Web:** the browser's decoders by default. If #24 has to fall back to Compose's bundled Skiko codecs, *we* are responsible. The owner watches Compose releases and Skia/libwebp/giflib advisories (also checked in milestone security reviews), ships an update within 14 days of a codec CVE, and otherwise switches the web client to tap-to-load.

@@ -1,0 +1,68 @@
+# ADR-0006: Protocol versioning and the encrypted content schema
+
+- **Status:** accepted
+- **Date:** 2026-10-15
+- **Issue/PR:** #56 (M0 architecture finding ARCH-M0-4)
+
+## Context
+`PROTOCOL_VERSION = 1` only appears in `/health`. A client can't tell it is too old, and the only compatibility rule is `ignoreUnknownKeys`: there is nothing about enums, sealed types or defaults. The plaintext inside MLS application messages has no home and no version either: the GIF reference (ADR-0003, Mode B′) and `GroupMeta` (ADR-0002). ADR-0002 left the MLS padding block size open until that format exists. #12 adds the first real endpoints, so this has to be settled first.
+
+There are two separate formats:
+- the **wire protocol** between client and server (`:protocol`), which the server reads;
+- the **content schema**: plaintext that is encrypted with MLS on the client and that the server never sees.
+
+Constraints: the server is untrusted (CLAUDE.md); a small circle of friends, one server, two clients (Android, web) released together; no new dependency without need.
+
+## Options considered
+1. **Version in a path prefix (`/v1/...`)**: lets two incompatible versions run side by side. But a client on a retired prefix just gets an ambiguous 404, a single server gains nothing from parallel prefixes, and WebSocket URLs would need the same scheme.
+2. **Version in a request header, server serves a range [min, current]** (chosen): one explicit check with a closed error, works for every HTTP route.
+3. **No version, additive changes only**: simplest, but there is no way to tell an old client it must update.
+
+For the content schema: JSON with kotlinx.serialization (chosen, no new dependency), CBOR (kotlinx's CBOR format is still experimental, and size doesn't matter after padding), or protobuf (a new dependency and code generator).
+
+## Decision
+
+### Part A — wire protocol (`:protocol`)
+1. **Versions.** `PROTOCOL_VERSION` is an integer that is bumped only for breaking changes. `MIN_SUPPORTED_PROTOCOL_VERSION` is the oldest client version the server still serves; the server serves [min, current]. The server is deployed first. Raising the minimum forces friends to update, so it is an owner decision.
+2. **Announcing the version.** HTTP requests send `GifItUp-Protocol: <n>` (`PROTOCOL_VERSION_HEADER`). Browsers can't set custom headers on a WebSocket, so the version goes in the **first client frame**. There is no query parameter, and the rule is that no secret ever goes in a WebSocket query parameter (it would end up in proxy logs). Planned (#21): a size cap on that first frame and a handshake timeout.
+3. **Strict parsing (Planned #12).** The header must match `^[1-9][0-9]{0,3}$` and appear exactly once. The raw value is never logged.
+4. **Signalling an incompatible version (Planned #12).** `400` with a closed body: `{"error":"client_outdated","minProtocolVersion":n}` when the header is missing, malformed or below the minimum, and `{"error":"server_outdated"}` when it is above the current version. This is 400, not 426: RFC 9110 §15.5.22 requires an `Upgrade` header on a 426, which doesn't fit an app version. WebSocket: private-use close codes (RFC 6455 §7.4.2) `4001` (client outdated) and `4002` (server outdated). The check covers every route except `/health`, which stays unauthenticated and additively reports `minProtocolVersion` so a client can check at startup.
+5. **No downgrade.** A client sends exactly one version and never retries with an older one: `server_outdated` means stop and show an error. A server-supplied `minProtocolVersion` is untrusted: the client bounds it and shows only its own built-in "please update the app" text, never server-supplied text or links.
+6. **JSON configuration.** `ProtocolJson` is the single configuration for both sides, and every flag is set explicitly:
+
+   | Flag | Value | Why |
+   |---|---|---|
+   | `ignoreUnknownKeys` | `true` | Fields added by a newer peer don't break older readers |
+   | `encodeDefaults` | `true` | The wire is explicit; a reader never fills in its own, possibly different, default for a field the writer knew |
+   | `classDiscriminator` | `"type"` | Stable name for sealed types |
+   | `explicitNulls` | `true` | `null` is written, not omitted |
+   | `coerceInputValues` | `false` | Would turn an invalid `null` or unknown value into a default and hide garbage input |
+   | `isLenient`, `allowComments`, `allowTrailingComma`, `allowSpecialFloatingPointValues`, `decodeEnumsCaseInsensitive` | `false` | Strict input; no second interpretation of the same bytes |
+
+7. **Compatibility rules.** Each has a test in `protocol/src/commonTest/.../CompatibilityRulesTest.kt`.
+   - **Additive changes** (a new field with a default, a new enum value or sealed subtype under the rules below) don't bump the version. Removing or renaming a field, or changing its type, meaning or optionality, is breaking and bumps it. A Kotlin property rename keeps the wire name with `@SerialName`.
+   - **Fail closed for security-relevant fields.** A field whose absence would weaken a security check (for example ADR-0002's freshness anchor) gets **no permissive default**. Either its absence fails closed, or adding it is a breaking change. Its KDoc states which. Otherwise an older or rolled-back server could switch off a check just by omitting the field.
+   - **Enums that can grow** use `FallbackEnumSerializer`: an unknown value decodes to `UNKNOWN` instead of failing the whole payload. Matching is case-sensitive on the constant name. Encoding `UNKNOWN` throws. Receivers handle `UNKNOWN` as "not supported" with an exhaustive `when` and no `else`, and the server rejects `UNKNOWN` in requests (Planned #12). Enums that are closed by design stay plain and strict, and say so in their KDoc.
+   - **Sealed types** have a stable `@SerialName` per subtype (never the class name) and an `Unknown` subtype registered as the `polymorphicDefaultDeserializer` with `UnknownSubtypeSerializer`. It consumes and drops the input, keeps no fields, and can't be encoded, so nothing a newer or malicious peer wrote is shown later.
+8. **Decode errors are closed.** kotlinx.serialization's exception messages contain the input (`JSON input: …`). So decoder exceptions' `message`/`cause` are never logged, shown or returned. Planned (#12): a StatusPages handler that answers a fixed `{"error":"bad_request"}`, and a test that the input isn't echoed.
+9. **Input limits (Planned #12).** A per-route request body limit enforced **before** deserialization (with a 413 test). Until that ships, `ignoreUnknownKeys` on the server is not backed by a size limit; Caddy's 1 MB body limit (ADR-0005) applies only to traffic that goes through Caddy.
+
+### Part B — encrypted content schema (`:shared`, data layer; Planned #24)
+1. **Location.** `app.gifitup.shared.data.content` in `:shared`. It is plaintext *before* MLS encryption, not a ciphertext format, so encryption and padding stay in `crypto/` (crypto boundary unchanged). Content types never go into `:protocol` (CLAUDE.md), and `scripts/check-repo-hygiene.sh` fails if `:server` depends on `:shared`.
+2. **Encoding.** UTF-8 JSON with its own `ContentJson` (same flags as A6). The bytes are decoded strictly (`decodeToString(throwOnInvalidSequence = true)`), and the size is checked **before** parsing.
+3. **Envelope.** `{"v":1,"type":"<name>",...}`. `v` is the content schema version, independent of `PROTOCOL_VERSION`; it is **required with no default**. v1 types:
+   - `gif`: `provider`, `slug`, `url`, `width`, `height`, validated exactly as in ADR-0003 and the [GIF spike](../spikes/gif-provider.md). The "raw URL string" is the decoded JSON string value, which is exactly the string that gets fetched.
+   - `group_meta`: `name`, trimmed, 1–64 code points. Rejected: categories Cc, Cf (including bidi overrides and isolates), Zl and Zp, unpaired surrogates, and noncharacters. It is rendered as plain text with bidi isolation, and every rename shows "<MLS-authenticated sender> renamed the group". It is ignored in 2-member chats, which show the contact's name.
+   - `blob_gif` (M3, ADR-0003 Mode A) is added later as a new type.
+4. **No identity and no timestamp in content.** The sender is the MLS-authenticated sender only. There is no sender, group or "sent at" field. The displayed time is assigned by the server and therefore untrusted (threat model, Limitations).
+5. **Unknown or invalid → placeholder, never crash.** `v < 1`, malformed JSON or UTF-8, content over the size cap, or a failed field check → `Invalid` ("message unavailable"). `v` above the supported version or an unknown `type` → `Unsupported` ("update the app"). Neither carries any input text, and no sender-supplied fallback text is ever shown.
+6. **`authenticated_data` stays empty** for application messages. MLS sends it in the clear and outside the padding.
+7. **Padding (Planned #11; the code is still at the spike value of 256).** MLS `padding_size = 1024`, set in both the create and the join config. In OpenMLS 0.9.1, `padding_size` is a block size: the serialized content plus its auth data (signature, confirmation tag) plus the AEAD tag is padded up to a multiple of the block size (`encode_padded_ciphertext_content_detached` in `framing/private_message.rs`; the receiver rejects non-zero padding, `framing/codec.rs`). With the maximum encoded content of **896 bytes**: 2 (length prefix) + 896 + 2 + 64 (Ed25519 signature with its length prefix) + 1 (no confirmation tag) + 16 (AES-GCM tag) = 981 ≤ 1024. So with `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`, every v1 message is exactly one block. Changing the ciphersuite means recomputing this cap. **Claim and limits:** a passive server can't tell v1 content types apart by ciphertext length. Timing and context (a `group_meta` right after a Commit) can still give it away. Planned (#11): a test of the full serialized `MlsMessageOut` length for the smallest and largest valid payload of each v1 type, and a sender-side reject at 897 bytes. 1024 rather than 512 (512 would also fit every v1 type, with a cap of about 420 bytes) buys headroom for future types at about 1 KiB per message.
+8. **Evolution.** New optional fields and new types are additive. A field that restricts what the recipient may do (expiry, tap-to-load) must not be silently ignored by older clients, so it needs a new `type` or a `v` bump, which makes old clients show the placeholder. v1 has no capability negotiation: a sender on a newer `v` makes older members see the placeholder. That is acceptable for a small circle. MLS `required_capabilities` is an option later.
+
+## Consequences
+- #12 implements the version check, strict header parsing, closed error bodies and the body limit; #21 the WebSocket handshake; #24 the content codec and its validation; #11 the padding value and length tests. Each issue lists these items as acceptance criteria.
+- Every new wire field needs a decision: additive with a harmless default, or fail-closed/breaking. Reviewers check this.
+- **Metadata:** the version header shows the server the coarse app release of each request. It is needed to refuse incompatible clients, and it is the same for everyone on a release. If the web client is ever served cross-origin from the API, CORS must allow exactly this header (no wildcard). Content stays invisible to the server. Padding to 1024 makes every v1 application message the same length.
+- Forcing an update by raising the minimum version locks out friends who haven't updated. The owner decides when.
+- The `Unknown`/`UNKNOWN` fallbacks make old clients tolerate new data, but nothing can be rendered from it. That is deliberate.

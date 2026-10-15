@@ -59,7 +59,7 @@ The encrypted-blob design stays in ADR-0003 for **own GIF uploads** (M3), which 
 ADR-0003 had the message carry only a GIF ID, and recipients **build the URL** from it. Klipy explicitly forbids reconstructing URLs or their identifiers.
 
 ### Mode B′ (chosen): forward the returned URL, validate strictly
-1. The sender's client picks a rendition from the search result. Default: `md` **webp**, falling back to `md` gif. It sends `{provider: "klipy", slug, url, width, height}` inside the MLS application message. The final wire shape is defined in #24.
+1. The sender's client picks a rendition from the search result. Default: `md` **webp**, falling back to `md` gif. It sends `{provider: "klipy", slug, url, width, height}` inside the MLS application message. The final shape is defined in ADR-0006 (content type `gif`) and implemented in #24.
 2. Every client (sender **and** recipient) treats the message fields as untrusted. Anything that fails these checks shows a "GIF unavailable" placeholder, and **nothing is fetched**:
    - **`url`:** the **raw string** must match this regex as a **full-string match** (Kotlin `Regex.matches`; a `$` that allows a trailing newline isn't enough), case-sensitive, with no normalisation first:
      `^https://static[12]?\.klipy\.com/ii/[0-9a-f]{32}/[0-9a-f]{2}/[0-9a-f]{2}/[A-Za-z0-9_-]{1,64}\.(gif|webp)$`
