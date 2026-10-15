@@ -7,5 +7,6 @@ import kotlinx.serialization.Serializable
 data class HealthResponse(
     val status: String,
     val protocolVersion: Int,
-    val minProtocolVersion: Int = MIN_SUPPORTED_PROTOCOL_VERSION,
+    /** Added after protocol 1 shipped. Servers that omit it only ever supported version 1, so the default is a literal. */
+    val minProtocolVersion: Int = 1,
 )

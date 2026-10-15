@@ -1,6 +1,7 @@
 package app.gifitup.protocol
 
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.ClassDiscriminatorMode
 import kotlinx.serialization.json.Json
 
 /**
@@ -10,6 +11,7 @@ import kotlinx.serialization.json.Json
  * The compatibility rules behind them are in ADR-0006 and `CompatibilityRulesTest`:
  * - `ignoreUnknownKeys`: fields added by a newer peer never break an older reader.
  * - `encodeDefaults`: the writer sends every field, so a reader never fills in its own (possibly different) default.
+ * - `useAlternativeNames` is off: a field has exactly one wire name.
  * - everything else stays strict: no lenient strings, no `null` coerced into defaults, no case-insensitive enums,
  *   no comments, trailing commas or `NaN`.
  */
@@ -26,4 +28,10 @@ val ProtocolJson: Json =
         allowTrailingComma = false
         allowComments = false
         decodeEnumsCaseInsensitive = false
+        useAlternativeNames = false
+        allowStructuredMapKeys = false
+        useArrayPolymorphism = false
+        classDiscriminatorMode = ClassDiscriminatorMode.POLYMORPHIC
+        namingStrategy = null
+        prettyPrint = false
     }

@@ -27,6 +27,6 @@ class HealthResponseTest {
     fun readsResponsesFromServersWithoutMinProtocolVersion() {
         val decoded = ProtocolJson.decodeFromString<HealthResponse>("""{"status":"ok","protocolVersion":1}""")
 
-        assertEquals(MIN_SUPPORTED_PROTOCOL_VERSION, decoded.minProtocolVersion)
+        assertEquals(1, decoded.minProtocolVersion)
     }
 }

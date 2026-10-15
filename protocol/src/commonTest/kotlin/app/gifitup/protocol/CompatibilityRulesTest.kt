@@ -62,13 +62,37 @@ class CompatibilityRulesTest {
     }
 
     @Test
+    fun missingOrNullTypeFails() {
+        assertFailsWith<SerializationException> { sealedJson.decodeFromString<Event>("""{"member":"m"}""") }
+        assertFailsWith<SerializationException> { sealedJson.decodeFromString<Event>("""{"type":null,"member":"m"}""") }
+    }
+
+    @Test
+    fun nonStringTypeFailsWithIllegalArgument() {
+        // Not a SerializationException: codec boundaries must catch IllegalArgumentException too (ADR-0006 B5).
+        assertFailsWith<IllegalArgumentException> { sealedJson.decodeFromString<Event>("""{"type":{},"member":"m"}""") }
+    }
+
+    @Test
     fun encodingUnknownSubtypeFails() {
         assertFailsWith<SerializationException> { sealedJson.encodeToString<Event>(Event.Unknown) }
     }
 
     @Test
-    fun nullForNonNullFieldFails() {
-        assertDecodeFails("""{"name":null}""")
+    fun nullForNonNullFieldWithDefaultFails() {
+        assertDecodeFails("""{"name":"a","count":null}""")
+    }
+
+    @Test
+    fun nullsAreEncoded() {
+        assertEquals("""{"note":null}""", ProtocolJson.encodeToString(WithNullable(note = null)))
+    }
+
+    @Test
+    fun closedEnumRejectsUnknownAndWrongCaseValues() {
+        assertEquals(Closed.ONE, ProtocolJson.decodeFromString<WithClosed>("""{"closed":"ONE"}""").closed)
+        assertFailsWith<SerializationException> { ProtocolJson.decodeFromString<WithClosed>("""{"closed":"one"}""") }
+        assertFailsWith<SerializationException> { ProtocolJson.decodeFromString<WithClosed>("""{"closed":"TWO"}""") }
     }
 
     @Test
@@ -108,6 +132,19 @@ class CompatibilityRulesTest {
         val value: Double,
     )
 
+    @Serializable
+    private data class WithNullable(
+        val note: String?,
+    )
+
+    @Serializable
+    private enum class Closed { ONE, }
+
+    @Serializable
+    private data class WithClosed(
+        val closed: Closed,
+    )
+
     @Serializable(with = KindSerializer::class)
     private enum class Kind { ALPHA, BETA, UNKNOWN }
 
@@ -139,7 +176,10 @@ class CompatibilityRulesTest {
         Json(ProtocolJson) {
             serializersModule =
                 SerializersModule {
-                    polymorphic(Event::class) { defaultDeserializer { UnknownEventSerializer } }
+                    polymorphic(Event::class) {
+                        // Only a present type name maps to Unknown; a missing type must fail (ADR-0006).
+                        defaultDeserializer { typeName -> typeName?.let { UnknownEventSerializer } }
+                    }
                 }
         }
 }
