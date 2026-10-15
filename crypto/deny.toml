@@ -1,6 +1,7 @@
 # cargo-deny policy for the crypto crate (#35 SEC-5, #36 SEC-8, ADR-0007). CI runs
 # `cargo deny --locked check` on every pull request and push to main. Between PRs, Dependabot
-# security alerts cover new advisories (no scheduled run; adding one is the owner's call).
+# security alerts cover GitHub-reviewed advisories only, not yanked crates or RustSec-only entries;
+# those surface on the next CI run (no scheduled run; adding one is the owner's call).
 
 [graph]
 # Every platform we ship plus the dev hosts, with every feature of our own crate.

@@ -191,6 +191,32 @@ mod tests {
         assert_eq!(module.call(|| Ok(1)), Ok(1));
     }
 
+    /// SEC-24 on #63: a call that starts while another one is panicking waits for it and then
+    /// fails, instead of running (e.g. exporting state) between the panic and the dead flag.
+    #[test]
+    fn concurrent_call_during_a_panic_is_poisoned() {
+        use std::sync::{Arc, mpsc};
+        use std::thread;
+        use std::time::Duration;
+
+        let guard = Arc::new(PanicGuard::default());
+        let (started_tx, started_rx) = mpsc::channel();
+        let panicking = {
+            let guard = Arc::clone(&guard);
+            thread::spawn(move || {
+                guard.run::<()>(|| {
+                    started_tx.send(()).unwrap();
+                    thread::sleep(Duration::from_millis(200));
+                    panic!("boom")
+                })
+            })
+        };
+        started_rx.recv().unwrap();
+        // Starts while the first call is still inside the guard.
+        assert_eq!(guard.run(|| Ok("exported")), Err(ErrorCode::Poisoned));
+        assert_eq!(panicking.join().unwrap(), Err(ErrorCode::Poisoned));
+    }
+
     #[test]
     fn guard_dies_on_poisoned_lock_error() {
         let guard = PanicGuard::default();
