@@ -57,7 +57,7 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 - One issue → one branch → one PR. Branch names: `feat/<issue#>-short-name`, `fix/…`, `chore/…`, `spike/…`, `docs/…`.
 - Conventional commits (`feat(server): add invite endpoint`). Reference the issue (`Closes #12`) in the PR body.
 - Keep PRs reviewable (aim < ~600 changed lines excluding generated code). Split otherwise.
-- Before opening a PR, self-check: build, run all tests and linters (`./gradlew check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` when relevant) and `bash scripts/check-repo-hygiene.sh`; then go through *What to check* in `code-reviewer.md`, the *Focus areas* in `security-reviewer.md` if step 2 below applies, and `docs/review-lessons.md`, and fix what you find. The agent files are the single source for these checklists. Report honestly in the PR if something could not be run locally and why.
+- Before opening a PR, self-check: build, run all tests and linters (`./gradlew check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` when relevant), `bash scripts/check-repo-hygiene.sh`, and `shellcheck`/`actionlint` when shell scripts or workflows change (CI runs both too); then go through *What to check* in `code-reviewer.md`, the *Focus areas* in `security-reviewer.md` if step 2 below applies, and `docs/review-lessons.md`, and fix what you find. The agent files are the single source for these checklists. Report honestly in the PR if something could not be run locally and why.
 - Fill out `.github/pull_request_template.md` completely.
 
 ### Mandatory independent code review (every PR)
@@ -108,4 +108,5 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
 | Run server locally | `./gradlew :server:run` (port from `PORT`, default 8080; `GET /health`) |
 | Repo hygiene (file modes, IDE artifacts, matching pins) | `bash scripts/check-repo-hygiene.sh` (Git Bash on Windows) |
+| Lint shell scripts and workflows | `git ls-files -z '*.sh' \| xargs -0 shellcheck` and `actionlint` (versions pinned in `ci.yml`, job `shell-and-workflow-lint`) |
 | Add/update a dependency (locks + checksums) | see [`docs/dependencies.md`](docs/dependencies.md): `--write-locks --write-verification-metadata sha256` over all modules, review the diff |
