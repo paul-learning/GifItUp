@@ -7,7 +7,7 @@ Status legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ---
 
-## M0 — Foundations 🟨
+## M0 — Foundations ✅
 _Get the skeleton, CI, deploy pipeline and the two big technical risks (MLS on KMP, GIF provider) de-risked._
 
 - Scaffold the KMP monorepo: `composeApp` (Android + wasmJs), `protocol`, `shared`, `server`, version catalog, ktlint/detekt. (#1)

@@ -130,9 +130,9 @@ graph TD
 
 | Finding | Tracked in |
 |---|---|
-| ARCH-M0-1, ARCH-M0-3, ARCH-M0-7, ARCH-M0-11 | #11 (comment) |
-| ARCH-M0-2 | #11, #34 (comments) |
+| ARCH-M0-1, ARCH-M0-3, ARCH-M0-7, ARCH-M0-11 | #11 (carry-over section) |
+| ARCH-M0-2 | #11, #34 (carry-over section) |
 | ARCH-M0-4 | #56 |
 | ARCH-M0-5 | #57 |
 | ARCH-M0-6, ARCH-M0-8, ARCH-M0-9 | #58 |
-| ARCH-M0-10 | #12 (comment) |
+| ARCH-M0-10 | #12 (carry-over section) |
