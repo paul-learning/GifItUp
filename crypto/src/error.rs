@@ -3,8 +3,8 @@
 //! internal state can reach Kotlin, JS or logs (CLAUDE.md, security rule 4).
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 /// Every error the crate reports. Fieldless on purpose: `Display` is the code name and nothing else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -58,22 +58,88 @@ pub(crate) fn catch<T>(f: impl FnOnce() -> Result<T, ErrorCode>) -> Result<T, Er
 
 /// Marks a client dead after its first panic or poisoned lock. From then on every call, including
 /// state export, fails with [`ErrorCode::Poisoned`]: half-updated state must never be persisted.
+///
+/// Calls on one client are serialized, so no call on another thread can slip in between a panic
+/// and the moment the client is marked dead (e.g. an export of half-updated state).
 #[derive(Default)]
 pub(crate) struct PanicGuard {
+    call: Mutex<()>,
     dead: AtomicBool,
 }
 
 impl PanicGuard {
     pub(crate) fn run<T>(&self, f: impl FnOnce() -> Result<T, ErrorCode>) -> Result<T, ErrorCode> {
-        if self.dead.load(Ordering::SeqCst) {
+        module_call(|| {
+            // `catch` runs inside the lock, so this mutex is never poisoned by a panic in `f`.
+            let _call = self.call.lock().map_err(|_| ErrorCode::Poisoned)?;
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(ErrorCode::Poisoned);
+            }
+            let result = catch(f);
+            if result.as_ref().err() == Some(&ErrorCode::Poisoned) {
+                self.dead.store(true, Ordering::SeqCst);
+            }
+            result
+        })
+        .inspect_err(|code| {
+            if *code == ErrorCode::Poisoned {
+                self.dead.store(true, Ordering::SeqCst);
+            }
+        })
+    }
+}
+
+/// Detects a wasm trap after the fact. wasm32 can't unwind, so a panic there traps out of the
+/// call without running any Rust code, and [`catch`] never sees it. A call that finds the previous
+/// one still marked as running knows that call trapped: the whole module instance is dead and
+/// every later call, constructors and state export included, fails with [`ErrorCode::Poisoned`].
+/// Single-threaded by construction (wasm32 without threads; no callbacks into Rust).
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) struct TrapDetector {
+    in_call: AtomicBool,
+    dead: AtomicBool,
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+impl TrapDetector {
+    pub(crate) const fn new() -> Self {
+        Self {
+            in_call: AtomicBool::new(false),
+            dead: AtomicBool::new(false),
+        }
+    }
+
+    fn enter(&self) -> Result<(), ErrorCode> {
+        if self.dead.load(Ordering::SeqCst) || self.in_call.swap(true, Ordering::SeqCst) {
+            self.dead.store(true, Ordering::SeqCst);
             return Err(ErrorCode::Poisoned);
         }
-        let result = catch(f);
-        if result.as_ref().err() == Some(&ErrorCode::Poisoned) {
-            self.dead.store(true, Ordering::SeqCst);
-        }
+        Ok(())
+    }
+
+    fn exit(&self) {
+        self.in_call.store(false, Ordering::SeqCst);
+    }
+
+    pub(crate) fn call<T>(&self, f: impl FnOnce() -> Result<T, ErrorCode>) -> Result<T, ErrorCode> {
+        self.enter()?;
+        let result = f();
+        self.exit();
         result
     }
+}
+
+/// The module instance's trap detector (wasm32 only: native targets unwind into [`catch`]).
+#[cfg(target_arch = "wasm32")]
+static MODULE: TrapDetector = TrapDetector::new();
+
+/// Every FFI entry, constructors included, runs through this: on wasm32 it checks and updates
+/// [`MODULE`]; on native targets it is a plain call.
+pub(crate) fn module_call<T>(f: impl FnOnce() -> Result<T, ErrorCode>) -> Result<T, ErrorCode> {
+    #[cfg(target_arch = "wasm32")]
+    return MODULE.call(f);
+    #[cfg(not(target_arch = "wasm32"))]
+    f()
 }
 
 #[cfg(test)]
@@ -101,6 +167,28 @@ mod tests {
         assert_eq!(guard.run::<()>(|| panic!("boom")), Err(ErrorCode::Poisoned));
         // Every later call fails, even one that would succeed (e.g. exporting state).
         assert_eq!(guard.run(|| Ok(2)), Err(ErrorCode::Poisoned));
+    }
+
+    /// SEC-18 on #63: a wasm trap skips `catch`, so the next call must notice the unfinished one.
+    #[test]
+    fn trap_detector_kills_the_module_after_an_unfinished_call() {
+        let module = TrapDetector::new();
+        assert_eq!(module.call(|| Ok(1)), Ok(1));
+        // Simulates a trap: entered, never exited.
+        module.enter().unwrap();
+        assert_eq!(module.call(|| Ok(2)), Err(ErrorCode::Poisoned));
+        // Stays dead, even for a call that would export state.
+        assert_eq!(module.call(|| Ok(3)), Err(ErrorCode::Poisoned));
+    }
+
+    #[test]
+    fn trap_detector_passes_errors_through_without_dying() {
+        let module = TrapDetector::new();
+        assert_eq!(
+            module.call::<()>(|| Err(ErrorCode::InvalidInput)),
+            Err(ErrorCode::InvalidInput)
+        );
+        assert_eq!(module.call(|| Ok(1)), Ok(1));
     }
 
     #[test]

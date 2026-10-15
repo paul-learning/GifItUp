@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use crate::client::Client;
-use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook};
+use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook, module_call};
 use crate::group::AddMemberResult;
 
 /// One MLS client (one device). See [`Client`].
@@ -30,14 +30,14 @@ impl NativeMlsClient {
     #[uniffi::constructor]
     pub fn new(username: String) -> Result<Arc<Self>, ErrorCode> {
         install_silent_panic_hook();
-        catch(|| Client::new(username)).map(Self::wrap)
+        module_call(|| catch(|| Client::new(username))).map(Self::wrap)
     }
 
     /// Restores a client from [`NativeMlsClient::export_state`] output.
     #[uniffi::constructor]
     pub fn restore(state: Vec<u8>) -> Result<Arc<Self>, ErrorCode> {
         install_silent_panic_hook();
-        catch(|| Client::restore(&state)).map(Self::wrap)
+        module_call(|| catch(|| Client::restore(&state))).map(Self::wrap)
     }
 
     pub fn signature_public_key(&self) -> Result<Vec<u8>, ErrorCode> {

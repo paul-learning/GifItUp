@@ -8,7 +8,7 @@
 use wasm_bindgen::prelude::*;
 
 use crate::client::Client;
-use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook};
+use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook, module_call};
 
 fn js_err(code: ErrorCode) -> JsError {
     JsError::new(&code.to_string())
@@ -56,7 +56,7 @@ impl NativeMlsClient {
     #[wasm_bindgen(constructor)]
     pub fn new(username: String) -> Result<NativeMlsClient, JsError> {
         install_silent_panic_hook();
-        catch(|| Client::new(username))
+        module_call(|| catch(|| Client::new(username)))
             .map(Self::wrap)
             .map_err(js_err)
     }
@@ -64,7 +64,7 @@ impl NativeMlsClient {
     /// Restores a client from [`NativeMlsClient::export_state`] output.
     pub fn restore(state: &[u8]) -> Result<NativeMlsClient, JsError> {
         install_silent_panic_hook();
-        catch(|| Client::restore(state))
+        module_call(|| catch(|| Client::restore(state)))
             .map(Self::wrap)
             .map_err(js_err)
     }

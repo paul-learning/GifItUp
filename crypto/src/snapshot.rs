@@ -6,7 +6,7 @@
 //! Format: magic, snapshot version, OpenMLS storage version (u16-BE), username, signature public
 //! key, group IDs, storage entries; every variable-length field is u32-BE length-prefixed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use openmls_traits::storage::CURRENT_VERSION as STORAGE_VERSION;
 
@@ -110,12 +110,13 @@ impl<'a> Reader<'a> {
 
     fn group_ids(&mut self) -> Result<Vec<Vec<u8>>, ErrorCode> {
         let mut ids: Vec<Vec<u8>> = Vec::new();
+        let mut seen = HashSet::new();
         for _ in 0..self.len()? {
-            let id = self.field()?.to_vec();
-            if ids.contains(&id) {
+            let id = self.field()?;
+            if !seen.insert(id) {
                 return Err(ErrorCode::SnapshotInvalid);
             }
-            ids.push(id);
+            ids.push(id.to_vec());
         }
         Ok(ids)
     }

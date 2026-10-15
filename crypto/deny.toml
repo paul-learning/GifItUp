@@ -1,5 +1,6 @@
 # cargo-deny policy for the crypto crate (#35 SEC-5, #36 SEC-8, ADR-0007). CI runs
-# `cargo deny --locked check` on every push and weekly, so new advisories show up between PRs too.
+# `cargo deny --locked check` on every pull request and push to main. Between PRs, Dependabot
+# security alerts cover new advisories (no scheduled run; adding one is the owner's call).
 
 [graph]
 # Every platform we ship plus the dev hosts, with every feature of our own crate.
@@ -33,23 +34,17 @@ confidence-threshold = 0.93
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-# Features that would derive Debug on secrets, log content, pull in test code or enable drafts and
-# unchecked conversions in the shipped crate (#11 plan review SEC-13).
+# Default-deny for the OpenMLS crates: exactly these features may be enabled (exact = true), so any
+# other one fails the check, e.g. `crypto-debug` (derives Debug on secrets), `content-debug`,
+# `test-utils`, `backtrace`, drafts, `unchecked-conversions`, or `openmls_memory_storage/persistence`,
+# which writes every private key to a plaintext file (#11 plan review SEC-13, #63 SEC-21).
+# `js` is the browser randomness source (crypto/Cargo.toml); `openmls_traits` declares an empty `default`.
 features = [
-  { crate = "openmls", deny = [
-    "crypto-debug",
-    "content-debug",
-    "test-utils",
-    "unchecked-conversions",
-    "extensions-draft",
-    "virtual-clients-draft",
-    "targeted-messages-draft",
-    "draft-ietf-mls-pq-ciphersuites",
-  ] },
-  { crate = "openmls_traits", deny = ["crypto-debug", "test-utils"] },
-  { crate = "openmls_rust_crypto", deny = ["test-utils"] },
-  { crate = "openmls_memory_storage", deny = ["test-utils"] },
-  { crate = "openmls_basic_credential", deny = ["test-utils"] },
+  { crate = "openmls", allow = ["js"], exact = true },
+  { crate = "openmls_traits", allow = ["default"], exact = true },
+  { crate = "openmls_rust_crypto", allow = [], exact = true },
+  { crate = "openmls_memory_storage", allow = [], exact = true },
+  { crate = "openmls_basic_credential", allow = [], exact = true },
 ]
 
 [sources]
