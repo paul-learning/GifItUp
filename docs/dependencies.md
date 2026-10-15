@@ -59,6 +59,7 @@ An agent can do this on request. No automation writes to Dependabot branches: th
 - `cargo update -p <crate>` (or edit `Cargo.toml`), then `cargo test --locked`.
 - **`wasm-bindgen` is pinned exactly** (`=0.2.129`). When bumping it, also bump `WASM_BINDGEN_VERSION` and `WASM_BINDGEN_SHA256` in `.github/workflows/ci.yml`, and reinstall the local CLI (`cargo install wasm-bindgen-cli --version <v> --locked`).
 - Toolchain bumps go through `crypto/rust-toolchain.toml`. The Android NDK version is `android-ndk` in the version catalog. `cargo-ndk` is pinned in `ci.yml`.
+- **CI lint binaries:** `SHELLCHECK_VERSION`/`SHELLCHECK_SHA256` and `ACTIONLINT_VERSION`/`ACTIONLINT_SHA256` in `ci.yml` (job `shell-and-workflow-lint`). Dependabot doesn't track them; bump by hand and take the SHA-256 from the release asset's digest on GitHub (actionlint also ships `checksums.txt`).
 
 ## Pruning stale checksums
 Gradle only adds entries to `verification-metadata.xml`. After removing or upgrading dependencies, the old entries stay. They're harmless but clutter reviews. To prune:
