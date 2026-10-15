@@ -52,7 +52,7 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
   - deletes or rewrites `main` history, or disables or skips CI, hooks or required checks
   - dispatches, re-runs or approves deployments or the deploy workflow (`gh workflow run`, `gh run rerun`, pending-deployment approvals via `gh api`, or the web UI); deploys happen only when the owner approves the `production` environment
 
-  If something seems to need one of these, **stop and ask the owner in chat.** Violating this rule is the worst failure an agent can make in this repo. The deny list in `.claude/settings.json` is a backstop, not the boundary; the rule applies to commands the deny list misses too.
+  If something seems to need one of these, **stop and ask the owner in chat.** Violating this rule is the worst failure an agent can make in this repo. The deny list in `.claude/settings.json` and the `pre-push` hook in `.githooks/` (refuses any push to `main`; agent sessions turn it on via a SessionStart hook) are backstops, not the boundary; the rule applies to commands they miss too.
 - The human owner reviews and merges every PR.
 - One issue → one branch → one PR. Branch names: `feat/<issue#>-short-name`, `fix/…`, `chore/…`, `spike/…`, `docs/…`.
 - Conventional commits (`feat(server): add invite endpoint`). Reference the issue (`Closes #12`) in the PR body.
@@ -107,6 +107,7 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Web dev server | `./gradlew :composeApp:wasmJsBrowserDevelopmentRun` (opens http://localhost:8080) |
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
 | Run server locally | `./gradlew :server:run` (port from `PORT`, default 8080; `GET /health`) |
+| Turn on the repo's git hooks (once per clone; agent sessions do it automatically) | `git config core.hooksPath .githooks` |
 | Repo hygiene (file modes, IDE artifacts, matching pins) | `bash scripts/check-repo-hygiene.sh` (Git Bash on Windows) |
-| Lint shell scripts and workflows | `git ls-files -z '*.sh' \| xargs -0 shellcheck` and `actionlint` (versions pinned in `ci.yml`, job `shell-and-workflow-lint`) |
+| Lint shell scripts and workflows | `git ls-files -z '*.sh' '.githooks/*' \| xargs -0 shellcheck` and `actionlint` (versions pinned in `ci.yml`, job `shell-and-workflow-lint`) |
 | Add/update a dependency (locks + checksums) | see [`docs/dependencies.md`](docs/dependencies.md): `--write-locks --write-verification-metadata sha256` over all modules, review the diff |

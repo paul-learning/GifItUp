@@ -17,10 +17,6 @@
       "Bash(gh api *merge*)",
       "Bash(gh api *rulesets*)",
       "Bash(gh api *protection*)",
-      "Bash(gh api * -X *)",
-      "Bash(gh api -X *)",
-      "Bash(gh api * --method *)",
-      "Bash(gh api --method *)",
       "Bash(gh repo edit*)",
       "Bash(gh repo delete*)",
       "Bash(gh ruleset*)",
@@ -35,8 +31,23 @@
       "Bash(gh api *dispatches*)",
       "Bash(gh api *rerun*)",
       "Bash(gh api *eployment*)",
-      "Bash(gh api graphql*mutation*)",
       "Bash(gh auth token*)",
+      "Bash(gh api *-X*)",
+      "Bash(gh api *--method*)",
+      "Bash(gh api * -f*)",
+      "Bash(gh api * -F*)",
+      "Bash(gh api *--field*)",
+      "Bash(gh api *--raw-field*)",
+      "Bash(gh api *--input*)",
+      "Bash(gh api graphql*)",
+      "Bash(gh auth status*)",
+      "Bash(git credential*)",
+      "Bash(gh alias*)",
+      "Bash(curl *api.github.com*)",
+      "Bash(git push *--no-verify*)",
+      "Bash(git -c * push*)",
+      "Bash(git config *hooksPath*)",
+      "Bash(git config *hookspath*)",
       "PowerShell(git push)",
       "PowerShell(git push *main)",
       "PowerShell(git push *main *)",
@@ -53,10 +64,6 @@
       "PowerShell(gh api *merge*)",
       "PowerShell(gh api *rulesets*)",
       "PowerShell(gh api *protection*)",
-      "PowerShell(gh api * -X *)",
-      "PowerShell(gh api -X *)",
-      "PowerShell(gh api * --method *)",
-      "PowerShell(gh api --method *)",
       "PowerShell(gh repo edit*)",
       "PowerShell(gh repo delete*)",
       "PowerShell(gh ruleset*)",
@@ -71,14 +78,45 @@
       "PowerShell(gh api *dispatches*)",
       "PowerShell(gh api *rerun*)",
       "PowerShell(gh api *eployment*)",
-      "PowerShell(gh api graphql*mutation*)",
       "PowerShell(gh auth token*)",
+      "PowerShell(gh api *-X*)",
+      "PowerShell(gh api *--method*)",
+      "PowerShell(gh api * -f*)",
+      "PowerShell(gh api * -F*)",
+      "PowerShell(gh api *--field*)",
+      "PowerShell(gh api *--raw-field*)",
+      "PowerShell(gh api *--input*)",
+      "PowerShell(gh api graphql*)",
+      "PowerShell(gh auth status*)",
+      "PowerShell(git credential*)",
+      "PowerShell(gh alias*)",
+      "PowerShell(curl *api.github.com*)",
+      "PowerShell(git push *--no-verify*)",
+      "PowerShell(git -c * push*)",
+      "PowerShell(git config *hooksPath*)",
+      "PowerShell(git config *hookspath*)",
+      "PowerShell(Invoke-WebRequest *api.github.com*)",
+      "PowerShell(Invoke-RestMethod *api.github.com*)",
+      "PowerShell(iwr *api.github.com*)",
+      "PowerShell(irm *api.github.com*)",
       "Read(**/.env)",
       "Read(**/.env.local)",
       "Read(**/.env.prod*)",
       "Read(**/local.properties)",
       "Read(**/*.jks)",
       "Read(**/*.keystore)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git -C \"$CLAUDE_PROJECT_DIR\" config core.hooksPath .githooks"
+          }
+        ]
+      }
     ]
   }
 }
