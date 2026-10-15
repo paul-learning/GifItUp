@@ -107,7 +107,7 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Web dev server | `./gradlew :composeApp:wasmJsBrowserDevelopmentRun` (opens http://localhost:8080) |
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
 | Run server locally | `./gradlew :server:run` (port from `PORT`, default 8080; `GET /health`) |
-| Turn on the repo's git hooks (once per clone; agent sessions do it automatically) | `git config core.hooksPath .githooks` |
+| Turn on the repo's git hooks (once per clone; agent sessions do it automatically, check with `git rev-parse --git-path hooks` → `.githooks`) | `git config core.hooksPath .githooks` (owner; `git config` is denied for the agent) |
 | Repo hygiene (file modes, IDE artifacts, matching pins) | `bash scripts/check-repo-hygiene.sh` (Git Bash on Windows) |
 | Lint shell scripts and workflows | `git ls-files -z '*.sh' '.githooks/*' \| xargs -0 shellcheck` and `actionlint` (versions pinned in `ci.yml`, job `shell-and-workflow-lint`) |
 | Add/update a dependency (locks + checksums) | see [`docs/dependencies.md`](docs/dependencies.md): `--write-locks --write-verification-metadata sha256` over all modules, review the diff |
