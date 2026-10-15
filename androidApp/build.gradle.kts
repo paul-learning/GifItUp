@@ -43,4 +43,7 @@ dependencies {
 }
 
 // No APK is written before the .so files passed the test-panic and build-path scan (ADR-0007, #67 SEC-12).
-tasks.matching { it.name.startsWith("package") }.configureEach { dependsOn(":mls:verifyNoTestPanicAndroid") }
+// Only the APK packaging tasks: other "package…" tasks (resources) also run in `check`, which has no cargo-ndk.
+tasks.matching { it.name == "packageDebug" || it.name == "packageRelease" }.configureEach {
+    dependsOn(":mls:verifyNoTestPanicAndroid")
+}
