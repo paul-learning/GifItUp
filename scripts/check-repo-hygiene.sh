@@ -28,5 +28,14 @@ elif [ "$toml" != "$lock" ] || [ "$toml" != "$cli" ]; then
   fail "wasm-bindgen versions differ: Cargo.toml=$toml Cargo.lock=$lock ci.yml WASM_BINDGEN_VERSION=$cli"
 fi
 
+# Server never sees message content (ADR-0006): the encrypted content schema lives in :shared, so neither :server nor
+# :protocol (the server's only project dependency) may depend on it. A text check: catches type-safe accessors and
+# any ":shared" project path, not every build-script construct.
+for build in server/build.gradle.kts protocol/build.gradle.kts; do
+  if grep -nE 'projects\.shared|":shared"' "$build"; then
+    fail "$build references :shared; the server must never get the content schema (ADR-0006)"
+  fi
+done
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

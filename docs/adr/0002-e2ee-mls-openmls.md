@@ -33,7 +33,7 @@ Use **MLS via OpenMLS**.
 - Up front, we pay for the Rust toolchain, the binding build in CI, and Android↔Web interop testing.
 - The server still sees metadata: group IDs, group membership (by design, see above), message timing and sizes. This is documented in the threat model.
 - Client state (group secrets) must be persisted securely and carefully. Losing it means losing access to the group, so restore requires a re-add.
-- Application messages are padded (`padding_size`, set in both the create and the join config) so that ciphertext length reveals plaintext length only in coarse steps. The block size is fixed together with the message format (#11/#24).
+- Application messages are padded (`padding_size`, set in both the create and the join config) so that ciphertext length reveals plaintext length only in coarse steps. The block size is 1024 bytes with a content cap of 896 bytes, so every v1 message is one block (ADR-0006; Planned in #11, the code is still at the spike value of 256). `authenticated_data` stays empty: it is cleartext and unpadded.
 
 ## Spike results (2026-10-14)
 Details: [docs/spikes/openmls-android.md](../spikes/openmls-android.md), [docs/spikes/openmls-web.md](../spikes/openmls-web.md).
