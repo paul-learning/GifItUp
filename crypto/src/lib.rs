@@ -1,13 +1,15 @@
 //! GifItUp E2EE core: wraps OpenMLS behind a small API (ADR-0002, ADR-0007).
 //!
-//! Layout: [`client`] (identity, KeyPackages, state export) and [`group`] (spike group operations,
-//! not part of the v1 facade) hold the platform-neutral logic; [`error`] the closed error codes and
-//! panic containment; `uniffi_api` (all non-wasm targets) and `wasm_api` (wasm32) are thin binding
-//! layers that run every call through [`error::PanicGuard`].
+//! Layout: [`client`] and [`identity`] (identity, KeyPackages, state export) hold the
+//! platform-neutral logic, `group` the spike group operations (test-only until #22), [`error`] the
+//! closed error codes and panic containment. `uniffi_api` (all non-wasm targets) and `wasm_api`
+//! (wasm32) are thin binding layers that run every call through [`error::PanicGuard`].
 
 pub mod client;
 pub mod error;
-pub mod group;
+// Spike group operations: test-only until #22 adds them with member validation (ADR-0007).
+#[cfg(test)]
+pub(crate) mod group;
 pub mod identity;
 mod provider;
 mod snapshot;

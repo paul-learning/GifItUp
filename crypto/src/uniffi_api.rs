@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use crate::client::Client;
 use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook, module_call};
-use crate::group::AddMemberResult;
 use crate::identity::{CreatedKeyPackage, PublicIdentity};
 use crate::snapshot::take_key;
 
@@ -70,45 +69,5 @@ impl NativeMlsClient {
     /// The whole client state, encrypted with the snapshot key.
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
         self.guard.run(|| self.client.export_state())
-    }
-
-    /// SPIKE (#3), removed with the spikes; group ops come with #22.
-    pub fn create_group(&self) -> Result<Vec<u8>, ErrorCode> {
-        self.guard.run(|| self.client.create_group())
-    }
-
-    /// SPIKE (#3), removed with the spikes; group ops come with #22.
-    pub fn add_member(
-        &self,
-        group_id: Vec<u8>,
-        key_package: Vec<u8>,
-    ) -> Result<AddMemberResult, ErrorCode> {
-        self.guard
-            .run(|| self.client.add_member(&group_id, &key_package))
-    }
-
-    /// SPIKE (#3), removed with the spikes; group ops come with #22.
-    pub fn join_from_welcome(&self, welcome: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
-        self.guard.run(|| self.client.join_from_welcome(&welcome))
-    }
-
-    /// SPIKE (#3), removed with the spikes; group ops come with #22.
-    pub fn encrypt(&self, group_id: Vec<u8>, plaintext: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
-        self.guard
-            .run(|| self.client.encrypt(&group_id, &plaintext))
-    }
-
-    /// SPIKE (#3), removed with the spikes; group ops come with #22.
-    pub fn process(
-        &self,
-        group_id: Vec<u8>,
-        message: Vec<u8>,
-    ) -> Result<Option<Vec<u8>>, ErrorCode> {
-        self.guard.run(|| self.client.process(&group_id, &message))
-    }
-
-    /// SPIKE (#3), removed with the spikes; group ops come with #22.
-    pub fn member_count(&self, group_id: Vec<u8>) -> Result<u32, ErrorCode> {
-        self.guard.run(|| self.client.member_count(&group_id))
     }
 }

@@ -1,5 +1,7 @@
 # Spike: OpenMLS on Android via uniffi + cargo-ndk
 
+> **Spike code removed** in #11 (third PR): the Gradle wiring now lives in `:mls`, the opt-in flag and the spike CI jobs are gone (ADR-0007). This document is the spike's record.
+
 - **Issue:** #3
 - **Date:** 2026-10-14
 - **Status:** done. The answer is **yes**.

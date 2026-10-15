@@ -8,7 +8,7 @@ The build pins and verifies every dependency (#33).
 | **Dependency locking** | `gradle.lockfile` per project, `buildscript-gradle.lockfile`, `settings-gradle.lockfile` | Silent version drift through transitive dependencies or dynamic versions. Every configuration that **has** lock state must match it exactly. Gradle's default lock mode is used, not `STRICT`: a configuration *without* lock state (a new module, or one only the IDE or a rarely run task resolves) resolves unlocked without warning. `STRICT` would also fail Android Studio's sync on configurations we can't pre-lock. Dependency verification still applies to those configurations, so unlocked never means unverified. |
 | **Dependency verification** | `gradle/verification-metadata.xml` | Tampered or swapped artifacts. Every downloaded artifact (jar, aar, klib, pom, module, plugin, Node/Yarn/Binaryen tool archive) must match a recorded SHA-256. |
 | **Repository filtering** | `settings.gradle.kts` | Dependency confusion. Projects can't add repositories (`FAIL_ON_PROJECT_REPOS`). Google Maven only serves `androidx`/`com.android`/`com.google`. The Gradle Plugin Portal exclusively serves the ktlint plugin, and that plugin only comes from there. The Node.js/Yarn/Binaryen repositories each exclusively serve exactly one module. |
-| **npm lockfiles** | `kotlin-js-store/wasm/yarn.lock` (+ `yarn.spikes.lock`) | Same for the npm packages used by the Kotlin/Wasm build (webpack, karma, …). A mismatch fails the build. |
+| **npm lockfiles** | `kotlin-js-store/wasm/yarn.lock` (includes the local `gifitup-crypto` package that `:mls` builds from `crypto/`) | Same for the npm packages used by the Kotlin/Wasm build (webpack, karma, …). A mismatch fails the build. |
 | **Rust** | `crypto/Cargo.lock`, `crypto/rust-toolchain.toml` | Cargo verifies crate checksums from the lockfile; CI uses `--locked`. |
 
 CI fails if a lockfile or the verification metadata is out of date. There's no separate check job for this: resolution itself fails.
@@ -16,14 +16,14 @@ CI fails if a lockfile or the verification metadata is out of date. There's no s
 ## Adding or updating a Gradle dependency
 1. Change `gradle/libs.versions.toml` (and the build file, if it's a new dependency).
 2. **Before regenerating, check the new version itself:** the release exists in the publisher's changelog, and at least one artifact's checksum matches the publisher's (see step 3). Regenerating executes the new plugin and library code. Run it where a compromise costs little (#38 SEC-3): ideally a throwaway VM or container, at least a shell without GitHub tokens, SSH agent or signing keys loaded.
-   Then regenerate the lockfiles and checksums with an **empty Gradle user home** (`-g`), covering every module and both spike modules:
+   Then regenerate the lockfiles and checksums with an **empty Gradle user home** (`-g`), covering every module. This needs the Rust toolchain and `wasm-bindgen-cli` (ADR-0007):
 
    ```sh
    G=/tmp/gradle-fresh-home; rm -rf "$G"
-   ./gradlew -g "$G" -Pgifitup.rust=true --write-locks --write-verification-metadata sha256 \
+   ./gradlew -g "$G" --write-locks --write-verification-metadata sha256 \
      check :androidApp:assembleDebug :androidApp:assembleRelease \
-     :composeApp:wasmJsBrowserDistribution :spikes:mls-android:assembleDebugAndroidTest :server:installDist
-   ./gradlew -g "$G" -Pgifitup.rust=true --write-locks --write-verification-metadata sha256 \
+     :composeApp:wasmJsBrowserDistribution :mls:compileAndroidMain :server:installDist
+   ./gradlew -g "$G" --write-locks --write-verification-metadata sha256 \
      :composeApp:wasmJsBrowserDevelopmentExecutableDistribution
    ```
 

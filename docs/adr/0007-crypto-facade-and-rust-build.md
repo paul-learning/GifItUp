@@ -31,7 +31,8 @@ Storage: the issue named a "persistent storage provider interface". The spikes c
 
 ### Module `:mls`
 - A KMP module with `android`, `jvm` and `wasmJs` targets. It holds the uniffi-generated Kotlin, the Android `.so` files, the wasm-bindgen package and the two implementations. The jvm target exists for host contract tests (uniffi bindings plus the host library through JNA, no emulator).
-- Only `:composeApp` and `:androidApp` depend on it. `:shared`, its tests, `:protocol` and `:server` stay Rust-free, and the main CI `Gradle check` job doesn't need a Rust toolchain. The `:mls` checks run in their own CI job.
+- Only `:composeApp` and `:androidApp` depend on it. `:shared`, its tests, `:protocol` and `:server` stay Rust-free in the module graph.
+- **Amendment (third #11 PR, owner decision 2026-10-15: "Rust in Gradle check"):** the full build needs Rust after all. Kotlin/Wasm resolves the npm packages of every module into one root `yarn.lock`, so once `:mls` depends on the wasm-bindgen package, any web build first builds that package. The alternatives were an opt-in flag with a second lockfile (the spike scaffolding ARCH-M0-11 removed) or loading the wasm module outside npm (custom glue). So the `Gradle check` CI job and a local `./gradlew check` need the pinned Rust toolchain and `wasm-bindgen-cli`; they run the `:mls` contract tests on the JVM and in headless Chrome. The "MLS bindings" job builds the Android `.so` files with cargo-ndk.
 - The custom Gradle task classes from the spikes move into `:mls` first and into `build-logic/` with #34.
 
 ### Errors and panics
@@ -55,12 +56,12 @@ Storage: the issue named a "persistent storage provider interface". The spikes c
 - `crypto/clippy.toml` sets `too-many-lines-threshold = 60`, matching detekt.
 
 ### Spike exit
-The last #11 PR deletes `spikes/`, the `gifitup.rust` Gradle property, `kotlin-js-store/wasm/yarn.spikes.lock` and the two spike CI jobs, and adds an "MLS bindings" job. The owner swaps the required checks in the ruleset before that PR merges.
+The third #11 PR deletes `spikes/`, the `gifitup.rust` Gradle property, `kotlin-js-store/wasm/yarn.spikes.lock` and the two spike CI jobs, makes the spike group code test-only, and adds the "MLS bindings" job. The owner swaps the required checks in the ruleset before that PR merges.
 
 ### Rollout (#11 ships as 4 PRs)
 1. **In place with this ADR:** closed error codes, `PanicGuard` on every FFI call, silent panic hook, `overflow-checks`, padding 1024/896, the `set_aad` ban, `cargo-deny`, the module split of the crate. The spike FFI exports stay (labelled SPIKE) so the spike jobs keep running.
 2. **In place with the second #11 PR:** username rule, KeyPackage creation (at most 100 per call, 200 held), pruning of expired ones, inspection of others' KeyPackages (incl. `has_acceptable_range()`, ciphersuite, username, no last-resort), the encrypted snapshot and its restore checks, `forget_group` (test: storage equals the pre-group baseline after a self-update and with a pending commit), mutation tests of the parse paths.
-3. Planned (#11, PR 3): `MlsClient` interface and fake in `:shared`, the `:mls` module, contract tests on JVM and headless Chrome, spike removal.
+3. **In place with the third #11 PR:** `MlsClient`/`MlsClientFactory` and a fake in `:shared`, the `:mls` module (`UniffiMlsClient` on Android/JVM, `WasmMlsClient` in the browser), one contract-test suite run on the JVM and in headless Chrome, spike removal. `:mls` is not wired into the apps yet.
 4. Planned (#11, PR 4): panic and trap tests with a test-only feature that can't reach release builds, wiring `:mls` into the composition roots.
 
 ## Consequences
