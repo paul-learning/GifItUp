@@ -10,7 +10,7 @@ fail() { echo "::error::$1"; status=1; }
 # IDE/Windows artifacts (#35 CR-1): scripts must stay executable; Windows checkouts drop the bit.
 while read -r mode path; do
   [ "$mode" = 100755 ] || fail "$path has mode $mode, expected 100755 (git update-index --chmod=+x $path)"
-done < <(git ls-files -s -- gradlew '*.sh' | awk '{print $1, $4}')
+done < <(git ls-files -s -- gradlew '*.sh' '.githooks/*' | awk '{print $1, $4}')
 
 # IDE artifacts (#35 CR-2/SEC-1, #36 CR-4): Android Studio regenerates the daemon-JVM file with JDK download URLs.
 daemon=gradle/gradle-daemon-jvm.properties
