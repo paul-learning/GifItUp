@@ -497,7 +497,7 @@ val verifyReleaseWasmPaths =
         stamp.set(layout.buildDirectory.file("verify/release-wasm-paths.txt"))
     }
 tasks.named("check") { dependsOn(verifyNoTestPanic, verifyReleaseWasmPaths) }
-tasks.register<VerifyNoTestPanic>("verifyNoTestPanicAndroid") {
+val verifyNoTestPanicAndroid = tasks.register<VerifyNoTestPanic>("verifyNoTestPanicAndroid") {
     artifacts.from(cargoNdkBuild)
     forbiddenPaths.set(homePathVariants())
     stamp.set(layout.buildDirectory.file("verify/no-test-panic-android.txt"))
@@ -510,3 +510,6 @@ tasks
 extensions.configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
     filter { exclude { it.file.path.contains("${File.separator}build${File.separator}") } }
 }
+
+// Every Android build of the .so files is scanned, locally too, not only when CI names the task (#67 SEC-10).
+cargoNdkBuild.configure { finalizedBy(verifyNoTestPanicAndroid) }

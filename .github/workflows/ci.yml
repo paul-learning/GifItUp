@@ -175,9 +175,9 @@ jobs:
       # The crate exists now: a missing crate is an error, not a skip (SEC-5 on #35).
       # rustup is preinstalled; crypto/rust-toolchain.toml pins the version, components and targets,
       # and rustup installs them on the first cargo call. No third-party toolchain action needed.
-      - name: Show Rust toolchain
+      - name: Install and show the pinned Rust toolchain
         working-directory: crypto
-        run: rustup show active-toolchain && cargo --version
+        run: rustup toolchain install && rustup show active-toolchain && cargo --version
 
       # Only main writes this cache (restore-only on PRs, like the Gradle cache), so a PR can't poison it.
       # Release builds (#27) must not use it.
