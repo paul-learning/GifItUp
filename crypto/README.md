@@ -21,3 +21,5 @@ Run these in `crypto/`. `rust-toolchain.toml` pins the toolchain, and rustup ins
 | Kotlin bindings | `cargo build --lib && cargo run --features bindgen --bin uniffi-bindgen -- generate --library target/debug/<lib> --language kotlin --out-dir <dir>` |
 
 From the repo root, `:mls` (ADR-0007) runs these builds itself: `./gradlew :mls:jvmTest` (host library + uniffi bindings, JVM contract tests), `./gradlew :mls:wasmJsTest` (wasm-bindgen package, contract tests in headless Chrome; needs `wasm-bindgen-cli` at the crate's exact version) and `./gradlew :mls:cargoNdkBuild` (Android `.so` files; needs `cargo-ndk` and the NDK from the version catalog).
+
+Test-only panic trigger: `cargo test --locked --features test-panic` (debug builds only; see `src/test_panic.rs` and ADR-0007).

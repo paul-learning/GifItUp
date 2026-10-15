@@ -37,5 +37,16 @@ for build in server/build.gradle.kts protocol/build.gradle.kts; do
   fi
 done
 
+# The test-panic guard in crypto/src/test_panic.rs keys on debug_assertions, so the release profile must never
+# turn them on (ADR-0007, #67 SEC-5). A text check of the common spelling only; per-package overrides, custom
+# profiles or RUSTFLAGS get past it (#67 SEC-7). The CI scans of the shipped files are the real control.
+# Every [profile.release...] table counts, including per-package overrides and indented headers (#67 CR-9,
+# SEC-11); awk prints the offending Cargo.toml line number.
+if awk '/^[[:space:]]*\[/ { rel = ($0 ~ /^[[:space:]]*\[profile\.release[].]/) }
+        rel && /^[[:space:]]*debug-assertions[[:space:]]*=[[:space:]]*true/ { print FNR ": " $0; found = 1 }
+        END { exit !found }' crypto/Cargo.toml; then
+  fail "crypto/Cargo.toml: the release profile must not enable debug-assertions (test-panic guard)"
+fi
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

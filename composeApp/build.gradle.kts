@@ -26,6 +26,10 @@ kotlin {
     }
 
     sourceSets {
+        // The web composition root (Main.kt) builds the MlsClient factory (ADR-0007); Android's lives in :androidApp.
+        wasmJsMain.dependencies {
+            implementation(projects.mls)
+        }
         commonMain.dependencies {
             implementation(projects.shared)
             implementation(libs.compose.runtime)
@@ -35,3 +39,15 @@ kotlin {
         }
     }
 }
+
+// The web bundle must contain the freshly built crypto package, not a stale copy in node_modules (#66 CR-1, CR-11).
+// Every webpack task (bundles and the dev/production run servers) gets the synced package (#67 CR-4).
+tasks
+    .withType<org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpack>()
+    .configureEach {
+        dependsOn(":mls:syncWasmPackage")
+        inputs
+            .dir(rootProject.layout.buildDirectory.dir("wasm/node_modules/gifitup-crypto"))
+            .withPropertyName("cryptoPackage")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    }

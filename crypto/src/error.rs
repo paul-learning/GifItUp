@@ -229,3 +229,21 @@ mod tests {
         assert_eq!(guard.run(|| Ok(())), Err(ErrorCode::Poisoned));
     }
 }
+
+/// With the `test-panic` feature: a real panic inside a real client call is contained (#11 PR 4).
+#[cfg(all(test, feature = "test-panic"))]
+mod test_panic_tests {
+    use crate::error::{ErrorCode, PanicGuard};
+    use crate::test_support::client;
+
+    #[test]
+    fn panicking_call_poisons_the_client_for_good() {
+        let alice = client("alice");
+        let guard = PanicGuard::default();
+        assert_eq!(
+            guard.run(|| alice.inspect_key_package(&[], "__panic__")),
+            Err(ErrorCode::Poisoned)
+        );
+        assert_eq!(guard.run(|| alice.export_state()), Err(ErrorCode::Poisoned));
+    }
+}

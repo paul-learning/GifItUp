@@ -9,11 +9,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import app.gifitup.AppGraph
 import app.gifitup.shared.domain.greeting
 
-/** Root composable shared by Android and Web. Placeholder until the real navigation lands. */
+/**
+ * Root composable shared by Android and Web. Placeholder until the real navigation lands; [graph] is first used
+ * by onboarding (#17).
+ */
+@Suppress("UnusedParameter") // Wired now (ADR-0007, #11) so the first feature only has to read it.
 @Composable
-fun App() {
+fun App(graph: AppGraph) {
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(

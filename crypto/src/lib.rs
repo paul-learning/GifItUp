@@ -13,6 +13,8 @@ pub(crate) mod group;
 pub mod identity;
 mod provider;
 mod snapshot;
+#[cfg(feature = "test-panic")]
+mod test_panic;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod uniffi_api;

@@ -16,7 +16,7 @@ CI fails if a lockfile or the verification metadata is out of date. There's no s
 ## Adding or updating a Gradle dependency
 1. Change `gradle/libs.versions.toml` (and the build file, if it's a new dependency).
 2. **Before regenerating, check the new version itself:** the release exists in the publisher's changelog, and at least one artifact's checksum matches the publisher's (see step 3). Regenerating executes the new plugin and library code. Run it where a compromise costs little (#38 SEC-3): ideally a throwaway VM or container, at least a shell without GitHub tokens, SSH agent or signing keys loaded.
-   Then regenerate the lockfiles and checksums with an **empty Gradle user home** (`-g`), covering every module. This needs the Rust toolchain and `wasm-bindgen-cli` (ADR-0007):
+   Then regenerate the lockfiles and checksums with an **empty Gradle user home** (`-g`), covering every module. This needs the Rust toolchain, `wasm-bindgen-cli` and `cargo-ndk` (ADR-0007):
 
    ```sh
    G=/tmp/gradle-fresh-home; rm -rf "$G"

@@ -13,6 +13,9 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "0.1.0"
+        // crypto/ is built for these ABIs only (:mls, ADR-0007); on any other ABI the app would crash on first
+        // use, so it isn't offered there at all. Also keeps unused 32-bit JNA libraries out of the APK.
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
     buildTypes {
         release {
@@ -34,5 +37,13 @@ kotlin {
 
 dependencies {
     implementation(projects.composeApp)
+    // Composition root builds the MlsClient factory (ADR-0004, ADR-0007); also brings the .so files.
+    implementation(projects.mls)
     implementation(libs.androidx.activity.compose)
+}
+
+// No APK is written before the .so files passed the test-panic and build-path scan (ADR-0007, #67 SEC-12).
+// Only the APK packaging tasks: other "package…" tasks (resources) also run in `check`, which has no cargo-ndk.
+tasks.matching { it.name == "packageDebug" || it.name == "packageRelease" }.configureEach {
+    dependsOn(":mls:verifyNoTestPanicAndroid")
 }

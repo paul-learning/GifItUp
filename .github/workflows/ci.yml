@@ -68,7 +68,13 @@ jobs:
         run: bash scripts/check-repo-hygiene.sh
 
       # :mls builds crypto/ (ADR-0007): rustup is preinstalled and crypto/rust-toolchain.toml pins the toolchain
-      # and targets. wasm-bindgen-cli is a prebuilt release binary, verified against a pinned SHA-256.
+      # and targets. Installing it once here keeps parallel cargo calls from installing it concurrently (#67 CR-1).
+      - name: Install the pinned Rust toolchain
+        working-directory: crypto
+        # Explicit install from rust-toolchain.toml; relying on rustup's implicit auto-install is deprecated (#67 CR-8).
+        run: rustup toolchain install && rustup show active-toolchain && cargo --version
+
+      # wasm-bindgen-cli is a prebuilt release binary, verified against a pinned SHA-256.
       - name: Install wasm-bindgen-cli
         run: |
           name="wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl"
@@ -79,12 +85,24 @@ jobs:
 
       # check = all tests (jvm, Android host, wasmJs/Node, server, :mls contract tests on the JVM and in
       # headless Chrome, which the runner ships) + ktlint + detekt + Android lint.
-      - name: Check, Android debug APK, wasmJs production bundle
+      # The Android APKs need cargo-ndk for crypto/'s .so files and are built in the "MLS bindings" job.
+      - name: Check, wasmJs production bundle
         run: >-
           ./gradlew --continue
           check
-          :androidApp:assembleDebug
           :composeApp:wasmJsBrowserDistribution
+
+      # What ships: no test-only panic trigger anywhere in the bundle, and no build-machine paths in its wasm
+      # files (ADR-0007; #67 SEC-1, SEC-3, CR-6).
+      - name: Scan the web bundle
+        run: |
+          dist=composeApp/build/dist/wasmJs/productionExecutable
+          ls "$dist"/*.wasm
+          # grep exits 0 = found (fail), 1 = not found (ok), 2 = read error (fail).
+          rc=0; grep -rlaF gifitup_test_panic_marker "$dist" || rc=$?
+          [ "$rc" -eq 1 ] || { echo "::error::test-panic code in the web bundle (or scan error $rc)"; exit 1; }
+          rc=0; grep -laF "$HOME" "$dist"/*.wasm || rc=$?
+          [ "$rc" -eq 1 ] || { echo "::error::build-machine paths in the web bundle (or scan error $rc)"; exit 1; }
 
       - name: Upload test and lint reports
         if: failure()
@@ -157,9 +175,9 @@ jobs:
       # The crate exists now: a missing crate is an error, not a skip (SEC-5 on #35).
       # rustup is preinstalled; crypto/rust-toolchain.toml pins the version, components and targets,
       # and rustup installs them on the first cargo call. No third-party toolchain action needed.
-      - name: Show Rust toolchain
+      - name: Install and show the pinned Rust toolchain
         working-directory: crypto
-        run: rustup show active-toolchain && cargo --version
+        run: rustup toolchain install && rustup show active-toolchain && cargo --version
 
       # Only main writes this cache (restore-only on PRs, like the Gradle cache), so a PR can't poison it.
       # Release builds (#27) must not use it.
@@ -203,6 +221,13 @@ jobs:
         working-directory: crypto
         run: cargo test --locked
 
+      # The test-only panic trigger used by the :mls panic and trap tests (debug builds only, ADR-0007).
+      - name: cargo clippy and test with the test-panic feature
+        working-directory: crypto
+        run: |
+          cargo clippy --all-targets --locked --features test-panic -- -D warnings
+          cargo test --locked --features test-panic
+
       - name: Save cargo cache
         if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -214,8 +239,9 @@ jobs:
             crypto/target
           key: crypto-${{ runner.os }}-deny${{ env.CARGO_DENY_VERSION }}-${{ hashFiles('crypto/Cargo.lock', 'crypto/rust-toolchain.toml') }}
 
-  # Android libraries of crypto/ (ADR-0007): cargo-ndk release build for every shipped ABI. The JVM and browser
-  # bindings are built and tested in the Gradle check job.
+  # Android side of crypto/ (ADR-0007): cargo-ndk release build of the .so files, the debug and release APKs that
+  # ship them, and the check that no test-only code is in them. The JVM and browser bindings are built and tested
+  # in the Gradle check job.
   mls-bindings:
     name: MLS bindings
     runs-on: ubuntu-latest
@@ -238,9 +264,32 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      - name: Install the pinned Rust toolchain
+        working-directory: crypto
+        run: rustup toolchain install && rustup show active-toolchain
+
       - name: Install cargo-ndk
         working-directory: crypto
         run: cargo install cargo-ndk --locked --version 4.1.2
 
-      - name: Build the Android libraries
-        run: ./gradlew :mls:cargoNdkBuild
+      - name: Build the Android libraries and APKs
+        run: ./gradlew :mls:cargoNdkBuild :mls:verifyNoTestPanicAndroid :androidApp:assembleDebug :androidApp:assembleRelease
+
+      # What ships: the crypto library for every ABI, without the test-only panic trigger or build-machine paths
+      # (ADR-0007; #67 SEC-1, SEC-3).
+      - name: Scan the APKs
+        run: |
+          for apk in androidApp/build/outputs/apk/debug/*.apk androidApp/build/outputs/apk/release/*.apk; do
+            for abi in arm64-v8a x86_64; do
+              so="lib/${abi}/libgifitup_crypto.so"
+              lib="$RUNNER_TEMP/scan.so"
+              rm -f "$lib"
+              unzip -p "$apk" "$so" > "$lib" || { echo "::error::$apk lacks ${abi}"; exit 1; }
+              [ -s "$lib" ] || { echo "::error::$apk lacks ${abi}"; exit 1; }
+              # grep exits 0 = found (fail), 1 = not found (ok), 2 = read error (fail).
+              for needle in gifitup_test_panic_marker "$HOME"; do
+                rc=0; grep -qaF "$needle" "$lib" || rc=$?
+                [ "$rc" -eq 1 ] || { echo "::error::$apk ($abi): found '$needle' (or scan error $rc)"; exit 1; }
+              done
+            done
+          done

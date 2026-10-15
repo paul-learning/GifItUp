@@ -25,8 +25,9 @@ class CreatedKeyPackage(
 /**
  * Mirrors `ErrorCode` in `crypto/src/error.rs`. The bindings map the native codes by type (uniffi) or by exact
  * name (web); anything they don't recognise means the native side is in an unknown state and becomes
- * [Poisoned] (ADR-0007). A bug in the web wrapper's own Kotlin code (not in the wasm module) is reported as
- * [Internal] and leaves the module usable.
+ * [Poisoned] (ADR-0007). On the web, a bug in the wrapper's own Kotlin code outside a call into the wasm
+ * module is reported as [Internal] and leaves the module usable; one inside such a call can't be told apart
+ * from a trap and becomes [Poisoned] (#66 SEC-10).
  */
 enum class MlsErrorCode {
     InvalidInput,
