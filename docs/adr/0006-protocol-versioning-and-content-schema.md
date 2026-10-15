@@ -28,7 +28,7 @@ For the content schema: JSON with kotlinx.serialization (chosen, no new dependen
 3. **Strict parsing (Planned #12).** The header must match `^[1-9][0-9]{0,3}$` and appear exactly once. The raw value is never logged.
 4. **Signalling an incompatible version (Planned #12).** `400` with a closed body: `{"error":"client_outdated","minProtocolVersion":n}` when the header is missing, malformed or below the minimum, and `{"error":"server_outdated"}` when it is above the current version. This is 400, not 426: RFC 9110 §15.5.22 requires an `Upgrade` header on a 426, which doesn't fit an app version. WebSocket: private-use close codes (RFC 6455 §7.4.2) `4001` (client outdated) and `4002` (server outdated). The check covers every route except `/health`, which stays unauthenticated and additively reports `minProtocolVersion` so a client can check at startup.
 5. **No downgrade.** A client sends exactly one version and never retries with an older one: `server_outdated` means stop and show an error. A server-supplied `minProtocolVersion` is untrusted: the client bounds it and shows only its own built-in "please update the app" text, never server-supplied text or links.
-6. **JSON configuration.** `ProtocolJson` is the single configuration for both sides, and every `JsonBuilder` flag of kotlinx.serialization 1.11 is set explicitly (formatting and naming flags at their defaults: `prettyPrint = false`, `namingStrategy = null`, `useAlternativeNames = false`, `allowStructuredMapKeys = false`, `useArrayPolymorphism = false`, `classDiscriminatorMode = POLYMORPHIC`). The ones that matter for compatibility and input safety:
+6. **JSON configuration.** `ProtocolJson` is the single configuration for both sides, and every `JsonBuilder` flag of kotlinx.serialization 1.11 is set explicitly, except `prettyPrintIndent`, which only applies with `prettyPrint` (formatting and naming flags at their defaults: `prettyPrint = false`, `namingStrategy = null`, `useAlternativeNames = false`, `allowStructuredMapKeys = false`, `useArrayPolymorphism = false`, `classDiscriminatorMode = POLYMORPHIC`). The ones that matter for compatibility and input safety:
 
    | Flag | Value | Why |
    |---|---|---|
@@ -37,6 +37,7 @@ For the content schema: JSON with kotlinx.serialization (chosen, no new dependen
    | `classDiscriminator` | `"type"` | Stable name for sealed types |
    | `explicitNulls` | `true` | `null` is written, not omitted |
    | `coerceInputValues` | `false` | Would turn an invalid `null` or unknown value into a default and hide garbage input |
+   | `exceptionsWithDebugInfo` | `false` | No input excerpt in lexer error messages (default `true`). Messages can still name unknown enum values and type names, so A8 applies regardless |
    | `isLenient`, `allowComments`, `allowTrailingComma`, `allowSpecialFloatingPointValues`, `decodeEnumsCaseInsensitive` | `false` | Strict input; no second interpretation of the same bytes |
 
 7. **Compatibility rules.** Each has a test in `protocol/src/commonTest/.../CompatibilityRulesTest.kt`.

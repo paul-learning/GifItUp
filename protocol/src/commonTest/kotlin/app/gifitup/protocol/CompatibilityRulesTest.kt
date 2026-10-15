@@ -10,6 +10,7 @@ import kotlinx.serialization.modules.polymorphic
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 /** One test per compatibility rule in ADR-0006, run against [ProtocolJson] with test-only fixture models. */
 class CompatibilityRulesTest {
@@ -70,7 +71,20 @@ class CompatibilityRulesTest {
     @Test
     fun nonStringTypeFailsWithIllegalArgument() {
         // Not a SerializationException: codec boundaries must catch IllegalArgumentException too (ADR-0006 B5).
-        assertFailsWith<IllegalArgumentException> { sealedJson.decodeFromString<Event>("""{"type":{},"member":"m"}""") }
+        val error =
+            assertFailsWith<IllegalArgumentException> {
+                sealedJson.decodeFromString<Event>("""{"type":{},"member":"m"}""")
+            }
+        assertFalse(error is SerializationException)
+    }
+
+    @Test
+    fun lexerErrorsDoNotEchoInput() {
+        val error =
+            assertFailsWith<SerializationException> {
+                ProtocolJson.decodeFromString<Fixture>("""{"name":"SECRET-MARKER","count":1,,}""")
+            }
+        assertFalse(error.message.orEmpty().contains("SECRET-MARKER"))
     }
 
     @Test
