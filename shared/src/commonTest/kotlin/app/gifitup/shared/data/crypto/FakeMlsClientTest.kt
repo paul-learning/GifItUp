@@ -35,6 +35,7 @@ class FakeMlsClientTest {
         assertEquals(bob.publicIdentity(), alice.inspectKeyPackage(kp.keyPackage, "bob"))
         assertCode(MlsErrorCode.InvalidKeyPackage) { alice.inspectKeyPackage(kp.keyPackage, "carol") }
         assertCode(MlsErrorCode.InvalidInput) { bob.createKeyPackages(0) }
+        assertCode(MlsErrorCode.InvalidInput) { alice.inspectKeyPackage(ByteArray(16 * 1024 + 1), "bob") }
     }
 
     @Test
@@ -51,6 +52,10 @@ class FakeMlsClientTest {
         val restored = FakeMlsClient.Factory.restore(alice.exportState(), key())
         assertEquals(alice.publicIdentity(), restored.publicIdentity())
         assertCode(MlsErrorCode.SnapshotInvalid) { FakeMlsClient.Factory.restore(byteArrayOf(1), key()) }
+        val otherKey = ByteArray(32) { 2 }
+        assertCode(MlsErrorCode.SnapshotAuth) { FakeMlsClient.Factory.restore(alice.exportState(), otherKey) }
+        val malformed = "state:x:alice:notanumber".encodeToByteArray()
+        assertCode(MlsErrorCode.SnapshotInvalid) { FakeMlsClient.Factory.restore(malformed, key()) }
     }
 
     @Test
@@ -58,7 +63,5 @@ class FakeMlsClientTest {
         val e = MlsException(MlsErrorCode.SnapshotAuth)
         assertNull(e.message)
         assertNull(e.cause)
-        assertEquals(MlsErrorCode.Internal, MlsErrorCode.fromName("something new"))
-        assertEquals(MlsErrorCode.Poisoned, MlsErrorCode.fromName("Poisoned"))
     }
 }

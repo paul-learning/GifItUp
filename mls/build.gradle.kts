@@ -287,9 +287,14 @@ kotlin {
     }
 }
 
-// JVM contract tests load the host library built by uniffiBindgen.
+// JVM contract tests load the host library built by uniffiBindgen. It is a declared input, so a change to the
+// Rust code alone reruns the tests (and changes their build-cache key; #66 CR-1).
 tasks.named<Test>("jvmTest") {
     dependsOn(uniffiBindgen)
+    inputs
+        .file(hostTargetDir.map { it.file("debug/${hostLibraryName()}") })
+        .withPropertyName("hostLibrary")
+        .withPathSensitivity(PathSensitivity.NONE)
     systemProperty("jna.library.path", hostTargetDir.get().dir("debug").asFile.absolutePath)
 }
 
@@ -311,9 +316,22 @@ val cargoNdkBuild =
     }
 
 // The npm package directory must be filled before Kotlin's npm/yarn install runs.
-rootProject.tasks
-    .matching { it.name == "kotlinWasmNpmInstall" || it.name == "wasmKotlinNpmInstall" }
-    .configureEach { dependsOn(wasmBindgenPackage) }
+val rootNpmInstall = rootProject.tasks.matching { it.name == "kotlinWasmNpmInstall" || it.name == "wasmKotlinNpmInstall" }
+rootNpmInstall.configureEach { dependsOn(wasmBindgenPackage) }
+
+// Kotlin copies `file:` npm dependencies into node_modules once and may keep a stale copy when only the Rust
+// code changed. This replaces the copy with the fresh package, and the browser tests declare the package as an
+// input, so they rerun after any crate change (#66 CR-1). Bundling it into the web app (#11 PR 4) needs the same.
+val syncWasmPackage =
+    tasks.register<Sync>("syncWasmPackage") {
+        dependsOn(rootNpmInstall)
+        from(wasmBindgenPackage)
+        into(rootProject.layout.buildDirectory.dir("wasm/node_modules/gifitup-crypto"))
+    }
+tasks.matching { it.name == "wasmJsBrowserTest" }.configureEach {
+    dependsOn(syncWasmPackage)
+    inputs.files(wasmBindgenPackage).withPropertyName("wasmPackage").withPathSensitivity(PathSensitivity.RELATIVE)
+}
 tasks
     .matching { it.name.contains("PackageJson", ignoreCase = true) }
     .configureEach { dependsOn(wasmBindgenPackage) }

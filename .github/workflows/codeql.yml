@@ -55,10 +55,11 @@ jobs:
           cache-provider: basic
           cache-read-only: true
 
-      # Rust extraction runs dependency build scripts and proc macros (rust-analyzer). Fetch exactly the
-      # crates in Cargo.lock first, then keep cargo offline while CodeQL runs (#45 SEC-5).
+      # Rust extraction runs dependency build scripts and proc macros (rust-analyzer), and the Kotlin build
+      # compiles crypto/ for the :mls bindings. Fetch exactly the crates in Cargo.lock first, then keep cargo
+      # offline while CodeQL builds and runs (#45 SEC-5, #66 SEC-2).
       - name: Fetch locked Rust dependencies
-        if: matrix.language == 'rust'
+        if: matrix.language == 'rust' || matrix.build-mode == 'manual'
         working-directory: crypto
         run: cargo fetch --locked
 
@@ -75,11 +76,14 @@ jobs:
       # The Kotlin compiler runs in-process (no Kotlin daemon) so CodeQL's build tracer observes it.
       - name: Build for CodeQL
         if: matrix.build-mode == 'manual'
+        env:
+          CARGO_NET_OFFLINE: 'true'
         run: >-
           ./gradlew --no-daemon --no-build-cache --no-configuration-cache --rerun-tasks
           -Pkotlin.compiler.execution.strategy=in-process
           :protocol:compileKotlinJvm :protocol:compileAndroidMain
           :shared:compileKotlinJvm :shared:compileAndroidMain
+          :mls:compileKotlinJvm :mls:compileAndroidMain
           :composeApp:compileAndroidMain
           :androidApp:compileDebugKotlin
           :server:compileKotlin

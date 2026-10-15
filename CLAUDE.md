@@ -99,7 +99,7 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 
 | Task | Command |
 |---|---|
-| Full check (build, all tests, ktlint, detekt) | `./gradlew check` |
+| Full check (build, all tests, ktlint, detekt; needs the Rust toolchain and `wasm-bindgen-cli`, see ADR-0007) | `./gradlew check` |
 | Tests only | `./gradlew allTests :server:test` |
 | Lint only | `./gradlew ktlintCheck detekt` |
 | Auto-format Kotlin | `./gradlew ktlintFormat` |

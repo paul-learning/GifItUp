@@ -22,7 +22,11 @@ class CreatedKeyPackage(
     val notAfterEpochSeconds: Long,
 )
 
-/** Mirrors `ErrorCode` in `crypto/src/error.rs`. Unknown names map to [Internal]. */
+/**
+ * Mirrors `ErrorCode` in `crypto/src/error.rs`. The bindings map the native codes by type (uniffi) or by exact
+ * name (web); anything they don't recognise means the native side is in an unknown state and becomes
+ * [Poisoned] (ADR-0007).
+ */
 enum class MlsErrorCode {
     InvalidInput,
     InvalidUsername,
@@ -34,11 +38,6 @@ enum class MlsErrorCode {
     SnapshotAuth,
     Poisoned,
     Internal,
-    ;
-
-    companion object {
-        fun fromName(name: String?): MlsErrorCode = entries.firstOrNull { it.name == name } ?: Internal
-    }
 }
 
 /**

@@ -41,6 +41,8 @@ object UniffiMlsClientFactory : MlsClientFactory {
 internal class UniffiMlsClient(
     private val native: NativeMlsClient,
 ) : MlsClient {
+    // Calls may come from different threads; Rust serializes them, this flag must be visible to all (#66 SEC-5).
+    @Volatile
     private var dead = false
 
     override fun publicIdentity(): PublicIdentity = call { native.publicIdentity().toShared() }
@@ -85,7 +87,7 @@ internal class UniffiMlsClient(
  * from the native side may escape untranslated, and no input or internal state may reach logs (ADR-0007).
  */
 @Suppress("TooGenericExceptionCaught", "SwallowedException")
-private inline fun <T> translated(block: () -> T): T =
+internal inline fun <T> translated(block: () -> T): T =
     try {
         block()
     } catch (e: MlsException) {

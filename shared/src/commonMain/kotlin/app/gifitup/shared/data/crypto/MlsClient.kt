@@ -6,7 +6,8 @@ package app.gifitup.shared.data.crypto
  *
  * v1 covers identity, KeyPackages and the encrypted state snapshot; group operations come with #22.
  * Every method throws [MlsException] on failure. After [MlsErrorCode.Poisoned] the client is dead:
- * close it and restore from the last persisted snapshot, never export its state.
+ * close it and restore from the last persisted snapshot, never export its state. Calling a closed client is a
+ * programming error and also throws [MlsErrorCode.Poisoned].
  */
 interface MlsClient : AutoCloseable {
     fun publicIdentity(): PublicIdentity
