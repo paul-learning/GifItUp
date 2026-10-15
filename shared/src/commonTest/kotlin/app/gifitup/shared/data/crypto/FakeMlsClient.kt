@@ -68,9 +68,10 @@ class FakeMlsClient private constructor(
         ): MlsClient {
             val tag = takeKey(snapshotKey)
             val parts = state.decodeToString().split(":")
+            // Like the real client: authenticate first, then parse (#66 CR-9).
+            if (parts.getOrNull(1) != tag) fail(if (parts.size == 4) MlsErrorCode.SnapshotAuth else MlsErrorCode.SnapshotInvalid)
             val held = parts.takeIf { it.size == 4 && it[0] == "state" }?.get(3)?.toIntOrNull()
-            if (held == null || !isValidUsername(parts[2])) fail(MlsErrorCode.SnapshotInvalid)
-            if (parts[1] != tag) fail(MlsErrorCode.SnapshotAuth)
+            if (held == null || held !in 0..MAX_HELD || !isValidUsername(parts[2])) fail(MlsErrorCode.SnapshotInvalid)
             val username = parts[2]
             return FakeMlsClient(username, tag, MutableList(held) { "kp:$username:$it".encodeToByteArray() })
         }

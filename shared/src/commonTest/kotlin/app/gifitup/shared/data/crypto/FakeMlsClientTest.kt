@@ -54,8 +54,11 @@ class FakeMlsClientTest {
         assertCode(MlsErrorCode.SnapshotInvalid) { FakeMlsClient.Factory.restore(byteArrayOf(1), key()) }
         val otherKey = ByteArray(32) { 2 }
         assertCode(MlsErrorCode.SnapshotAuth) { FakeMlsClient.Factory.restore(alice.exportState(), otherKey) }
-        val malformed = "state:x:alice:notanumber".encodeToByteArray()
-        assertCode(MlsErrorCode.SnapshotInvalid) { FakeMlsClient.Factory.restore(malformed, key()) }
+        val tag = key().contentHashCode()
+        for (count in listOf("notanumber", "-1", "201")) {
+            val malformed = "state:$tag:alice:$count".encodeToByteArray()
+            assertCode(MlsErrorCode.SnapshotInvalid) { FakeMlsClient.Factory.restore(malformed, key()) }
+        }
     }
 
     @Test

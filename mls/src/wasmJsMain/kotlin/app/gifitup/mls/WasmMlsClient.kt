@@ -19,7 +19,14 @@ import org.khronos.webgl.set
 suspend fun loadWasmMlsClientFactory(): MlsClientFactory {
     // Concurrent first callers share one load instead of instantiating the module twice (#66 CR-4).
     val loading = WasmModule.loading ?: initCrypto().also { WasmModule.loading = it }
-    loading.await<JsAny?>()
+    var loaded = false
+    try {
+        loading.await<JsAny?>()
+        loaded = true
+    } finally {
+        // A failed load (e.g. a network error fetching the .wasm) is retried on the next call (#66 SEC-9).
+        if (!loaded) WasmModule.loading = null
+    }
     return WasmMlsClientFactory
 }
 
@@ -74,10 +81,16 @@ private class WasmMlsClient(
             val created = guarded { native.createKeyPackages(count) }
             val items = List(created.length) { i -> checkNotNull(created[i]) }
             try {
-                items.map { CreatedKeyPackage(it.keyPackage.toByteArray(), it.keyPackageRef.toByteArray(), it.notAfter.toLong()) }
+                items.map { kp ->
+                    CreatedKeyPackage(
+                        guarded { kp.keyPackage }.toByteArray(),
+                        guarded { kp.keyPackageRef }.toByteArray(),
+                        guarded { kp.notAfter.toJsNumber() }.toDouble().toLong(),
+                    )
+                }
             } finally {
                 // Every wasm-side object is freed, also when one conversion fails (#66 CR-5).
-                items.forEach { it.free() }
+                items.forEach { kp -> freeGuarded { kp.free() } }
             }
         }
 
@@ -95,7 +108,7 @@ private class WasmMlsClient(
     override fun exportState(): ByteArray = call { guarded { native.exportState() }.toByteArray() }
 
     override fun close() {
-        if (!closed && !WasmModule.dead) native.free()
+        if (!closed && !WasmModule.dead) freeGuarded { native.free() }
         closed = true
     }
 
@@ -166,7 +179,22 @@ internal fun classifyJsError(thrown: JsAny?): MlsErrorCode? {
 private fun plainErrorMessage(thrown: JsAny?): String? =
     js("(thrown instanceof Error && Object.getPrototypeOf(thrown) === Error.prototype) ? thrown.message : null")
 
-private fun JsPublicIdentity.toShared(): PublicIdentity = PublicIdentity(username, signaturePublicKey.toByteArray()).also { free() }
+private fun JsPublicIdentity.toShared(): PublicIdentity {
+    try {
+        return PublicIdentity(guarded { username.toJsString() }.toString(), guarded { signaturePublicKey }.toByteArray())
+    } finally {
+        freeGuarded { free() }
+    }
+}
+
+/** `free()` goes through [guarded] too; after a trap the module is dead and nothing is freed any more. */
+private fun freeGuarded(free: () -> Unit) {
+    if (WasmModule.dead) return
+    guarded<JsAny?> {
+        free()
+        null
+    }
+}
 
 // Kotlin/Wasm ByteArrays live in the Wasm GC heap, which JS can't see: every crossing copies.
 private fun ByteArray.toUint8Array(): Uint8Array {
