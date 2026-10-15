@@ -101,6 +101,8 @@ The threat model now spells out what the web client can't protect (offline profi
 These are now applied together with the Android results; see the ADR's "Spike results (2026-10-14)" section.
 
 ## Findings for follow-up issues
+_Update 2026-10-15: ADR-0007 settles the #11 items below differently in two places: an interface in `:shared` with implementations in a separate `:mls` module (not `expect/actual` in `:shared`), and recovery from a wasm trap by page reload (not re-instantiation)._
+
 - **#11:**
   - move `client` + both binding layers out of spike status
   - trap recovery on the web (see Panics above), plus a browser test that triggers a panic on purpose and checks recovery (SEC-3 on #37)

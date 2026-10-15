@@ -1,69 +1,95 @@
-//! uniffi bindings (Android / JVM). Thin wrapper around [`crate::client::Client`].
+//! uniffi bindings (Android / JVM). Thin wrapper around [`Client`]: every call runs through a
+//! [`PanicGuard`], so a panic never reaches Kotlin as a message and a client that panicked once
+//! refuses every later call, state export included (ADR-0007).
 
 use std::sync::Arc;
 
-use crate::client::{AddMemberResult, Client, CryptoError};
+use crate::client::Client;
+use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook};
+use crate::group::AddMemberResult;
 
 /// One MLS client (one device). See [`Client`].
 #[derive(uniffi::Object)]
-pub struct MlsClient(Client);
+pub struct NativeMlsClient {
+    guard: PanicGuard,
+    client: Client,
+}
+
+impl NativeMlsClient {
+    fn wrap(client: Client) -> Arc<Self> {
+        Arc::new(Self {
+            guard: PanicGuard::default(),
+            client,
+        })
+    }
+}
 
 #[uniffi::export]
-impl MlsClient {
+impl NativeMlsClient {
     /// Creates a new identity with a fresh signature key and a BasicCredential for `username`.
     #[uniffi::constructor]
-    pub fn new(username: String) -> Result<Arc<Self>, CryptoError> {
-        Ok(Arc::new(Self(Client::new(username)?)))
+    pub fn new(username: String) -> Result<Arc<Self>, ErrorCode> {
+        install_silent_panic_hook();
+        catch(|| Client::new(username)).map(Self::wrap)
     }
 
-    /// Restores a client from [`MlsClient::export_state`] output.
+    /// Restores a client from [`NativeMlsClient::export_state`] output.
     #[uniffi::constructor]
-    pub fn restore(state: Vec<u8>) -> Result<Arc<Self>, CryptoError> {
-        Ok(Arc::new(Self(Client::restore(&state)?)))
+    pub fn restore(state: Vec<u8>) -> Result<Arc<Self>, ErrorCode> {
+        install_silent_panic_hook();
+        catch(|| Client::restore(&state)).map(Self::wrap)
     }
 
-    pub fn signature_public_key(&self) -> Vec<u8> {
-        self.0.signature_public_key()
+    pub fn signature_public_key(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| Ok(self.client.signature_public_key()))
     }
 
-    pub fn create_key_package(&self) -> Result<Vec<u8>, CryptoError> {
-        self.0.create_key_package()
+    pub fn create_key_package(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.client.create_key_package())
     }
 
-    pub fn create_group(&self) -> Result<Vec<u8>, CryptoError> {
-        self.0.create_group()
+    /// SPIKE: plaintext secret material until PR 2 of #11 encrypts it (ADR-0007).
+    pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.client.export_state())
     }
 
+    /// SPIKE (#3), removed with the spikes; group ops come with #22.
+    pub fn create_group(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.client.create_group())
+    }
+
+    /// SPIKE (#3), removed with the spikes; group ops come with #22.
     pub fn add_member(
         &self,
         group_id: Vec<u8>,
         key_package: Vec<u8>,
-    ) -> Result<AddMemberResult, CryptoError> {
-        self.0.add_member(&group_id, &key_package)
+    ) -> Result<AddMemberResult, ErrorCode> {
+        self.guard
+            .run(|| self.client.add_member(&group_id, &key_package))
     }
 
-    pub fn join_from_welcome(&self, welcome: Vec<u8>) -> Result<Vec<u8>, CryptoError> {
-        self.0.join_from_welcome(&welcome)
+    /// SPIKE (#3), removed with the spikes; group ops come with #22.
+    pub fn join_from_welcome(&self, welcome: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.client.join_from_welcome(&welcome))
     }
 
-    pub fn encrypt(&self, group_id: Vec<u8>, plaintext: Vec<u8>) -> Result<Vec<u8>, CryptoError> {
-        self.0.encrypt(&group_id, &plaintext)
+    /// SPIKE (#3), removed with the spikes; group ops come with #22.
+    pub fn encrypt(&self, group_id: Vec<u8>, plaintext: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
+        self.guard
+            .run(|| self.client.encrypt(&group_id, &plaintext))
     }
 
+    /// SPIKE (#3), removed with the spikes; group ops come with #22.
     pub fn process(
         &self,
         group_id: Vec<u8>,
         message: Vec<u8>,
-    ) -> Result<Option<Vec<u8>>, CryptoError> {
-        self.0.process(&group_id, &message)
+    ) -> Result<Option<Vec<u8>>, ErrorCode> {
+        self.guard.run(|| self.client.process(&group_id, &message))
     }
 
-    pub fn member_count(&self, group_id: Vec<u8>) -> Result<u32, CryptoError> {
-        self.0.member_count(&group_id)
-    }
-
-    /// SPIKE: plaintext secret material, see [`Client::export_state`].
-    pub fn export_state(&self) -> Result<Vec<u8>, CryptoError> {
-        self.0.export_state()
+    /// SPIKE (#3), removed with the spikes; group ops come with #22.
+    pub fn member_count(&self, group_id: Vec<u8>) -> Result<u32, ErrorCode> {
+        self.guard.run(|| self.client.member_count(&group_id))
     }
 }

@@ -1,0 +1,58 @@
+# cargo-deny policy for the crypto crate (#35 SEC-5, #36 SEC-8, ADR-0007). CI runs
+# `cargo deny --locked check` on every push and weekly, so new advisories show up between PRs too.
+
+[graph]
+# Every platform we ship plus the dev hosts, with every feature of our own crate.
+targets = [
+  "aarch64-linux-android",
+  "x86_64-linux-android",
+  "wasm32-unknown-unknown",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+]
+all-features = true
+
+[advisories]
+yanked = "deny"
+# Every entry needs a reason and a linked issue.
+ignore = []
+
+[licenses]
+# Taken from the crates in Cargo.lock (`cargo deny list`); add a license only after reading it.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "Unicode-3.0",
+  "MPL-2.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Features that would derive Debug on secrets, log content, pull in test code or enable drafts and
+# unchecked conversions in the shipped crate (#11 plan review SEC-13).
+features = [
+  { crate = "openmls", deny = [
+    "crypto-debug",
+    "content-debug",
+    "test-utils",
+    "unchecked-conversions",
+    "extensions-draft",
+    "virtual-clients-draft",
+    "targeted-messages-draft",
+    "draft-ietf-mls-pq-ciphersuites",
+  ] },
+  { crate = "openmls_traits", deny = ["crypto-debug", "test-utils"] },
+  { crate = "openmls_rust_crypto", deny = ["test-utils"] },
+  { crate = "openmls_memory_storage", deny = ["test-utils"] },
+  { crate = "openmls_basic_credential", deny = ["test-utils"] },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

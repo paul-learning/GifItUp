@@ -13,7 +13,7 @@ import kotlin.js.Promise
 @JsName("default")
 external fun initCrypto(): Promise<JsAny?>
 
-external class MlsClient(
+external class NativeMlsClient(
     username: String,
 ) : JsAny {
     fun createKeyPackage(): Uint8Array
@@ -46,7 +46,7 @@ external class MlsClient(
     fun free()
 
     companion object {
-        fun restore(state: Uint8Array): MlsClient
+        fun restore(state: Uint8Array): NativeMlsClient
     }
 }
 

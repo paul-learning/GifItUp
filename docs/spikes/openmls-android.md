@@ -94,6 +94,8 @@ Option A comes with hard rules (SEC-4/SEC-5 on #36):
 Applied to ADR-0002 together with the web spike (#4); see the ADR's "Spike results (2026-10-14)" section.
 
 ## Findings for follow-up issues
+_Update 2026-10-15: ADR-0007 settles the #11 items below differently in two places: an interface in `:shared` with implementations in a separate `:mls` module (not `expect/actual` in `:shared`), and recovery from a wasm trap by page reload (not re-instantiation)._
+
 - **#11 (real crate):**
   - persistence (option A)
   - member validation per ADR-0002 (username ↔ device owner, TOFU signature key, KeyPackage ciphersuite and lifetime checks)

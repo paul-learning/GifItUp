@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MIT"
-description = "GifItUp E2EE core: OpenMLS wrapper with uniffi (Android) and wasm-bindgen (web) bindings. SPIKE quality, see docs/spikes/"
+description = "GifItUp E2EE core: OpenMLS wrapper with uniffi (Android/JVM) and wasm-bindgen (web) bindings (ADR-0007)"
 
 [lib]
 name = "gifitup_crypto"
@@ -50,5 +50,7 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
-# Unwind so uniffi turns a Rust panic into a Kotlin exception instead of killing the app (SEC-1 on #36).
+# Unwind so a Rust panic can be caught (error::PanicGuard) instead of killing the app (SEC-1 on #36, ADR-0007).
 panic = "unwind"
+# Arithmetic overflow panics (-> ErrorCode::Poisoned) instead of wrapping silently (ADR-0007).
+overflow-checks = true

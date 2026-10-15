@@ -9,7 +9,6 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 import kotlin.time.TimeSource
 
 /** SPIKE (#4): the Android round trip, in a real browser (Karma + Chrome headless). */
@@ -28,8 +27,8 @@ class MlsWebRoundTripTest {
         runTest {
             ready()
             val mark = TimeSource.Monotonic.markNow()
-            val alice = MlsClient("alice")
-            val bob = MlsClient("bob")
+            val alice = NativeMlsClient("alice")
+            val bob = NativeMlsClient("bob")
             val groupId = alice.createGroup()
             val added = alice.addMember(groupId, bob.createKeyPackage())
             assertContentEquals(groupId.toByteArray(), bob.joinFromWelcome(added.welcome).toByteArray())
@@ -50,9 +49,9 @@ class MlsWebRoundTripTest {
     fun thirdMemberJoinsAndExistingMemberProcessesCommit() =
         runTest {
             ready()
-            val alice = MlsClient("alice")
-            val bob = MlsClient("bob")
-            val carol = MlsClient("carol")
+            val alice = NativeMlsClient("alice")
+            val bob = NativeMlsClient("bob")
+            val carol = NativeMlsClient("carol")
             val groupId = alice.createGroup()
             bob.joinFromWelcome(alice.addMember(groupId, bob.createKeyPackage()).welcome)
 
@@ -69,15 +68,15 @@ class MlsWebRoundTripTest {
     fun stateSurvivesExportAndRestore() =
         runTest {
             ready()
-            val alice = MlsClient("alice")
-            val bob = MlsClient("bob")
+            val alice = NativeMlsClient("alice")
+            val bob = NativeMlsClient("bob")
             val groupId = alice.createGroup()
             bob.joinFromWelcome(alice.addMember(groupId, bob.createKeyPackage()).welcome)
 
             val snapshot = bob.exportState().toByteArray()
             println("MlsSpike: snapshot with 1 group is ${snapshot.size} bytes")
             bob.free()
-            val restored = MlsClient.restore(snapshot.toUint8Array())
+            val restored = NativeMlsClient.restore(snapshot.toUint8Array())
 
             val msg = alice.encrypt(groupId, "after restore".encodeToByteArray().toUint8Array())
             assertEquals("after restore", restored.process(groupId, msg)?.toByteArray()?.decodeToString())
@@ -87,10 +86,11 @@ class MlsWebRoundTripTest {
     fun rustErrorsSurfaceAsKotlinExceptions() =
         runTest {
             ready()
-            val alice = MlsClient("alice")
+            val alice = NativeMlsClient("alice")
             val groupId = alice.createGroup()
             val e = assertFailsWith<JsException> { alice.addMember(groupId, GARBAGE.toUint8Array()) }
-            assertTrue(e.message.orEmpty().contains("invalid input"), "unexpected message: ${e.message}")
+            // Closed error codes (ADR-0007): the message is exactly the code name, nothing about the input.
+            assertEquals("InvalidInput", e.message)
             println("MlsSpike: error surfaced as ${e::class.simpleName}: ${e.message}")
         }
 
