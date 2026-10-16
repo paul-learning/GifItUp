@@ -3,6 +3,7 @@ package app.gifitup.server.auth
 import java.math.BigInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -57,12 +58,23 @@ class SignatureVerifierTest {
         assertFalse(SignatureVerifier.verify(publicKey, hex(message), ByteArray(64)))
     }
 
+    /** #71 CR-1, SEC-28: KeyFactory alone accepts these; decodePublicKey must not. */
     @Test
-    fun undecodableKeysAreNullNotExceptions() {
-        // y >= p (non-canonical) and arbitrary bytes: whatever the JDK decides, never an exception.
-        listOf("ff".repeat(31) + "7f", "ff".repeat(32), "02" + "00".repeat(31)).forEach { key ->
-            SignatureVerifier.decodePublicKey(hex(key))
+    fun nonCanonicalAndOffCurveKeysAreNull() {
+        // y >= p: 2^255 - 1 and p + 2 (both with the sign bit clear), and 2^255 - 1 with it set.
+        listOf("ff".repeat(31) + "7f", "ef" + "ff".repeat(30) + "7f", "ff".repeat(32)).forEach { key ->
+            assertNull(SignatureVerifier.decodePublicKey(hex(key)), key)
         }
+        val offCurve = (2..50).map(::encodeY).filterNot(::isOnCurve).take(5)
+        assertEquals(5, offCurve.size)
+        offCurve.forEach { key -> assertNull(SignatureVerifier.decodePublicKey(key), key.joinToString("") { "%02x".format(it) }) }
+        // And an on-curve, full-order key still decodes.
+        assertNotNull(SignatureVerifier.decodePublicKey(hex(rfcVectors.first().first)))
+    }
+
+    @Test
+    fun hexRefusesMalformedInput() {
+        listOf("abc", "AB", "zz", "0x00").forEach { bad -> assertFailsWith<IllegalArgumentException>(bad) { hex(bad) } }
     }
 
     @Test
@@ -102,6 +114,26 @@ class SignatureVerifierTest {
                 "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
                 "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
             )
+
+        /** The 32-byte little-endian encoding of y (sign bit clear). */
+        fun encodeY(y: Int): ByteArray =
+            BigInteger
+                .valueOf(y.toLong())
+                .toByteArray()
+                .reversedArray()
+                .copyOf(32)
+
+        /** Whether some x satisfies -x² + y² = 1 + d·x²·y², i.e. (y² - 1) / (d·y² + 1) is a square mod p (Euler). */
+        fun isOnCurve(encoded: ByteArray): Boolean {
+            val y = BigInteger(1, encoded.reversedArray())
+            val x2 =
+                y
+                    .pow(2)
+                    .subtract(BigInteger.ONE)
+                    .multiply(D.multiply(y.pow(2)).add(BigInteger.ONE).modInverse(P))
+                    .mod(P)
+            return x2 == BigInteger.ZERO || x2.modPow(P.subtract(BigInteger.ONE).shiftRight(1), P) == BigInteger.ONE
+        }
 
         /** RFC 8032 §5.1.3 point decoding (test-only arithmetic, to check the blocklist). */
         fun decode(encoded: ByteArray): Pair<BigInteger, BigInteger> {

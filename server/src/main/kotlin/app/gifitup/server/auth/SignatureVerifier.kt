@@ -41,11 +41,18 @@ internal object SignatureVerifier {
             "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
         ).map(::hex)
 
-    /** Decodes a raw Ed25519 public key; `null` if it isn't 32 bytes, is a small-order point, or doesn't decode. */
+    /**
+     * Decodes a raw Ed25519 public key; `null` if it isn't 32 bytes, is a small-order point, or isn't a valid point at
+     * all. `KeyFactory` alone accepts off-curve and non-canonical (y ≥ p) encodings; the JDK only rejects them in
+     * `initVerify`, so that is run here too (#71 CR-1, SEC-28). A key that passes is usable for [verify].
+     */
     fun decodePublicKey(raw: ByteArray): PublicKey? {
         if (raw.size != PUBLIC_KEY_SIZE || isSmallOrder(raw)) return null
         return try {
-            KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(SPKI_PREFIX + raw))
+            KeyFactory
+                .getInstance("Ed25519")
+                .generatePublic(X509EncodedKeySpec(SPKI_PREFIX + raw))
+                .also { Signature.getInstance("Ed25519").initVerify(it) }
         } catch (_: GeneralSecurityException) {
             null
         }
@@ -87,7 +94,10 @@ internal object SignatureVerifier {
     private const val GROUP_ORDER_BITS = 252
 }
 
-/** Decodes lowercase hex (constants and test vectors only). */
-internal fun hex(s: String): ByteArray = ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(HEX_RADIX).toByte() }
+/** Decodes lowercase hex. For constants and test vectors only: never for request input. */
+internal fun hex(s: String): ByteArray {
+    require(s.length % 2 == 0 && s.all { it in '0'..'9' || it in 'a'..'f' }) { "not lowercase hex" }
+    return ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(HEX_RADIX).toByte() }
+}
 
 private const val HEX_RADIX = 16

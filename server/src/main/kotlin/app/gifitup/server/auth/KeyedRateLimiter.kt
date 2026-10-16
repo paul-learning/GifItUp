@@ -12,6 +12,11 @@ import java.time.Instant
  * Bounded: at most [maxKeys] buckets. A key's bucket is dropped only once it has refilled completely (it holds no
  * information then). If every bucket is still draining when a new key arrives, the new key is refused rather than an
  * existing one evicted, so a flood of fresh keys can't reset the bucket of a key that is being throttled (SEC-2).
+ *
+ * **Precondition:** buckets may only be created ([spend]) for keys the caller has authenticated or checked cheaply
+ * (an existing device, a username that passed the rule, after a valid signature). Otherwise anyone could fill the map
+ * and lock out every new key, and each full-map call would scan all buckets under the lock (#71 SEC-30; D2 adds a flood
+ * test through the endpoints).
  */
 class KeyedRateLimiter(
     private val clock: Clock,

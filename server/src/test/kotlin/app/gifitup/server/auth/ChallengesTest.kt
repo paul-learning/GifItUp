@@ -10,7 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** A clock the test moves by hand. */
+/** A clock the test moves by hand, forwards or backwards. */
 internal class TestClock(
     var now: Instant = Instant.parse("2026-10-16T12:00:00Z"),
 ) : Clock() {
@@ -27,87 +27,90 @@ internal class TestClock(
 
 class ChallengesTest {
     private val clock = TestClock()
-    private val service = ChallengeService(clock)
+    private val challenges = Challenges(clock)
 
     @Test
     fun issuedChallengesAre56BytesUniqueAndValid() {
-        val a = service.issue()
-        val b = service.issue()
-        assertEquals(ChallengeService.CHALLENGE_SIZE, a.size)
+        val a = challenges.issue()
+        val b = challenges.issue()
+        assertEquals(Challenges.CHALLENGE_SIZE, a.size)
         assertFalse(a.contentEquals(b))
-        assertTrue(service.isValid(a))
-        assertTrue(service.isValid(b))
+        assertTrue(challenges.isValid(a))
+        assertTrue(challenges.isValid(b))
     }
 
     @Test
     fun everyTamperedByteIsInvalid() {
-        val challenge = service.issue()
+        val challenge = challenges.issue()
         challenge.indices.forEach { i ->
             val tampered = challenge.copyOf().also { it[i] = (it[i].toInt() xor 1).toByte() }
-            assertFalse(service.isValid(tampered), "byte $i")
+            assertFalse(challenges.isValid(tampered), "byte $i")
+            assertFalse(challenges.consume(tampered), "byte $i")
         }
     }
 
     @Test
     fun anotherServersChallengeIsInvalid() {
-        assertFalse(service.isValid(ChallengeService(clock).issue()), "different key, e.g. before a restart")
+        assertFalse(challenges.isValid(Challenges(clock).issue()), "different key, e.g. before a restart")
     }
 
     @Test
     fun challengesExpireAfterTheTtl() {
-        val challenge = service.issue()
-        clock.advance(ChallengeService.DEFAULT_TTL)
-        assertTrue(service.isValid(challenge), "exactly at the TTL")
+        val challenge = challenges.issue()
+        clock.advance(Challenges.DEFAULT_TTL)
+        assertTrue(challenges.isValid(challenge), "exactly at the TTL")
         clock.advance(Duration.ofSeconds(1))
-        assertFalse(service.isValid(challenge))
+        assertFalse(challenges.isValid(challenge))
+        assertFalse(challenges.consume(challenge))
     }
 
     @Test
     fun challengesFromTheFutureAreInvalid() {
-        val future = ChallengeService(TestClock(clock.now.plusSeconds(6)), key = KEY).issue()
-        val nearFuture = ChallengeService(TestClock(clock.now.plusSeconds(5)), key = KEY).issue()
-        val checker = ChallengeService(clock, key = KEY)
+        val future = Challenges(TestClock(clock.now.plusSeconds(6)), key = KEY).issue()
+        val nearFuture = Challenges(TestClock(clock.now.plusSeconds(5)), key = KEY).issue()
+        val checker = Challenges(clock, key = KEY)
         assertFalse(checker.isValid(future))
         assertTrue(checker.isValid(nearFuture), "small clock skew is tolerated")
     }
 
     @Test
     fun wrongSizesAreInvalid() {
-        val challenge = service.issue()
-        assertFalse(service.isValid(challenge.copyOf(55)))
-        assertFalse(service.isValid(challenge + 0))
-        assertFalse(service.isValid(ByteArray(0)))
+        val challenge = challenges.issue()
+        assertFalse(challenges.isValid(challenge.copyOf(55)))
+        assertFalse(challenges.isValid(challenge + 0))
+        assertFalse(challenges.isValid(ByteArray(0)))
     }
 
     @Test
-    fun aChallengeCanBeUsedOnce() {
-        val used = UsedChallenges(clock)
-        val challenge = service.issue()
-        assertTrue(used.markUsed(challenge))
-        assertFalse(used.markUsed(challenge))
-        assertTrue(used.markUsed(service.issue()))
+    fun aChallengeCanBeConsumedOnce() {
+        val challenge = challenges.issue()
+        assertTrue(challenges.consume(challenge))
+        assertFalse(challenges.isValid(challenge), "used")
+        assertFalse(challenges.consume(challenge))
+        assertTrue(challenges.consume(challenges.issue()))
+    }
+
+    /** #71 SEC-29: forward past the TTL (the used entry is pruned), then back: still refused. */
+    @Test
+    fun aClockJumpBackCannotReviveAUsedChallenge() {
+        val challenge = challenges.issue()
+        assertTrue(challenges.consume(challenge))
+        clock.advance(Duration.ofSeconds(120))
+        challenges.consume(challenges.issue()) // prunes expired entries, including the first
+        clock.advance(Duration.ofSeconds(-120))
+
+        assertFalse(challenges.isValid(challenge))
+        assertFalse(challenges.consume(challenge))
     }
 
     @Test
-    fun usedSetForgetsOnlyExpiredEntries() {
-        val used = UsedChallenges(clock)
-        val challenge = service.issue()
-        used.markUsed(challenge)
-        clock.advance(ChallengeService.DEFAULT_TTL)
-        assertFalse(used.markUsed(challenge), "still remembered while the challenge could be valid")
-        clock.advance(Duration.ofSeconds(11))
-        assertFalse(service.isValid(challenge), "by the time it is forgotten, the challenge itself has expired")
-        assertTrue(used.markUsed(challenge))
-    }
-
-    @Test
-    fun fullUsedSetRefusesInsteadOfForgetting() {
-        val used = UsedChallenges(clock, capacity = 2)
-        val first = service.issue()
-        assertTrue(used.markUsed(first))
-        assertTrue(used.markUsed(service.issue()))
-        assertFalse(used.markUsed(service.issue()), "full: refuse")
-        assertFalse(used.markUsed(first), "and the first is still remembered")
+    fun aFullUsedSetRefusesInsteadOfForgetting() {
+        val small = Challenges(clock, usedCapacity = 2)
+        val first = small.issue()
+        assertTrue(small.consume(first))
+        assertTrue(small.consume(small.issue()))
+        assertFalse(small.consume(small.issue()), "full: refuse")
+        assertFalse(small.consume(first), "and the first is still remembered")
     }
 
     private companion object {

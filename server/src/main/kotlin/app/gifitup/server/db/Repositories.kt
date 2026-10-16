@@ -160,14 +160,19 @@ class SessionRepository {
             it.setObject(4, expiresAt.utc())
             it.executeUpdate()
         }
+        // Keeps the new session plus the device's newest others; never the new one itself, even if the clock stepped
+        // back or another login ran at the same time (#71 CR-2).
         connection
             .prepareStatement(
-                "DELETE FROM sessions WHERE device_id = ? AND token_hash NOT IN " +
-                    "(SELECT token_hash FROM sessions WHERE device_id = ? ORDER BY created_at DESC, token_hash LIMIT ?)",
+                "DELETE FROM sessions WHERE device_id = ? AND token_hash <> ? AND token_hash NOT IN " +
+                    "(SELECT token_hash FROM sessions WHERE device_id = ? AND token_hash <> ? " +
+                    "ORDER BY created_at DESC, token_hash LIMIT ?)",
             ).use {
                 it.setObject(1, deviceId)
-                it.setObject(2, deviceId)
-                it.setInt(3, MAX_SESSIONS_PER_DEVICE)
+                it.setBytes(2, tokenHash)
+                it.setObject(3, deviceId)
+                it.setBytes(4, tokenHash)
+                it.setInt(5, MAX_SESSIONS_PER_DEVICE - 1)
                 it.executeUpdate()
             }
     }

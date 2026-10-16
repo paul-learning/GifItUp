@@ -88,6 +88,23 @@ class RepositoriesTest {
             (2..6).forEach { i -> assertNotNull(sessions.findValid(db, hash(i), now.plusSeconds(10)), "session $i") }
         }
 
+    /** #71 CR-2: a login whose clock is behind the others must not trim its own new session. */
+    @Test
+    fun theNewSessionSurvivesEvenWithAnOlderTimestamp() =
+        withApp { db ->
+            val (_, device) = deviceOf(db, "gina")
+            (1..5).forEach { i -> sessions.insert(db, hash(i), device, now.plusSeconds(100L + i), now.plus(Duration.ofHours(24))) }
+            sessions.insert(db, hash(9), device, now, now.plus(Duration.ofHours(24)))
+
+            assertNotNull(sessions.findValid(db, hash(9), now.plusSeconds(200)), "the new session")
+            val rows =
+                db.createStatement().executeQuery("SELECT count(*) FROM sessions").use {
+                    it.next()
+                    it.getInt(1)
+                }
+            assertEquals(SessionRepository.MAX_SESSIONS_PER_DEVICE, rows)
+        }
+
     @Test
     fun expiredSessionsAreCleanedUpOnTheNextLogin() =
         withApp { db ->

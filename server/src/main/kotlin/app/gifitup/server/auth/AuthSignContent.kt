@@ -13,6 +13,13 @@ internal const val AUTH_SIGNATURE_LABEL = "MLS 1.0 GifItUp auth v1"
  * sends. Checked against the crate's committed test vectors.
  */
 internal fun authSignContent(
+    challenge: ByteArray,
+    origin: CanonicalOrigin,
+    subject: AuthSubject,
+): ByteArray = authSignContentUnchecked(subject.purpose, challenge, origin.text, subject.text)
+
+/** The encoding without the type checks; only for tests that need deliberately wrong fields. */
+internal fun authSignContentUnchecked(
     purpose: AuthPurpose,
     challenge: ByteArray,
     origin: String,
