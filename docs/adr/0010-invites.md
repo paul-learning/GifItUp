@@ -36,7 +36,7 @@ Constraints:
 ### The invite tree
 - **`accounts.invited_by`:** the inviter, the base for contacts (#18). It becomes NULL if the inviter is deleted.
 - **`accounts.joined_via_admin`:** true for accounts that joined with an admin invite (bootstrap roots). It tells a root apart from an account whose inviter was deleted (#13 SEC-46).
-- **`invites.used_by`:** which account an invite created, shown to the inviter in their invite list (PR B). That list is how an inviter notices a link that reached the wrong person.
+- **`invites.used_by`:** which account an invite created, shown to the inviter in their invite list (`GET /invites`). That list is how an inviter notices a link that reached the wrong person.
 
 ### Admin CLI
 In the server image, run as the compose service `admin` (profile `admin`) with the restricted **app role**, so it needs no superuser password:
@@ -49,9 +49,16 @@ In the server image, run as the compose service `admin` (profile `admin`) with t
 Runbook: `docs/ops/deploy.md`.
 
 ### Limits and retention (#13 SEC-45, owner decision 2026-10-16)
-- **Open invites:** at most 5 per account, each valid 7 days. **Creation cap:** at most 20 per account per 24 h, so create/revoke can't loop. Both are counted under a lock on the account row (`FOR NO KEY UPDATE`, which doesn't block foreign-key checks; PR B).
+- **Open invites:** at most 5 per account, each valid 7 days. **Creation cap:** at most 20 per account per 24 h, so create/revoke can't loop. Both are counted under a lock on the account row (`FOR NO KEY UPDATE`, which doesn't block foreign-key checks; #13 SEC-51), so concurrent requests can't overshoot (tested with a burst).
 - **Retention:** revoked and expired-unused invites are deleted a day after they ended (the creation cap still counts them until then); used invites 30 days after use. The tree itself lives on `accounts`. An hourly job does this (`InviteCleanup`).
-- **Invite list** (PR B): at most 50 rows.
+- **Invite list:** at most 50 rows, newest first.
+
+### Endpoints (all need a session; the account is always the session's)
+- **`POST /invites`** → `201 {inviteId, link, expiresAt}` with `Cache-Control: no-store`. `409 invite_limit` at 5 open, `429 rate_limited` after 20 in 24 h.
+- **`GET /invites`** → `{invites: [{inviteId, createdAt, expiresAt, status, usedBy}]}`, the caller's own only. `status` is a growable enum (`open`, `used`, `expired`, `revoked`); `usedBy` is the created account's username, set only for `used`. Never a code or hash. Also `no-store`.
+- **`DELETE /invites/{id}`** → `204` for the caller's own open invite. Someone else's, an admin invite, a used, revoked, expired or unknown one: all one `404 not_found`, so ids can't be probed. An id that isn't a lowercase canonical UUID is a `400`.
+- Admin invites (`created_by` NULL) belong to nobody: they never appear in a list and can't be revoked through the API (#13 SEC-52a); only the admin CLI touches them.
+- Logs: only `event=invite_created`, no id, code, link or account.
 
 ### Responses
 Responses that carry a secret (register and login session tokens, the created invite link) send `Cache-Control: no-store` (#13 SEC-48).

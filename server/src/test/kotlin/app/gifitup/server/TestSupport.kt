@@ -10,6 +10,7 @@ import app.gifitup.server.auth.DenyAllInviteRedeemer
 import app.gifitup.server.auth.PUBLIC_PATHS
 import app.gifitup.server.db.TransactionRunner
 import app.gifitup.server.http.ReadinessProbe
+import app.gifitup.server.invites.InviteService
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
@@ -60,15 +61,26 @@ internal const val MARKER = "MARKER-7f3a9c"
 internal fun testConfig(limits: HttpLimits = HttpLimits()): ServerConfig =
     ServerConfig(publicOrigin = checkNotNull(CanonicalOrigin.of("https://gifitup.example.org")), limits = limits)
 
+/** A database for tests that never reach one; any call fails the test. */
+internal object NoDatabase : TransactionRunner {
+    override fun <T> transaction(block: (java.sql.Connection) -> T): T = error("this test has no database")
+}
+
 /** An [AuthService] for tests that never reach the database; any database call fails the test. */
 internal fun noDatabaseAuth(clock: Clock = Clock.systemUTC()): AuthService =
     AuthService(
-        object : TransactionRunner {
-            override fun <T> transaction(block: (java.sql.Connection) -> T): T = error("this test has no database")
-        },
+        NoDatabase,
         testConfig().publicOrigin,
         Challenges(clock),
         DenyAllInviteRedeemer,
+        clock,
+    )
+
+/** An [InviteService] for tests that never reach the database. */
+internal fun noDatabaseInvites(clock: Clock = Clock.systemUTC()): InviteService =
+    InviteService(
+        NoDatabase,
+        testConfig().publicOrigin,
         clock,
     )
 
@@ -77,7 +89,7 @@ internal val TEST_PUBLIC_PATHS =
     PUBLIC_PATHS + setOf(ECHO_PATH, BOOM_PATH, SEALED_PATH, REQUIRE_PATH, SLOW_PATH, "/counted", "/test/wrapped")
 
 internal fun Application.testModule(config: ServerConfig = testConfig()) {
-    configure(config, AlwaysReady, noDatabaseAuth(), TEST_PUBLIC_PATHS)
+    configure(config, AlwaysReady, noDatabaseAuth(), noDatabaseInvites(), TEST_PUBLIC_PATHS)
     routing {
         post(ECHO_PATH) { call.respond(call.receive<HealthResponse>()) }
         get(BOOM_PATH) { error("failure carrying $MARKER") }

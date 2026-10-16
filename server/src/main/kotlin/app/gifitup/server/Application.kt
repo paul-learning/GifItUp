@@ -19,6 +19,8 @@ import app.gifitup.server.http.ReadinessProbe
 import app.gifitup.server.http.RequestDeadlineHandler
 import app.gifitup.server.http.installErrorHandling
 import app.gifitup.server.http.installProtocolVersionCheck
+import app.gifitup.server.invites.InviteService
+import app.gifitup.server.invites.inviteRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -44,12 +46,13 @@ fun main() {
     val readiness = CachedReadiness(clock) { database.isReachable() }
     // Registration needs a valid invite (ADR-0010); the first one comes from the admin CLI.
     val auth = AuthService(database, config.publicOrigin, Challenges(clock), DbInviteRedeemer(), clock)
+    val invites = InviteService(database, config.publicOrigin, clock)
     val inviteCleanup = InviteCleanup(database, clock).start()
     val server =
         embeddedServer(
             Netty,
             configure = { applyTo(this, config) },
-            module = { module(config, readiness, auth) },
+            module = { module(config, readiness, auth, invites) },
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
@@ -95,13 +98,15 @@ fun Application.module(
     config: ServerConfig,
     readiness: ReadinessProbe,
     auth: AuthService,
-) = configure(config, readiness, auth, PUBLIC_PATHS)
+    invites: InviteService,
+) = configure(config, readiness, auth, invites, PUBLIC_PATHS)
 
 /** [module] with the public paths as a parameter, so tests can make their test-only routes public (#73 CR-5). */
 internal fun Application.configure(
     config: ServerConfig,
     readiness: ReadinessProbe,
     auth: AuthService,
+    invites: InviteService,
     publicPaths: Set<String>,
 ) {
     installErrorHandling()
@@ -114,6 +119,7 @@ internal fun Application.configure(
     install(ContentNegotiation) { json(ProtocolJson) }
     routing {
         authRoutes(auth)
+        inviteRoutes(invites)
         // 503 when the database is unreachable, so deploy.sh's health gate covers it and rolls back (ADR-0008).
         get(HEALTH_PATH) {
             val ready = readiness.isReady()

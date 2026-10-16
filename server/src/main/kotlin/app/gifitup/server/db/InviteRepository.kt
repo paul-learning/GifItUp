@@ -28,6 +28,16 @@ data class NewInvite(
     override fun hashCode(): Int = id.hashCode()
 }
 
+/** An invite as its creator sees it; never the code or its hash. [usedBy] is the created account's username. */
+data class InviteRow(
+    val id: UUID,
+    val createdAt: Instant,
+    val expiresAt: Instant,
+    val usedAt: Instant?,
+    val revokedAt: Instant?,
+    val usedBy: String?,
+)
+
 /** A redeemed invite: which one, and who created it (`null` for an admin invite). */
 data class RedeemedInvite(
     val inviteId: UUID,
@@ -118,6 +128,111 @@ class InviteRepository {
                 it.setObject(3, now.minus(ENDED_RETENTION).utc())
                 it.executeUpdate()
             }
+
+    /**
+     * Locks the creator's account row for the rest of the transaction, so concurrent creations by the same account
+     * count one after the other (#13 SEC-51). `FOR NO KEY UPDATE` doesn't block foreign-key checks, so registrations
+     * through this account's invites aren't held up. Returns false if the account no longer exists.
+     */
+    fun lockCreator(
+        connection: Connection,
+        accountId: UUID,
+    ): Boolean =
+        connection.prepareStatement("SELECT 1 FROM accounts WHERE id = ? FOR NO KEY UPDATE").use {
+            it.setObject(1, accountId)
+            it.executeQuery().use { rows -> rows.next() }
+        }
+
+    /** How many of [accountId]'s invites are open (unused, not revoked, not expired) at [now]. */
+    fun countOpen(
+        connection: Connection,
+        accountId: UUID,
+        now: Instant,
+    ): Int =
+        count(
+            connection,
+            "SELECT count(*) FROM invites WHERE created_by = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?",
+            accountId,
+            now,
+        )
+
+    /**
+     * How many invites [accountId] created after [since]. Accurate for windows up to [ENDED_RETENTION]: no invite is
+     * deleted earlier than a day after its creation.
+     */
+    fun countCreatedSince(
+        connection: Connection,
+        accountId: UUID,
+        since: Instant,
+    ): Int = count(connection, "SELECT count(*) FROM invites WHERE created_by = ? AND created_at > ?", accountId, since)
+
+    /** [accountId]'s invites, newest first, at most [limit], with the username each used one created (if it still exists). */
+    fun listForCreator(
+        connection: Connection,
+        accountId: UUID,
+        limit: Int,
+    ): List<InviteRow> =
+        connection
+            .prepareStatement(
+                "SELECT i.id, i.created_at, i.expires_at, i.used_at, i.revoked_at, a.username FROM invites i " +
+                    "LEFT JOIN accounts a ON a.id = i.used_by WHERE i.created_by = ? ORDER BY i.created_at DESC, i.id LIMIT ?",
+            ).use {
+                it.setObject(1, accountId)
+                it.setInt(2, limit)
+                it.executeQuery().use { rows ->
+                    buildList {
+                        while (rows.next()) {
+                            add(
+                                InviteRow(
+                                    id = rows.getObject(1, UUID::class.java),
+                                    createdAt = rows.getObject(2, OffsetDateTime::class.java).toInstant(),
+                                    expiresAt = rows.getObject(3, OffsetDateTime::class.java).toInstant(),
+                                    usedAt = rows.getObject(4, OffsetDateTime::class.java)?.toInstant(),
+                                    revokedAt = rows.getObject(5, OffsetDateTime::class.java)?.toInstant(),
+                                    usedBy = rows.getString(6),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+    /**
+     * Revokes [inviteId] if [accountId] created it and it is still open at [now]. False for anything else (someone
+     * else's, an admin invite, used, revoked, expired or unknown), so the caller can't tell which.
+     */
+    fun revoke(
+        connection: Connection,
+        inviteId: UUID,
+        accountId: UUID,
+        now: Instant,
+    ): Boolean =
+        connection
+            .prepareStatement(
+                "UPDATE invites SET revoked_at = ? WHERE id = ? AND created_by = ? AND used_at IS NULL " +
+                    "AND revoked_at IS NULL AND expires_at > ?",
+            ).use {
+                it.setObject(1, now.utc())
+                it.setObject(2, inviteId)
+                it.setObject(3, accountId)
+                it.setObject(4, now.utc())
+                it.executeUpdate() == 1
+            }
+
+    private fun count(
+        connection: Connection,
+        sql: String,
+        accountId: UUID,
+        at: Instant,
+    ): Int =
+        connection.prepareStatement(sql).use {
+            it.setObject(1, accountId)
+            it.setObject(2, at.utc())
+            it.executeQuery().use { rows ->
+                rows.next()
+                rows.getInt(1)
+            }
+        }
 
     companion object {
         const val CODE_HASH_SIZE = 32

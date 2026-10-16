@@ -36,6 +36,9 @@ enum class ApiErrorCode(
     /** Too many requests; try again later. */
     RATE_LIMITED("rate_limited"),
 
+    /** The caller already has the maximum number of open invites (ADR-0010); one must be used, revoked or expire. */
+    INVITE_LIMIT("invite_limit"),
+
     /** A code this build doesn't know. Never sent. */
     UNKNOWN("unknown"),
 }
