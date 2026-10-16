@@ -24,13 +24,21 @@ internal object TestPostgres {
     val appPassword: String = "app-pw-with-'quotes\"-and-\\backslash-" + UUID.randomUUID()
 
     private val container: PostgreSQLContainer by lazy {
+        productionContainer()
+            .withCommand(*productionCommand().toTypedArray())
+            .also { it.start() }
+            .also { started -> Runtime.getRuntime().addShutdownHook(Thread { started.stop() }) }
+    }
+
+    /** A container on the production image with the test admin credentials, not started. */
+    fun productionContainer(): PostgreSQLContainer =
         PostgreSQLContainer(DockerImageName.parse(productionImage()).asCompatibleSubstituteFor("postgres"))
             .withUsername(ADMIN_USER)
             .withPassword(adminPassword)
             .withDatabaseName("postgres")
-            .also { it.start() }
-            .also { started -> Runtime.getRuntime().addShutdownHook(Thread { started.stop() }) }
-    }
+
+    /** Everything PostgreSQL has logged so far. */
+    fun serverLog(): String = container.logs
 
     /** Creates an empty database and returns its JDBC URL. */
     fun freshDatabase(): String {
@@ -67,15 +75,22 @@ internal object TestPostgres {
     /** Writes [appPassword] to a temporary secret file, as Docker would mount it. */
     fun appPasswordFile(): Path = Files.createTempFile("app-password", "").also { Files.writeString(it, appPassword + "\n") }
 
+    private val composeLines: List<String> by lazy {
+        Files.readAllLines(Path.of("..", "deploy", "docker-compose.yml")).map { it.trim() }
+    }
+
     private fun productionImage(): String {
-        val compose = Path.of("..", "deploy", "docker-compose.yml")
-        val image =
-            Files
-                .readAllLines(compose)
-                .map { it.trim() }
-                .single { it.startsWith("image: postgres:") }
-                .removePrefix("image: ")
+        val image = composeLines.single { it.startsWith("image: postgres:") }.removePrefix("image: ")
         check(image.matches(Regex("^postgres:[0-9a-z.-]+@sha256:[0-9a-f]{64}$"))) { "compose pins postgres by digest" }
         return image
     }
+
+    /** The postgres service's `command:` (the only one in the compose file), e.g. `postgres -c log_error_verbosity=terse`. */
+    private fun productionCommand(): List<String> =
+        composeLines
+            .single { it.startsWith("command: [") }
+            .removePrefix("command: [")
+            .removeSuffix("]")
+            .split(",")
+            .map { it.trim().removeSurrounding("\"") }
 }

@@ -2,6 +2,7 @@ package app.gifitup.server.db
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.sql.SQLException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -36,6 +37,22 @@ class DatabaseTest {
                     }
                 }
             assertEquals(listOf("committed"), names)
+        }
+    }
+
+    @Test
+    fun duplicateThroughThePoolNamesNoUsernameInErrorsOrTheServerLog() {
+        val url = TestPostgres.migratedDatabase()
+        Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { database ->
+            val insert = "INSERT INTO accounts (id, username, created_at) VALUES (gen_random_uuid(), 'pooldup_name', now())"
+            database.transaction { it.createStatement().executeUpdate(insert) }
+
+            val error = assertFailsWith<SQLException> { database.transaction { it.createStatement().executeUpdate(insert) } }
+
+            assertEquals("23505", error.sqlState)
+            assertFalse(generateSequence<Throwable>(error) { it.cause }.any { it.message.orEmpty().contains("pooldup_name") })
+            // The statement text is logged (it contains the literal here), but no DETAIL line naming the key (#69 SEC-16).
+            assertFalse(TestPostgres.serverLog().contains("Key (username)=(pooldup_name)"), "DETAIL reached the server log")
         }
     }
 

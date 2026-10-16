@@ -44,4 +44,9 @@ tasks.test {
     // Ryuk (Testcontainers' reaper) runs as a privileged container with the Docker socket and is pulled by tag
     // (#12 round 0, SEC-13). The tests stop their container themselves instead.
     environment("TESTCONTAINERS_RYUK_DISABLED", "true")
+    // The database tests read the Postgres image pin from here; a changed pin must re-run them (#69 CR-2).
+    inputs
+        .file(rootProject.file("deploy/docker-compose.yml"))
+        .withPropertyName("composeFile")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }

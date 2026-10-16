@@ -78,6 +78,8 @@ services:
       POSTGRES_DB: gifitup
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets: [postgres_password]
+    # terse: no DETAIL lines (failing rows, e.g. a duplicate username) in the container log (#69 SEC-16).
+    command: ["postgres", "-c", "log_error_verbosity=terse"]
     # Postgres 18 images keep the data under /var/lib/postgresql/<major>/docker.
     volumes:
       - pgdata:/var/lib/postgresql

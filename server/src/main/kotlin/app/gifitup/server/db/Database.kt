@@ -35,7 +35,10 @@ class Database internal constructor(
             }
         }
 
-    /** True if a pooled connection answers within [timeoutSeconds]. Never throws. */
+    /**
+     * True if the pool hands out a connection (waits up to the 2 s connection timeout) and it validates within
+     * [timeoutSeconds]: at most about 3 s. A saturated pool reads as unreachable too. Never throws.
+     */
     fun isReachable(timeoutSeconds: Int = 1): Boolean =
         runCatching { dataSource.connection.use { it.isValid(timeoutSeconds) } }.getOrDefault(false)
 
@@ -67,13 +70,19 @@ class Database internal constructor(
 }
 
 /**
- * pgjdbc settings for every connection, server and migration alike (#12 round 0, SEC-5):
- * - `logServerErrorDetail=false`: a constraint violation's `DETAIL` (`Key (username)=(alice) already exists`) stays
- *   out of exception messages, so nothing that logs an exception can leak a username.
+ * pgjdbc settings for every connection, server and migration alike:
+ * - `requireAuth=scram-sha-256` (#69 SEC-15): the driver refuses any other method. Any container on the shared `proxy`
+ *   network can claim the hostname `postgres`; without this, a fake server could ask for a cleartext or MD5 password
+ *   and get it. A fake server also can't complete SCRAM (it lacks the stored verifier), and it can't relay to the real
+ *   database, which is only on the internal `backend` network. What remains is denial of service (ADR-0008).
+ * - `logServerErrorDetail=false` (#12 round 0, SEC-5): a constraint violation's `DETAIL`
+ *   (`Key (username)=(alice) already exists`) stays out of exception messages, so nothing that logs an exception can
+ *   leak a username.
  * - `ApplicationName`: shows up in `pg_stat_activity`, nothing more.
  */
 internal fun safeDriverProperties(): Properties =
     Properties().apply {
+        setProperty("requireAuth", "scram-sha-256")
         setProperty("logServerErrorDetail", "false")
         setProperty("ApplicationName", "gifitup-server")
     }

@@ -99,7 +99,7 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 
 | Task | Command |
 |---|---|
-| Full check (build, all tests, ktlint, detekt; needs the Rust toolchain and `wasm-bindgen-cli`, see ADR-0007) | `./gradlew check` |
+| Full check (build, all tests, ktlint, detekt; needs the Rust toolchain and `wasm-bindgen-cli`, see ADR-0007, and a running Docker daemon for the server's database tests, ADR-0008) | `./gradlew check` |
 | Tests only | `./gradlew allTests :server:test` |
 | Lint only | `./gradlew ktlintCheck detekt` |
 | Auto-format Kotlin | `./gradlew ktlintFormat` |
@@ -109,7 +109,7 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
 | MLS contract tests (needs Rust and `wasm-bindgen-cli` at the crate's pinned version; part of `check`) | `./gradlew :mls:jvmTest :mls:wasmJsTest` |
 | Android `.so` files of `crypto/` (needs `cargo-ndk`) | `./gradlew :mls:cargoNdkBuild` |
-| Run server locally | `./gradlew :server:run` (port from `PORT`, default 8080; `GET /health`) |
+| Run server locally | `./gradlew :server:run` with `DB_URL`, `DB_USER`, `DB_PASSWORD_FILE` set and a migrated Postgres (ADR-0008; easiest: the `deploy/` compose stack with a local image, `migrate` first). Port from `PORT`, default 8080; `GET /health` |
 | Turn on the repo's git hooks (once per clone; agent sessions do it automatically, check with `git rev-parse --git-path hooks` → `.githooks`) | `git config core.hooksPath .githooks` (owner; `git config` is denied for the agent) |
 | Repo hygiene (file modes, IDE artifacts, matching pins) | `bash scripts/check-repo-hygiene.sh` (Git Bash on Windows) |
 | Lint shell scripts and workflows | `git ls-files -z '*.sh' '.githooks/*' \| xargs -0 shellcheck` and `actionlint` (versions pinned in `ci.yml`, job `shell-and-workflow-lint`) |

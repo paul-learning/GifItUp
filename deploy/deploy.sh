@@ -96,9 +96,14 @@ start() { quiet compose pull server && quiet compose up -d server; }
 
 # Both containers read their secret as UID 10001 through a bind mount, so the files must exist, be non-empty and
 # world-readable (they sit in the 0700 secrets/ directory; docs/ops/vm-setup.md). Names only, never contents.
+# The directory is what keeps them private on the host: mode 0700, owned by the user running this script (#69 SEC-17).
+secrets_dir=$compose_dir/secrets
+if [ ! -d "$secrets_dir" ] || [ -L "$secrets_dir" ]; then reject "secrets/ missing (docs/ops/vm-setup.md)"; fi
+[ "$(stat -c '%a %u' "$secrets_dir")" = "700 $(id -u)" ] || reject "secrets/ must be mode 0700 and owned by $(id -un)"
 for secret in postgres_password postgres_app_password; do
-  file=$compose_dir/secrets/$secret
-  [ -s "$file" ] || reject "secrets/$secret missing or empty (docs/ops/vm-setup.md)"
+  file=$secrets_dir/$secret
+  if [ ! -f "$file" ] || [ -L "$file" ]; then reject "secrets/$secret missing or a symlink (docs/ops/vm-setup.md)"; fi
+  [ -s "$file" ] || reject "secrets/$secret is empty (docs/ops/vm-setup.md)"
   [ -n "$(find "$file" -perm -o=r)" ] || reject "secrets/$secret must be mode 0444 (docs/ops/vm-setup.md)"
 done
 
@@ -106,9 +111,7 @@ done
 # if it fails. Migrations are expand-only, so the old server keeps working on the migrated schema (rollback below).
 # The shell variable overrides .env for this one command only; `run` pulls the digest-pinned image if it's missing and
 # starts no dependency that isn't already up (postgres is).
-migrate() {
-  quiet env GIFITUP_SERVER_IMAGE="$1" docker compose --project-directory "$compose_dir" --profile migrate     run --rm migrate
-}
+migrate() { GIFITUP_SERVER_IMAGE=$1 quiet compose --profile migrate run --rm migrate; }
 
 image=$image_repo@$digest
 say "deploying $commit ($digest)"

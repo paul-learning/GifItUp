@@ -37,9 +37,9 @@ Constraints:
 | `gifitup_owner` | **NOLOGIN** | owns the schemas `gifitup` and `flyway` and every table | Flyway: its superuser connections set `role=gifitup_owner` as a startup option |
 | `gifitup_app` | yes | `CONNECT` on the database; `USAGE` on `gifitup`; `SELECT/INSERT/UPDATE/DELETE` on its tables (also future ones, via default privileges); nothing on `flyway` | the server |
 
-- **Attributes are pinned on every migration run:** `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`. The app role is also `NOINHERIT`, has a connection limit of 20, and is a member of no role. So a role changed by hand goes back to least privilege on the next deploy.
+- **Attributes are pinned on every migration run:** `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`. The app role is also `NOINHERIT` and has a connection limit of 20. Every role membership of either role is revoked, per grantor, because a hand-made `GRANT gifitup_owner TO gifitup_app` would allow `SET ROLE`, which `NOINHERIT` doesn't stop (#69 CR-1). So a role changed by hand goes back to least privilege on the next deploy; a test grants the owner role, `pg_execute_server_program` and `CREATEDB` by hand and checks that the next run removes them.
 - **`PUBLIC` privileges:**
-  - `PUBLIC` loses all privileges on the database: `CONNECT`, `TEMP` and `CREATE`.
+  - `PUBLIC` loses all privileges (`CONNECT`, `TEMP` and `CREATE`) on **every** connectable database of the cluster, including `postgres` and `template1`, so the app role can't reach them (#69 SEC-19). The app role gets `CONNECT` on `gifitup` only.
   - `CREATE` on `public` is revoked explicitly, although PostgreSQL 15+ already does that by default.
 - **What the app role can't do** (one test each, SQLSTATE `42501`): create or alter tables, create schemas or temp tables, `TRUNCATE`, read or write `flyway.flyway_schema_history`, `SET ROLE gifitup_owner`, `COPY … TO PROGRAM`, or change roles. An SQL injection in the server can still read and change the app's rows. It can't run programs, change the schema, or tamper with the migration history.
 - **The owner role has no password at all.** Nothing can log in as it.
@@ -51,14 +51,16 @@ Constraints:
 - **Who gets which:**
   - The server container mounts only the app password.
   - `migrate` mounts both: it sets the app role's password from the file, so rotating it means editing the file and redeploying.
-- **The app password is set as a SCRAM verifier, computed client-side** (pgjdbc `alterUserPassword`). The cleartext never appears in an SQL statement, so it can't end up in a Postgres error log, and quoting can't break or inject.
+- **The app password is set as a SCRAM verifier, computed client-side** (pgjdbc `alterUserPassword`). The cleartext never appears in an SQL statement, so it can't end up in a Postgres error log, and quoting can't break or inject. It is set **after** Flyway succeeds, so a failed migration leaves the running server's credentials alone, even right after a password rotation (#69 CR-4).
 - **Reading the files:** both are read from `*_FILE` paths and must be one line of printable ASCII and at least 24 characters. Error messages name the variable, never the content.
-- **File modes:** compose without swarm ignores `uid`/`gid`/`mode` on file secrets, so the host file mode decides. Both files are `0444` inside the `0700` `secrets/` directory (`docs/ops/vm-setup.md`). `deploy.sh` checks that they exist, are non-empty and are world-readable before it does anything.
+- **File modes:** compose without swarm ignores `uid`/`gid`/`mode` on file secrets, so the host file mode decides. Both files are `0444` inside the `0700` `secrets/` directory (`docs/ops/vm-setup.md`). Before it does anything, `deploy.sh` checks that the directory is `0700`, owned by the deploying user and not a symlink, and that both files are regular files (not symlinks), non-empty and world-readable (#69 SEC-17).
 
 ### Driver settings
 On every connection, server and migration alike:
+- **`requireAuth=scram-sha-256`** (#69 SEC-15): any container on the shared `proxy` network can register the alias `postgres`, and on Docker it can win the lookup over the internal network. Without this setting, pgjdbc sends the password in cleartext or as MD5 if the server asks. With it, the driver refuses every other method (tests: fake servers with `password`, `md5` and `trust` auth are refused, and connect without the setting). A fake server can't complete SCRAM, because it lacks the stored verifier and pgjdbc checks the server's proof. It can't relay to the real database either, which is only on the internal `backend` network. What remains is denial of service: the server can't connect, `/health` says 503. A fixed IP for `postgres` would close that too, but it means recreating the network on the VM; not done.
 - **`logServerErrorDetail=false`:** a constraint violation's `DETAIL` (`Key (username)=(alice) already exists`) stays out of exception messages, so nothing that logs an exception leaks a username.
 - **JDBC URL:** `DB_URL` must match `jdbc:postgresql://host[:port]/database` with **no query parameters**, so a URL can't switch a driver setting back.
+- **Server-side logging:** Postgres runs with `log_error_verbosity=terse`, so its own container log has no `DETAIL` lines with failing rows (#69 SEC-16; tested by reading the test container's log). Statements use bind parameters, and parameters aren't logged on error (`log_parameter_max_length_on_error` stays 0).
 - **Logging:** the server logs SQL errors only by class (`StatusPages`, #68). Repositories (PR D) use `INSERT … ON CONFLICT DO NOTHING RETURNING` for expected conflicts, so no exception is raised at all.
 
 ### Schema and migrations
@@ -75,7 +77,7 @@ On every connection, server and migration alike:
 `deploy.sh` stage 2 checks the secret files, then runs `docker compose --profile migrate run --rm migrate` with the **new** image, before it touches `.env` or the running server. If the migration fails, the deploy is rejected and the old server keeps running. After a migration, a failed health check rolls back the image as before. The expand-only rule is what makes that safe.
 
 ### Readiness
-`/health` answers `503 {"status":"unavailable",…}` when a pooled connection doesn't validate within 1 s. The result is cached for 5 s, and concurrent requests share one check, so public `/health` traffic costs at most one database ping per 5 s (`CachedReadiness`). `deploy.sh`'s health gate therefore also covers the database. The server also fails at startup if the database is unreachable or the credentials are wrong, and Docker restarts it.
+`/health` answers `503 {"status":"unavailable",…}` when the pool can't hand out a connection within 2 s or the connection doesn't validate within 1 s, so one check takes at most about 3 s. A pool saturated by real traffic also reads as unavailable for the next 5 s; that only matters during a deploy's health gate. The result is cached for 5 s, and concurrent requests share one check, so public `/health` traffic costs at most one database ping per 5 s (`CachedReadiness`). `deploy.sh`'s health gate therefore also covers the database. The server also fails at startup if the database is unreachable or the credentials are wrong, and Docker restarts it.
 
 ### Dependencies
 | Artifact | Version | Why | Notes |

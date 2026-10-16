@@ -49,14 +49,39 @@ class MigrationsTest {
                         "FROM pg_roles WHERE rolname = '$APP_ROLE'",
                 )
             assertEquals(setOf("f,f,f,f,f,f"), attributes)
+            assertEquals(emptySet(), admin.memberships(APP_ROLE), "the app role must not be a member of any role")
+        }
+    }
+
+    @Test
+    fun handMadeRoleChangesAreUndoneOnTheNextRun() {
+        val url = TestPostgres.migratedDatabase()
+        TestPostgres.adminAt(url).use { admin ->
+            admin.createStatement().execute("GRANT $OWNER_ROLE TO $APP_ROLE")
+            admin.createStatement().execute("GRANT pg_execute_server_program TO $APP_ROLE")
+            admin.createStatement().execute("ALTER ROLE $APP_ROLE CREATEDB INHERIT")
+        }
+
+        TestPostgres.migrations(url).run(TestPostgres.appPassword.toCharArray())
+
+        TestPostgres.adminAt(url).use { admin ->
+            assertEquals(emptySet(), admin.memberships(APP_ROLE))
             assertEquals(
-                emptySet(),
-                admin.strings(
-                    "SELECT b.rolname FROM pg_auth_members m JOIN pg_roles b ON m.roleid = b.oid " +
-                        "JOIN pg_roles r ON m.member = r.oid WHERE r.rolname = '$APP_ROLE'",
-                ),
-                "the app role must not be a member of any role",
+                setOf("f,f"),
+                admin.strings("SELECT concat_ws(',', rolcreatedb, rolinherit) FROM pg_roles WHERE rolname = '$APP_ROLE'"),
             )
+        }
+        TestPostgres.appAt(url).use { app ->
+            assertEquals("42501", assertFailsWith<SQLException> { app.createStatement().execute("SET ROLE $OWNER_ROLE") }.sqlState)
+        }
+    }
+
+    @Test
+    fun appRoleCannotReachOtherDatabases() {
+        val url = TestPostgres.migratedDatabase()
+        listOf("postgres", "template1").forEach { other ->
+            val error = assertFailsWith<SQLException>(other) { TestPostgres.appAt(url.substringBeforeLast('/') + "/" + other).close() }
+            assertEquals("42501", error.sqlState, "$other: ${error.sqlState}")
         }
     }
 
@@ -182,6 +207,12 @@ class MigrationsTest {
             it.executeUpdate()
         }
     }
+
+    private fun Connection.memberships(role: String): Set<String> =
+        strings(
+            "SELECT b.rolname FROM pg_auth_members m JOIN pg_roles b ON m.roleid = b.oid " +
+                "JOIN pg_roles r ON m.member = r.oid WHERE r.rolname = '$role'",
+        )
 
     private fun Connection.strings(sql: String): Set<String> =
         createStatement().use { statement ->
