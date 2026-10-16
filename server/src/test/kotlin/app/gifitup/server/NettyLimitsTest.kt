@@ -143,6 +143,82 @@ class NettyLimitsTest {
         assertEquals(204, statusOf(request))
     }
 
+    // #68 SEC-19: the server answers before the body arrives; once the body completes, the connection still has a deadline.
+    @Test
+    fun earlyVersionRejectBeforeTheBodyKeepsTheDeadline() =
+        assertDeadlineAfterEarlyResponse("POST /anything HTTP/1.1\r\nHost: t\r\nContent-Length: 1\r\n\r\n", 400)
+
+    @Test
+    fun healthWithABodyKeepsTheDeadline() =
+        assertDeadlineAfterEarlyResponse("GET /health HTTP/1.1\r\nHost: t\r\nContent-Length: 1\r\n\r\n", 200)
+
+    @Test
+    fun notFoundBeforeTheBodyKeepsTheDeadline() =
+        assertDeadlineAfterEarlyResponse(
+            "POST /nope HTTP/1.1\r\nHost: t\r\n$PROTOCOL_VERSION_HEADER: $PROTOCOL_VERSION\r\nContent-Length: 1\r\n\r\n",
+            404,
+        )
+
+    // #68 SEC-20: a 100 Continue is not the answer to the request, so a slow handler after it is not cut off.
+    @Test
+    fun expectContinueDoesNotCountAsTheResponse() {
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = READ_TIMEOUT_MILLIS
+            val out = socket.getOutputStream()
+            val input = socket.getInputStream()
+            out.write(
+                (
+                    "POST $SLOW_PATH HTTP/1.1\r\nHost: t\r\n$PROTOCOL_VERSION_HEADER: $PROTOCOL_VERSION\r\n" +
+                        "Content-Type: application/octet-stream\r\nContent-Length: 2\r\nExpect: 100-continue\r\n" +
+                        "Connection: close\r\n\r\n"
+                ).toByteArray(),
+            )
+
+            assertEquals(100, readResponse(input))
+            out.write("ab".toByteArray())
+            assertEquals(204, readResponse(input))
+        }
+    }
+
+    /** Sends [head] (announcing a 1-byte body), reads the early response, sends the byte, and expects a close in time. */
+    private fun assertDeadlineAfterEarlyResponse(
+        head: String,
+        expectedStatus: Int,
+    ) {
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = READ_TIMEOUT_MILLIS
+            socket.getOutputStream().write(head.toByteArray())
+            val input = socket.getInputStream()
+            assertEquals(expectedStatus, readResponse(input))
+
+            runCatching { socket.getOutputStream().write('x'.code) }
+            val started = System.nanoTime()
+            val read = runCatching { input.read() }
+
+            assertTrue(read.getOrNull() == -1 || read.exceptionOrNull() is java.net.SocketException, "still open: $read")
+            assertClosedInTime(started)
+        }
+    }
+
+    /** Reads one response (head and a Content-Length body) byte by byte, so later bytes stay unread. Returns its status. */
+    private fun readResponse(input: java.io.InputStream): Int {
+        val head = StringBuilder()
+        while (!head.endsWith("\r\n\r\n")) {
+            val b = input.read()
+            check(b != -1) { "connection closed in the response head: $head" }
+            head.append(b.toChar())
+        }
+        val lines = head.lines()
+        val length =
+            lines
+                .firstOrNull { it.startsWith("Content-Length:", ignoreCase = true) }
+                ?.substringAfter(':')
+                ?.trim()
+                ?.toInt() ?: 0
+        repeat(length) { check(input.read() != -1) { "connection closed in the response body" } }
+        return lines.first().split(' ')[1].toInt()
+    }
+
     /**
      * Opens a connection, runs [send] on a background thread (it may keep writing), and asserts that the server closes
      * the connection within the deadline plus some slack, measured on the reading side.

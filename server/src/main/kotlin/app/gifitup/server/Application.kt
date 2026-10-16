@@ -64,6 +64,8 @@ private const val NETTY_HTTP_CODEC = "codec"
 /** Composition root of the server (ADR-0004). */
 fun Application.module(config: ServerConfig) {
     installErrorHandling()
+    // Must stay the first interceptor after error handling: Plugins-phase interceptors run in install order, and an
+    // application-wide plugin installed before it (auth, rate limits) would still run for rejected calls (#68 SEC-21).
     installProtocolVersionCheck()
     install(RequestBodyLimit) { bodyLimit { config.limits.defaultBodyLimitBytes } }
     install(ContentNegotiation) { json(ProtocolJson) }

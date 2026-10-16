@@ -4,6 +4,8 @@ import io.netty.channel.ChannelDuplexHandler
 import io.netty.channel.ChannelFutureListener
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelPromise
+import io.netty.handler.codec.http.HttpResponse
+import io.netty.handler.codec.http.HttpStatusClass
 import io.netty.handler.codec.http.LastHttpContent
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -41,7 +43,9 @@ internal class RequestDeadlineHandler(
     ) {
         if (msg is LastHttpContent) {
             requestsRead++
-            disarm()
+            // The server may have answered before the body arrived (version reject, 404, 413, ...): then nothing is in
+            // flight once the request completes, and the next request gets a fresh deadline (#68 SEC-19).
+            if (requestsRead > responsesWritten) disarm() else arm(ctx)
         }
         ctx.fireChannelRead(msg)
     }
@@ -51,7 +55,8 @@ internal class RequestDeadlineHandler(
         msg: Any,
         promise: ChannelPromise,
     ) {
-        if (msg is LastHttpContent) {
+        // A 1xx interim response (100 Continue) is not the answer to a request, so it is not counted (#68 SEC-20).
+        if (msg is LastHttpContent && !(msg is HttpResponse && msg.status().codeClass() == HttpStatusClass.INFORMATIONAL)) {
             val listener =
                 ChannelFutureListener { future ->
                     if (future.isSuccess) {

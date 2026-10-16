@@ -56,6 +56,11 @@ internal fun Application.testModule(config: ServerConfig = ServerConfig()) {
             delay(SLOW_MILLIS)
             call.respond(HttpStatusCode.NoContent)
         }
+        post(SLOW_PATH) {
+            call.receive<ByteArray>()
+            delay(SLOW_MILLIS)
+            call.respond(HttpStatusCode.NoContent)
+        }
     }
 }
 
