@@ -20,7 +20,7 @@ class MigrationsTest {
         migrations.run(TestPostgres.appPassword.toCharArray())
         migrations.run(TestPostgres.appPassword.toCharArray())
 
-        assertEquals(listOf("1"), migrations.appliedVersions())
+        assertEquals(listOf("1", "2"), migrations.appliedVersions())
     }
 
     @Test

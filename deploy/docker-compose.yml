@@ -71,6 +71,35 @@ services:
         condition: service_healthy
     networks: [backend]
 
+  # Admin CLI (ADR-0010), one-shot, run by the owner on the VM:
+  #   docker compose --profile admin run --rm admin create-invite
+  #   docker compose --profile admin run --rm admin delete-account [--with-invitees] <username>
+  # Same image, the restricted app role (no superuser password). create-invite prints the invite link once to the
+  # terminal; Docker logging is off for this service and --rm removes the container, so the link isn't kept on disk
+  # (#13 SEC-47). Never started by `up` (profile), never restarted.
+  admin:
+    <<: *hardening
+    image: ${GIFITUP_SERVER_IMAGE:?set GIFITUP_SERVER_IMAGE in .env}
+    profiles: [admin]
+    restart: "no"
+    logging:
+      driver: none
+    user: "10001:10001"
+    entrypoint: ["/usr/bin/java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "-cp", "/app/lib/*", "app.gifitup.server.AdminKt"]
+    environment:
+      GIFITUP_PUBLIC_URL: ${GIFITUP_PUBLIC_URL:?set GIFITUP_PUBLIC_URL in .env}
+      DB_URL: jdbc:postgresql://postgres:5432/gifitup
+      DB_USER: gifitup_app
+      DB_PASSWORD_FILE: /run/secrets/postgres_app_password
+    secrets: [postgres_app_password]
+    tmpfs: [/tmp]
+    mem_limit: 256m
+    pids_limit: 128
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+
   postgres:
     <<: *hardening
     image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873

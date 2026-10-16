@@ -24,14 +24,14 @@ class RepositoriesTest {
     @Test
     fun takenUsernameIsAResultNotAnException() =
         withApp { db ->
-            assertTrue(accounts.insert(db, UUID.randomUUID(), "alice", now))
-            assertFalse(accounts.insert(db, UUID.randomUUID(), "alice", now))
+            assertTrue(accounts.insert(db, UUID.randomUUID(), "alice", now, Joined.ViaAdmin))
+            assertFalse(accounts.insert(db, UUID.randomUUID(), "alice", now, Joined.ViaAdmin))
         }
 
     @Test
     fun invalidValuesNeverReachTheDatabase() =
         withApp { db ->
-            assertFailsWith<IllegalArgumentException> { accounts.insert(db, UUID.randomUUID(), "Alice", now) }
+            assertFailsWith<IllegalArgumentException> { accounts.insert(db, UUID.randomUUID(), "Alice", now, Joined.ViaAdmin) }
             assertFailsWith<IllegalArgumentException> { devices.insert(db, UUID.randomUUID(), UUID.randomUUID(), ByteArray(31), now) }
             assertFailsWith<IllegalArgumentException> { sessions.insert(db, ByteArray(31), UUID.randomUUID(), now, now.plusSeconds(1)) }
         }
@@ -39,7 +39,7 @@ class RepositoriesTest {
     @Test
     fun devicesAreStoredFoundListedAndKeysAreUnique() =
         withApp { db ->
-            val account = UUID.randomUUID().also { accounts.insert(db, it, "bob", now) }
+            val account = UUID.randomUUID().also { accounts.insert(db, it, "bob", now, Joined.ViaAdmin) }
             val first = UUID.randomUUID()
             val second = UUID.randomUUID()
             assertTrue(devices.insert(db, first, account, KEY_A, now))
@@ -54,7 +54,7 @@ class RepositoriesTest {
     @Test
     fun lastSeenIsUpdatedAtMostHourly() =
         withApp { db ->
-            val account = UUID.randomUUID().also { accounts.insert(db, it, "carol", now) }
+            val account = UUID.randomUUID().also { accounts.insert(db, it, "carol", now, Joined.ViaAdmin) }
             val device = UUID.randomUUID().also { devices.insert(db, it, account, KEY_A, now) }
 
             devices.touch(db, device, now.plus(Duration.ofMinutes(59)))
@@ -124,7 +124,7 @@ class RepositoriesTest {
         db: Connection,
         username: String,
     ): Pair<UUID, UUID> {
-        val account = UUID.randomUUID().also { accounts.insert(db, it, username, now) }
+        val account = UUID.randomUUID().also { accounts.insert(db, it, username, now, Joined.ViaAdmin) }
         val device = UUID.randomUUID().also { devices.insert(db, it, account, KEY_A, now) }
         return account to device
     }

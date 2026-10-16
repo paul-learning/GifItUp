@@ -27,7 +27,7 @@ enum class ApiErrorCode(
     /** No valid session, or a challenge, signature or device that doesn't check out. Deliberately one code for all. */
     UNAUTHORIZED("unauthorized"),
 
-    /** The invite code was not accepted (unknown, used or expired). */
+    /** The invite code was not accepted (unknown, used, revoked or expired; deliberately one code for all). */
     INVITE_INVALID("invite_invalid"),
 
     /** The username is taken or reserved. */

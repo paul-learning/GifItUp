@@ -6,7 +6,8 @@ import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.ProtocolJson
 import app.gifitup.server.auth.AuthService
 import app.gifitup.server.auth.Challenges
-import app.gifitup.server.auth.DenyAllInviteRedeemer
+import app.gifitup.server.auth.DbInviteRedeemer
+import app.gifitup.server.auth.InviteCleanup
 import app.gifitup.server.auth.PUBLIC_PATHS
 import app.gifitup.server.auth.authRoutes
 import app.gifitup.server.auth.installSessionAuth
@@ -41,15 +42,20 @@ fun main() {
     val database = Database.connect(DatabaseConfig.fromEnv(env))
     val clock = Clock.systemUTC()
     val readiness = CachedReadiness(clock) { database.isReachable() }
-    // Registration stays closed (deny-all invites) until #13 brings real invite codes.
-    val auth = AuthService(database, config.publicOrigin, Challenges(clock), DenyAllInviteRedeemer, clock)
+    // Registration needs a valid invite (ADR-0010); the first one comes from the admin CLI.
+    val auth = AuthService(database, config.publicOrigin, Challenges(clock), DbInviteRedeemer(), clock)
+    val inviteCleanup = InviteCleanup(database, clock).start()
     val server =
         embeddedServer(
             Netty,
             configure = { applyTo(this, config) },
             module = { module(config, readiness, auth) },
         )
-    server.monitor.subscribe(ApplicationStopped) { database.close() }
+    server.monitor.subscribe(ApplicationStopped) {
+        inviteCleanup.shutdownNow()
+        inviteCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+        database.close()
+    }
     server.start(wait = true)
 }
 
@@ -122,3 +128,5 @@ internal fun Application.configure(
         }
     }
 }
+
+private const val CLEANUP_SHUTDOWN_SECONDS = 5L

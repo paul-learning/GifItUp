@@ -14,6 +14,7 @@ import app.gifitup.server.captureLogs
 import app.gifitup.server.db.APP_ROLE
 import app.gifitup.server.db.Database
 import app.gifitup.server.db.DatabaseConfig
+import app.gifitup.server.db.RedeemedInvite
 import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.module
 import app.gifitup.server.testConfig
@@ -32,8 +33,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
-import java.security.KeyPairGenerator
-import java.security.Signature
 import java.time.Duration
 import java.util.UUID
 import kotlin.test.Test
@@ -48,22 +47,6 @@ class AuthEndpointsTest {
     private val clock = TestClock()
     private val origin = testConfig().publicOrigin
 
-    /** A device: an Ed25519 key pair, as the crate holds it. */
-    private class TestDevice {
-        private val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
-        val publicKey: ByteArray =
-            pair.public.encoded
-                .takeLast(32)
-                .toByteArray()
-
-        fun sign(content: ByteArray): ByteArray =
-            Signature.getInstance("Ed25519").run {
-                initSign(pair.private)
-                update(content)
-                sign()
-            }
-    }
-
     /** Accepts the codes in [codes]; each once. In memory, so it can't show rollback of the invite itself (that is #13's). */
     private class TestInvites(
         vararg codes: String,
@@ -74,7 +57,13 @@ class AuthEndpointsTest {
             connection: java.sql.Connection,
             code: String,
             now: java.time.Instant,
-        ) = unused.remove(code)
+        ): RedeemedInvite? = if (unused.remove(code)) RedeemedInvite(UUID.randomUUID(), null) else null
+
+        override fun recordUse(
+            connection: java.sql.Connection,
+            invite: RedeemedInvite,
+            accountId: UUID,
+        ) = true
     }
 
     private fun authTest(
@@ -215,11 +204,11 @@ class AuthEndpointsTest {
     /** #68 SEC-3: a taken username is only revealed to someone with a valid invite. */
     @Test
     fun takenUsernameNeedsAValidInviteToBeRevealed() =
-        authTest(invites = TestInvites(INVITE, "second")) {
+        authTest(invites = TestInvites(INVITE, SECOND)) {
             assertEquals(HttpStatusCode.Created, register(TestDevice(), "dave").status)
 
-            assertEquals(HttpStatusCode.Forbidden, register(TestDevice(), "dave", invite = "not-an-invite").status, "no oracle")
-            val taken = register(TestDevice(), "dave", invite = "second")
+            assertEquals(HttpStatusCode.Forbidden, register(TestDevice(), "dave", invite = UNKNOWN_CODE).status, "no oracle")
+            val taken = register(TestDevice(), "dave", invite = SECOND)
             assertEquals(HttpStatusCode.Conflict, taken.status)
             assertEquals("""{"error":"username_unavailable"}""", taken.bodyAsText())
             assertEquals(1, count("accounts"))
@@ -326,7 +315,7 @@ class AuthEndpointsTest {
             val device = TestDevice()
             val first = register(device, "paula").json<SessionResponse>()
 
-            val retry = register(device, "paula", invite = "already-used-or-not")
+            val retry = register(device, "paula", invite = UNKNOWN_CODE)
             assertEquals(HttpStatusCode.Created, retry.status)
             val resumed = retry.json<SessionResponse>()
             assertEquals(first.deviceId, resumed.deviceId)
@@ -338,13 +327,13 @@ class AuthEndpointsTest {
     /** #73 CR-9: a resume never touches the invite it carries. */
     @Test
     fun aResumeLeavesAValidInviteUnused() {
-        val invites = TestInvites(INVITE, "spare")
+        val invites = TestInvites(INVITE, SPARE)
         authTest(invites = invites) {
             val device = TestDevice()
             register(device, "uma")
 
-            assertEquals(HttpStatusCode.Created, register(device, "uma", invite = "spare").status)
-            assertEquals(setOf("spare"), invites.unused, "the resume must not redeem the invite")
+            assertEquals(HttpStatusCode.Created, register(device, "uma", invite = SPARE).status)
+            assertEquals(setOf(SPARE), invites.unused, "the resume must not redeem the invite")
         }
     }
 
@@ -373,11 +362,11 @@ class AuthEndpointsTest {
     /** #73 CR-2: a key belongs to one device; registering it under another name is refused. */
     @Test
     fun aRegisteredKeyCannotRegisterAnotherName() =
-        authTest(invites = TestInvites(INVITE, "second")) {
+        authTest(invites = TestInvites(INVITE, SECOND)) {
             val device = TestDevice()
             register(device, "quinn")
 
-            val other = register(device, "quentin", invite = "second")
+            val other = register(device, "quentin", invite = SECOND)
             assertEquals(HttpStatusCode.BadRequest, other.status)
             assertEquals(1, count("accounts"))
         }
@@ -485,7 +474,7 @@ class AuthEndpointsTest {
                 val session = register(device, "olivia_logs").json<SessionResponse>()
                 val challenge = challenge()
                 login(device, session.deviceId, challenge)
-                register(TestDevice(), "olivia_logs", invite = "nope")
+                register(TestDevice(), "olivia_logs", invite = UNKNOWN_CODE)
                 devices(session.sessionToken)
 
                 val text = logs.allText()
@@ -498,7 +487,11 @@ class AuthEndpointsTest {
     private suspend inline fun <reified T> HttpResponse.json(): T = ProtocolJson.decodeFromString(bodyAsText())
 
     private companion object {
-        const val INVITE = "valid-invite"
+        // Well-formed codes (22 chars of canonical base64url, ADR-0010); the fake accepts only the ones it was given.
+        val INVITE = InviteCodes.generate(java.security.SecureRandom())
+        val SECOND = InviteCodes.generate(java.security.SecureRandom())
+        val SPARE = InviteCodes.generate(java.security.SecureRandom())
+        val UNKNOWN_CODE = InviteCodes.generate(java.security.SecureRandom())
 
         fun b64(bytes: ByteArray) = Base64Url.encode(bytes)
     }

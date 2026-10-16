@@ -3,6 +3,7 @@ package app.gifitup.server.auth
 import app.gifitup.server.db.AccountRepository
 import app.gifitup.server.db.DeviceRecord
 import app.gifitup.server.db.DeviceRepository
+import app.gifitup.server.db.Joined
 import app.gifitup.server.db.SessionRecord
 import app.gifitup.server.db.SessionRepository
 import app.gifitup.server.db.TransactionRunner
@@ -99,7 +100,7 @@ class AuthService(
         val signatureBytes = Base64Url.decode(signature, SignatureVerifier.SIGNATURE_SIZE)
         val publicKey = key?.let(SignatureVerifier::decodePublicKey)
         return when {
-            subject == null || !INVITE_CODE.matches(inviteCode) || challengeBytes == null || signatureBytes == null ||
+            subject == null || !InviteCodes.isWellFormed(inviteCode) || challengeBytes == null || signatureBytes == null ||
                 publicKey == null -> AuthOutcome.Failed(AuthError.BAD_REQUEST)
 
             UsernamePolicy.isReserved(username) -> AuthOutcome.Failed(AuthError.USERNAME_UNAVAILABLE)
@@ -207,9 +208,13 @@ class AuthService(
                         existing == null -> {
                             // Order matters (SEC-3): the invite first, so a taken username is revealed only with a
                             // valid invite.
-                            rollbackUnless(invites.redeem(c, inviteCode, now), AuthError.INVITE_INVALID)
+                            val invite = invites.redeem(c, inviteCode, now) ?: throw Rollback(AuthError.INVITE_INVALID)
                             val accountId = UUID.randomUUID()
-                            rollbackUnless(accounts.insert(c, accountId, subject.text, now), AuthError.USERNAME_UNAVAILABLE)
+                            val joined = invite.inviter?.let { Joined.InvitedBy(it) } ?: Joined.ViaAdmin
+                            val created = accounts.insert(c, accountId, subject.text, now, joined)
+                            rollbackUnless(created, AuthError.USERNAME_UNAVAILABLE)
+                            // Not a client error: a failure here is a server bug, so it fails the request (500).
+                            check(invites.recordUse(c, invite, accountId)) { "invite use not recorded" }
                             val device = DeviceRecord(UUID.randomUUID(), accountId, key, now, now)
                             rollbackUnless(devices.insert(c, device.id, accountId, key, now), AuthError.BAD_REQUEST)
                             issueSession(c, device)
@@ -247,7 +252,6 @@ class AuthService(
         const val TOKEN_SIZE = 32
         val SESSION_LIFETIME: Duration = Duration.ofHours(24)
         private const val GLOBAL = "global"
-        private val INVITE_CODE = Regex("^[A-Za-z0-9_-]{1,128}$")
         private val CANONICAL_UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
         private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
