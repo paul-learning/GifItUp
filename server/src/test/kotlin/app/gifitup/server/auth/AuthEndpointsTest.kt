@@ -405,7 +405,10 @@ class AuthEndpointsTest {
             val token = register(TestDevice(), "liam").json<SessionResponse>().sessionToken
             assertEquals(HttpStatusCode.Unauthorized, devices(null).status)
             assertEquals(HttpStatusCode.Unauthorized, devices("not-a-token").status)
-            assertEquals(HttpStatusCode.Unauthorized, devices(token.dropLast(1) + "A").status)
+            // Another well-formed token: the last character always changes (it was "A" in 1 of 16 tokens, so the
+            // "wrong" token was the real one and the test flaked).
+            val wrong = token.dropLast(1) + if (token.last() == 'A') 'E' else 'A'
+            assertEquals(HttpStatusCode.Unauthorized, devices(wrong).status)
             val twice =
                 client.get(DEVICES_PATH) {
                     header(HttpHeaders.Authorization, "Bearer $token")

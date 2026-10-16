@@ -80,6 +80,9 @@ class AuthService(
     private val devices = DeviceRepository()
     private val sessions = SessionRepository()
 
+    /** The per-account request budget, checked by the session interceptor (#76). */
+    val requestBudget = AccountRequestBudget(limits.accountRequests)
+
     fun challenge(): AuthOutcome<String> =
         if (!limits.challenges.spend(GLOBAL)) {
             AuthOutcome.Failed(AuthError.RATE_LIMITED)
@@ -272,18 +275,32 @@ private fun rollbackUnless(
 }
 
 /**
+ * One bucket per account, shared by all its sessions and devices (#76). [spend] is false when the budget is used up.
+ * Fails closed: if the limiter can't create a bucket (map full), [spend] is false too (#76 SEC-69); don't turn that
+ * into an allow.
+ */
+class AccountRequestBudget(
+    private val limiter: KeyedRateLimiter,
+) {
+    fun spend(session: AuthenticatedSession): Boolean = limiter.spend(session.record.accountId.toString())
+}
+
+/**
  * The auth rate limits (ADR-0009, SEC-1, SEC-2, SEC-M0-5): never keyed on IP.
  * - [challenges]: one global bucket for `POST /auth/challenge` (100/s, burst 200). Cheap and stateless, so generous.
  * - [authAttempts]: one global bucket for login and register (50/s, burst 100), spent only once the request has a
  *   fresh, genuine challenge, just before the signature check and the database: the CPU guard (#73 SEC-34).
  * - [deviceLogins]: per existing device, spent only on a successful login (10 per hour), so someone else's failed
  *   attempts can't lock a device out; buckets exist only for real devices (SEC-30).
+ * - [accountRequests]: per account, every authenticated HTTP request except logout (#76; burst 120, 4/s). Keys exist
+ *   only for accounts with a valid session.
  */
 class AuthLimits(
     clock: Clock,
     val challenges: KeyedRateLimiter = KeyedRateLimiter(clock, CHALLENGE_BURST, Duration.ofMillis(CHALLENGE_REFILL_MS)),
     val authAttempts: KeyedRateLimiter = KeyedRateLimiter(clock, AUTH_BURST, Duration.ofMillis(AUTH_REFILL_MS)),
     val deviceLogins: KeyedRateLimiter = KeyedRateLimiter(clock, DEVICE_BURST, Duration.ofMinutes(DEVICE_REFILL_MINUTES)),
+    val accountRequests: KeyedRateLimiter = KeyedRateLimiter(clock, ACCOUNT_BURST, Duration.ofMillis(ACCOUNT_REFILL_MS)),
 ) {
     // Sized to the work behind them (#73 SEC-34): a challenge is one HMAC (microseconds); a counted login or register
     // is one Ed25519 verification plus a small transaction. Generous on purpose: their only job is to cap CPU and
@@ -295,5 +312,10 @@ class AuthLimits(
         const val AUTH_REFILL_MS = 20L
         const val DEVICE_BURST = 10
         const val DEVICE_REFILL_MINUTES = 6L
+
+        // Every authenticated request (#76): a session lookup plus a small query. 4/s sustained, bursts of 120;
+        // normal app use never gets near it.
+        const val ACCOUNT_BURST = 120
+        const val ACCOUNT_REFILL_MS = 250L
     }
 }
