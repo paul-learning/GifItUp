@@ -1,5 +1,6 @@
 package app.gifitup.mls
 
+import app.gifitup.shared.data.crypto.AuthPurpose
 import app.gifitup.shared.data.crypto.CreatedKeyPackage
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsClientFactory
@@ -107,6 +108,17 @@ private class WasmMlsClient(
 
     override fun exportState(): ByteArray = call { guarded { native.exportState() }.toByteArray() }
 
+    override fun signAuth(
+        purpose: AuthPurpose,
+        challenge: ByteArray,
+        origin: String,
+        subject: String,
+    ): ByteArray =
+        call {
+            val bytes = challenge.toUint8Array()
+            guarded { native.signAuth(purpose.wire(), bytes, origin, subject) }.toByteArray()
+        }
+
     /** Never throws, like the JVM `close()`: if `free()` traps, the module is dead anyway (#66 SEC-10). */
     override fun close() {
         if (closed) return
@@ -136,6 +148,13 @@ internal fun <T> kotlinErrorsAsInternal(block: () -> T): T =
         throw e
     } catch (_: Throwable) {
         throw MlsException(MlsErrorCode.Internal)
+    }
+
+/** The purpose byte the crate's web binding takes (`AuthPurpose::from_wire` in crypto/src/auth.rs). */
+private fun AuthPurpose.wire(): Int =
+    when (this) {
+        AuthPurpose.Register -> 1
+        AuthPurpose.Login -> 2
     }
 
 private fun JsPublicIdentity.toShared(): PublicIdentity {

@@ -42,6 +42,25 @@ class FakeMlsClient private constructor(
     /** "Encrypted" with the key: restoring with another key fails like the real client (SnapshotAuth). */
     override fun exportState(): ByteArray = live { "state:$keyTag:$username:${keyPackagesHeld.size}".encodeToByteArray() }
 
+    /** Same input rules as the crate; the "signature" is a readable, deterministic stand-in, not a real one. */
+    override fun signAuth(
+        purpose: AuthPurpose,
+        challenge: ByteArray,
+        origin: String,
+        subject: String,
+    ): ByteArray =
+        live {
+            val subjectOk =
+                when (purpose) {
+                    AuthPurpose.Register -> subject == username
+                    AuthPurpose.Login -> UUID.matches(subject)
+                }
+            if (challenge.size !in MIN_CHALLENGE..MAX_CHALLENGE || !isCanonicalOrigin(origin) || !subjectOk) {
+                fail(MlsErrorCode.InvalidInput)
+            }
+            "sig:$purpose:${challenge.contentHashCode()}:$origin:$subject:$username".encodeToByteArray()
+        }
+
     override fun close() {
         closed = true
     }
@@ -94,6 +113,22 @@ class FakeMlsClient private constructor(
         const val REF_SIZE = 32
         const val NOT_AFTER = 4_102_444_800L // 2100-01-01
         val USERNAME = Regex("^[a-z0-9_]{3,32}$")
+        const val MIN_CHALLENGE = 16
+        const val MAX_CHALLENGE = 64
+
+        val ORIGIN = Regex("""^https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::[1-9][0-9]{0,4})?$""")
+        const val MAX_PORT = 65_535
+
+        /** The crate's canonical-origin rule (crypto/src/auth.rs): [ORIGIN], plus the port is at most 65535 and never 443. */
+        fun isCanonicalOrigin(origin: String): Boolean {
+            val port = origin.removePrefix("https://").substringAfter(':', "").toIntOrNull()
+            val portOk = port == null || (port <= MAX_PORT && port != DEFAULT_HTTPS_PORT)
+            return origin.length <= MAX_ORIGIN && ORIGIN.matches(origin) && portOk
+        }
+
+        const val MAX_ORIGIN = 256
+        const val DEFAULT_HTTPS_PORT = 443
+        val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
         fun isValidUsername(name: String) = USERNAME.matches(name)
 

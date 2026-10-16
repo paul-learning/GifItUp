@@ -48,5 +48,12 @@ if awk '/^[[:space:]]*\[/ { rel = ($0 ~ /^[[:space:]]*\[profile\.release[].]/) }
   fail "crypto/Cargo.toml: the release profile must not enable debug-assertions (test-panic guard)"
 fi
 
+# No signing oracle across the FFI (ADR-0009, round-0 SEC-14 on #68): the bindings may export only the typed sign_auth,
+# never a function that signs caller-supplied bytes. A text check of the binding files' function names: it catches a
+# new function with a `sign` name segment (`sign_bytes`, `raw_sign`), not one hidden behind another name.
+if grep -nE 'fn ([a-z0-9]+_)*sign(_[a-z0-9]+)*[[:space:]]*\(' crypto/src/uniffi_api.rs crypto/src/wasm_api.rs | grep -vE 'fn sign_auth[[:space:]]*\('; then
+  fail "crypto bindings export a signing function other than sign_auth (ADR-0009)"
+fi
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

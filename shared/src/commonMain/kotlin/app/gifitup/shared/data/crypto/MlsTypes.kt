@@ -15,6 +15,12 @@ class PublicIdentity(
     override fun toString(): String = "PublicIdentity(username=$username)"
 }
 
+/** What an auth signature authorizes (ADR-0009). Closed by design: the crate signs nothing else. */
+enum class AuthPurpose {
+    Register,
+    Login,
+}
+
 /** A new own KeyPackage: bytes to upload, its reference and its expiry (Unix seconds, #14). */
 class CreatedKeyPackage(
     val keyPackage: ByteArray,

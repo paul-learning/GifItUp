@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use crate::auth::AuthPurpose;
 use crate::client::Client;
 use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook, module_call};
 use crate::identity::{CreatedKeyPackage, PublicIdentity};
@@ -69,5 +70,20 @@ impl NativeMlsClient {
     /// The whole client state, encrypted with the snapshot key.
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
         self.guard.run(|| self.client.export_state())
+    }
+
+    /// Signs the server's login or registration challenge (ADR-0009). Only this typed form exists: no FFI function
+    /// signs arbitrary bytes.
+    pub fn sign_auth(
+        &self,
+        purpose: AuthPurpose,
+        challenge: Vec<u8>,
+        origin: String,
+        subject: String,
+    ) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| {
+            self.client
+                .sign_auth(purpose, &challenge, &origin, &subject)
+        })
     }
 }

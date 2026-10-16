@@ -31,6 +31,14 @@ internal external class NativeMlsClient(
 
     fun exportState(): Uint8Array
 
+    /** [purpose] is the wire byte: 1 register, 2 login (crypto/src/auth.rs). */
+    fun signAuth(
+        purpose: Int,
+        challenge: Uint8Array,
+        origin: String,
+        subject: String,
+    ): Uint8Array
+
     /** Releases the Rust-side object (wasm memory is not garbage collected). */
     fun free()
 

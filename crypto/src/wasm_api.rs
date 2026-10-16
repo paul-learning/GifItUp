@@ -7,6 +7,7 @@
 
 use wasm_bindgen::prelude::*;
 
+use crate::auth::AuthPurpose;
 use crate::client::Client;
 use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook, module_call};
 use crate::identity::{CreatedKeyPackage, PublicIdentity};
@@ -135,6 +136,24 @@ impl NativeMlsClient {
     pub fn export_state(&self) -> Result<Vec<u8>, JsError> {
         self.guard
             .run(|| self.client.export_state())
+            .map_err(js_err)
+    }
+
+    /// Signs the server's login or registration challenge (ADR-0009). `purpose` is the wire byte (1 register,
+    /// 2 login); anything else is `InvalidInput`. No FFI function signs arbitrary bytes.
+    #[wasm_bindgen(js_name = signAuth)]
+    pub fn sign_auth(
+        &self,
+        purpose: u8,
+        challenge: &[u8],
+        origin: &str,
+        subject: &str,
+    ) -> Result<Vec<u8>, JsError> {
+        self.guard
+            .run(|| {
+                let purpose = AuthPurpose::from_wire(purpose)?;
+                self.client.sign_auth(purpose, challenge, origin, subject)
+            })
             .map_err(js_err)
     }
 }
