@@ -10,7 +10,7 @@ class ServerConfigTest {
 
     @Test
     fun defaultsWhenUnset() {
-        assertEquals(ServerConfig(), ServerConfig.fromEnv(origin))
+        assertEquals(testConfig(), ServerConfig.fromEnv(origin))
         assertEquals(ServerConfig.DEFAULT_PORT, ServerConfig.fromEnv(origin).port)
     }
 

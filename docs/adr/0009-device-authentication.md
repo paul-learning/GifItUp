@@ -56,13 +56,12 @@ In `server/.../auth/`: `AuthService` (the use cases, HTTP-agnostic), `AuthRoutes
 Endpoints (all JSON, `ProtocolJson`, closed errors per ADR-0006):
 - `POST /auth/challenge` → a **stateless** challenge: `random[16] ‖ issuedAt ‖ HMAC-SHA256(serverKey, random ‖ issuedAt)`, with a key generated at server start. No state is stored per challenge, so flooding this endpoint costs the attacker as much as the server (round-0 SEC-1).
 - `POST /accounts {username, inviteCode, signaturePublicKey, challenge, signature}` registers an account and its first device. Fixed order (SEC-3), so that a taken username can't be probed without a valid invite:
-  1. parse and bound the input;
+  1. input format (400);
   2. the username rule (400) and reserved names (409; the list is public, so this reveals nothing);
-  3. the challenge's MAC and age, then the signature over `subject = username` with the submitted key (401);
-  4. invite redemption, in the same transaction (403);
-  5. the account insert: `409` only after a valid invite, and rolled back so the invite stays unused;
-  6. device and session.
-- `POST /auth/login {deviceId, challenge, signature}` → a session token. Order: global limit, input format (400), challenge MAC and age, the device exists, its per-device budget has room (429), signature, challenge consumed. An unknown device, a bad signature and a stale or reused challenge all get the same `401 {"error":"unauthorized"}`.
+  3. the challenge's MAC and age (401), then the global budget (429), then the signature over `subject = username` with the submitted key (401);
+  4. in one transaction: if this key is already registered **under this username**, the request is a retry whose reply was lost, and it gets a new session for that device (#73 CR-1, owner decision 2026-10-16; the signature over a fresh challenge proves key possession, so this is a login and needs no invite; the per-device budget applies). The same key under another username is a 400;
+  5. otherwise: invite redemption (403), the account insert (`409` only after a valid invite, rolled back so the invite stays unused), device and session.
+- `POST /auth/login {deviceId, challenge, signature}` → a session token. Order: input format (400), challenge MAC and age, global budget (429), the device exists, signature, challenge consumed, then the per-device budget (429; only a caller whose signature checked out can see it, #73 SEC-36). An unknown device, a bad signature and a stale or reused challenge all get the same `401 {"error":"unauthorized"}`.
 - `POST /auth/logout`, `GET /devices` (own devices only, account from the session).
 
 Verification and sessions:
@@ -70,7 +69,7 @@ Verification and sessions:
 - **Verifier:** the JDK's `Ed25519` with the key wrapped as `X509EncodedKeySpec(302a300506032b6570032100 ‖ key)`, so no point decoding is hand-written (SEC-9). Keys are decoded at registration (failure → 400), small-order keys are rejected, `GeneralSecurityException` maps to 400 or 401, never 500.
 - **Challenges are single-use:** the challenge is recorded as used only **after** a valid signature, in a bounded set that expires with the challenge, so memory grows only with successful logins (SEC-1).
 - **Rate limits** never key on an IP (SEC-M0-5):
-  - Global buckets protect the CPU, one for `/auth/challenge` and one for login and register.
+  - Global buckets protect the CPU: one for `/auth/challenge` (100/s, burst 200) and one for login and register (50/s, burst 100). The login/register bucket is spent only after the input format and a fresh, genuine challenge check out, so forged or stale challenges cost nothing shared (#73 SEC-34).
   - A per-device bucket (10 logins per hour) is spent on **success** only, so failed attempts by someone else can't lock a device out (SEC-2), and it exists only for real devices, so random ids can't fill the limiter (#71 SEC-30). Per-invite limits come with #13; registration needs a valid invite anyway.
 - **Sessions:** a 256-bit random token, sent as `Authorization: Bearer`. The database stores its SHA-256 (ADR-0008). Each token expires 24 h after it's issued, with no refresh: the device always holds its key and simply logs in again. At most 5 sessions per device, oldest evicted. Expiry is checked in the lookup query, so expired rows are only cleanup.
 - **Deny by default** (SEC-6): an interceptor directly after the protocol version check requires exactly one `Authorization: Bearer <token>` with a live session on every path except `/health`, `/auth/challenge`, `/auth/login` and `/accounts`, before routing runs. A new route is protected without opting in, and an unknown path answers 401, not 404, to a caller without a session, so nobody can map the API without logging in. (Planned with Ktor's `Authentication` plugin; an interceptor needs no new dependency and makes a route-walk test unnecessary.) The token is never logged.
@@ -84,7 +83,7 @@ Verification and sessions:
 
 **What it does not protect against (stated in the threat model):**
 - **A man in the middle after TLS** on the shared `proxy` network (ADR-0005, accepted risk). A peer that takes the server's alias relays the real challenge and keeps the session token, so it gets a valid token for up to 24 h. There is no channel binding. This is the reason for short sessions.
-- **The global unauthenticated buckets are a lockout lever:** anyone can spend them and slow down every friend's login. The per-key limits and the cheap stateless challenge keep the cost of that low, not zero.
+- **The global unauthenticated buckets are a lockout lever** (accepted risk, owner decision 2026-10-16, #73 SEC-34): anyone can spend them and slow down every friend's login. The per-key limits and the cheap stateless challenge keep the cost of that low, not zero.
 - **Device ids are not secret.** Group members will see them (#22), so login must never rely on their secrecy; it relies on the signature.
 - **Key compromise:** auth key = MLS key, so a stolen, unlocked device gives both, and MLS post-compromise security does not cover a stolen signature key.
   - **Rotation:** there is no key-rotation endpoint yet. Rotating the MLS signature key would break login and #14's KeyPackage check, so it needs its own "key change" step later.

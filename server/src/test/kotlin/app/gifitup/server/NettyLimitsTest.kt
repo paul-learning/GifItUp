@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
  */
 class NettyLimitsTest {
     // A short deadline keeps the connection tests fast; the slow route takes longer than it.
-    private val config = ServerConfig(limits = HttpLimits(requestDeadlineSeconds = 1))
+    private val config = testConfig(HttpLimits(requestDeadlineSeconds = 1))
     private val server =
         embeddedServer(
             Netty,

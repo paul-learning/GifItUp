@@ -49,13 +49,17 @@ class AuthenticatedSession(
  * Registration, login, logout and session lookup (ADR-0009). HTTP-agnostic: the routes parse JSON and map [AuthError]s.
  *
  * Order of checks, cheapest and least revealing first:
- * - **register** (#68 round 0, SEC-3): global limit → input format → username rule and reserved names → challenge MAC
- *   and age → signature over the username with the submitted key → challenge consumed → in one transaction: invite
- *   redeemed → account (a taken name rolls back, so the invite stays unused) → device → session. A taken username is
- *   only ever revealed to someone holding a valid invite.
- * - **login:** global limit → input format → challenge MAC and age → the device exists → its per-device limit has room
- *   → signature over the device id → challenge consumed → per-device token spent (on success only, SEC-2) → session.
- *   An unknown device, a bad signature and a stale or reused challenge all fail as [AuthError.UNAUTHORIZED].
+ * - **register** (#68 round 0, SEC-3): input format → username rule and reserved names → challenge MAC and age → global
+ *   budget → signature over the username with the submitted key → challenge consumed → in one transaction: if this key
+ *   is already registered under this username, a retry whose reply was lost (#73 CR-1) gets a new session for that
+ *   device (per-device budget applies); otherwise invite redeemed → account (a taken name rolls back, so the invite
+ *   stays unused) → device → session. A taken username is only ever revealed to someone holding a valid invite.
+ * - **login:** input format → challenge MAC and age → global budget → the device exists → signature over the device id
+ *   → challenge consumed → per-device budget spent (#73 SEC-36: only a caller whose signature checked out can see a
+ *   429). An unknown device, a bad signature and a stale or reused challenge all fail as [AuthError.UNAUTHORIZED].
+ *
+ * The global budget is spent only after the cheap checks pass (#73 SEC-34): a request needs a fresh, genuine challenge
+ * before it costs anything shared. The remaining lockout risk is accepted (threat model, "Accepted risks").
  *
  * The signed bytes are always rebuilt from the server's own [origin], never from the request (#70 SEC-25).
  */
@@ -87,7 +91,6 @@ class AuthService(
         challenge: String,
         signature: String,
     ): AuthOutcome<IssuedSession> {
-        if (!limits.authAttempts.spend(GLOBAL)) return AuthOutcome.Failed(AuthError.RATE_LIMITED)
         val subject = AuthSubject.Username.of(username)
         val key = Base64Url.decode(signaturePublicKey, SignatureVerifier.PUBLIC_KEY_SIZE)
         val challengeBytes = Base64Url.decode(challenge, Challenges.CHALLENGE_SIZE)
@@ -99,9 +102,13 @@ class AuthService(
 
             UsernamePolicy.isReserved(username) -> AuthOutcome.Failed(AuthError.USERNAME_UNAVAILABLE)
 
+            !challenges.isValid(challengeBytes) -> AuthOutcome.Failed(AuthError.UNAUTHORIZED)
+
+            !limits.authAttempts.spend(GLOBAL) -> AuthOutcome.Failed(AuthError.RATE_LIMITED)
+
             !verified(challengeBytes, subject, signatureBytes) { publicKey } -> AuthOutcome.Failed(AuthError.UNAUTHORIZED)
 
-            else -> createAccount(subject, inviteCode, checkNotNull(key))
+            else -> createOrResume(subject, inviteCode, checkNotNull(key))
         }
     }
 
@@ -110,38 +117,39 @@ class AuthService(
         challenge: String,
         signature: String,
     ): AuthOutcome<IssuedSession> {
-        if (!limits.authAttempts.spend(GLOBAL)) return AuthOutcome.Failed(AuthError.RATE_LIMITED)
         val id = deviceId.takeIf { CANONICAL_UUID.matches(it) }?.let(UUID::fromString)
         val challengeBytes = Base64Url.decode(challenge, Challenges.CHALLENGE_SIZE)
         val signatureBytes = Base64Url.decode(signature, SignatureVerifier.SIGNATURE_SIZE)
-        // Cheap checks before the database: a forged or stale challenge costs one HMAC.
-        val device =
-            id
-                ?.takeIf { challengeBytes != null && challenges.isValid(challengeBytes) }
-                ?.let { db.transaction { c -> devices.find(c, it) } }
         return when {
-            challengeBytes == null || signatureBytes == null -> {
-                AuthOutcome.Failed(AuthError.BAD_REQUEST)
-            }
+            challengeBytes == null || signatureBytes == null -> AuthOutcome.Failed(AuthError.BAD_REQUEST)
 
-            device == null -> {
-                AuthOutcome.Failed(AuthError.UNAUTHORIZED)
-            }
+            // Cheap checks before anything shared: a forged or stale challenge costs one HMAC.
+            id == null || !challenges.isValid(challengeBytes) -> AuthOutcome.Failed(AuthError.UNAUTHORIZED)
 
-            !limits.deviceLogins.allows(device.id.toString()) -> {
-                AuthOutcome.Failed(AuthError.RATE_LIMITED)
-            }
+            !limits.authAttempts.spend(GLOBAL) -> AuthOutcome.Failed(AuthError.RATE_LIMITED)
 
-            !verified(challengeBytes, AuthSubject.Device(device.id), signatureBytes) {
-                SignatureVerifier.decodePublicKey(device.signatureKey)
-            } -> {
-                AuthOutcome.Failed(AuthError.UNAUTHORIZED)
-            }
+            else -> loginDevice(id, challengeBytes, signatureBytes)
+        }
+    }
 
-            else -> {
-                limits.deviceLogins.spend(device.id.toString())
-                AuthOutcome.Ok(db.transaction { c -> issueSession(c, device) })
-            }
+    private fun loginDevice(
+        id: UUID,
+        challenge: ByteArray,
+        signature: ByteArray,
+    ): AuthOutcome<IssuedSession> {
+        val device = db.transaction { c -> devices.find(c, id) }
+        val ok =
+            device != null &&
+                verified(challenge, AuthSubject.Device(device.id), signature) {
+                    SignatureVerifier.decodePublicKey(device.signatureKey)
+                }
+        return when {
+            device == null || !ok -> AuthOutcome.Failed(AuthError.UNAUTHORIZED)
+
+            // Spent only after the signature verified (SEC-2, SEC-36), in one atomic step (#73 CR-3, SEC-37).
+            !limits.deviceLogins.spend(device.id.toString()) -> AuthOutcome.Failed(AuthError.RATE_LIMITED)
+
+            else -> AuthOutcome.Ok(db.transaction { c -> issueSession(c, device) })
         }
     }
 
@@ -179,7 +187,13 @@ class AuthService(
             challenges.consume(challenge)
     }
 
-    private fun createAccount(
+    /**
+     * Creates the account, or resumes it (#73 CR-1, owner decision 2026-10-16): if this key is already registered under
+     * this username, the caller is that device retrying a registration whose reply was lost, and gets a new session for
+     * it. The signature over a fresh challenge proves it holds the key, so this is a login and costs no invite. The same
+     * key under another username is refused.
+     */
+    private fun createOrResume(
         subject: AuthSubject.Username,
         inviteCode: String,
         key: ByteArray,
@@ -188,13 +202,28 @@ class AuthService(
         return try {
             AuthOutcome.Ok(
                 db.transaction { c ->
-                    // Order matters (SEC-3): the invite first, so a taken username is revealed only with a valid invite.
-                    rollbackUnless(invites.redeem(c, inviteCode, now), AuthError.INVITE_INVALID)
-                    val accountId = UUID.randomUUID()
-                    rollbackUnless(accounts.insert(c, accountId, subject.text, now), AuthError.USERNAME_UNAVAILABLE)
-                    val device = DeviceRecord(UUID.randomUUID(), accountId, key, now, now)
-                    rollbackUnless(devices.insert(c, device.id, accountId, key, now), AuthError.BAD_REQUEST)
-                    issueSession(c, device)
+                    val existing = devices.findByKey(c, key)
+                    when {
+                        existing == null -> {
+                            // Order matters (SEC-3): the invite first, so a taken username is revealed only with a
+                            // valid invite.
+                            rollbackUnless(invites.redeem(c, inviteCode, now), AuthError.INVITE_INVALID)
+                            val accountId = UUID.randomUUID()
+                            rollbackUnless(accounts.insert(c, accountId, subject.text, now), AuthError.USERNAME_UNAVAILABLE)
+                            val device = DeviceRecord(UUID.randomUUID(), accountId, key, now, now)
+                            rollbackUnless(devices.insert(c, device.id, accountId, key, now), AuthError.BAD_REQUEST)
+                            issueSession(c, device)
+                        }
+
+                        existing.second != subject.text -> {
+                            throw Rollback(AuthError.BAD_REQUEST)
+                        }
+
+                        else -> {
+                            rollbackUnless(limits.deviceLogins.spend(existing.first.id.toString()), AuthError.RATE_LIMITED)
+                            issueSession(c, existing.first)
+                        }
+                    }
                 },
             )
         } catch (e: Rollback) {
@@ -214,19 +243,6 @@ class AuthService(
         return IssuedSession(device.id, Base64Url.encode(token), expiresAt)
     }
 
-    /** Aborts the registration transaction (so the invite stays unused) unless [ok]. */
-    private fun rollbackUnless(
-        ok: Boolean,
-        error: AuthError,
-    ) {
-        if (!ok) throw Rollback(error)
-    }
-
-    /** Aborts the registration transaction with a domain error. Carries no data. */
-    private class Rollback(
-        val error: AuthError,
-    ) : RuntimeException(null, null, false, false)
-
     companion object {
         const val TOKEN_SIZE = 32
         val SESSION_LIFETIME: Duration = Duration.ofHours(24)
@@ -238,10 +254,24 @@ class AuthService(
     }
 }
 
+/** Aborts the registration transaction (so the invite stays unused) with a domain error. Carries no data. */
+private class Rollback(
+    val error: AuthError,
+) : RuntimeException(null, null, false, false)
+
+/** Aborts the registration transaction unless [ok]. */
+private fun rollbackUnless(
+    ok: Boolean,
+    error: AuthError,
+) {
+    if (!ok) throw Rollback(error)
+}
+
 /**
  * The auth rate limits (ADR-0009, SEC-1, SEC-2, SEC-M0-5): never keyed on IP.
- * - [challenges]: one global bucket for `POST /auth/challenge` (10/s, burst 60). Cheap and stateless, so generous.
- * - [authAttempts]: one global bucket for login and register (5/s, burst 30), spent before any work: the CPU guard.
+ * - [challenges]: one global bucket for `POST /auth/challenge` (100/s, burst 200). Cheap and stateless, so generous.
+ * - [authAttempts]: one global bucket for login and register (50/s, burst 100), spent only once the request has a
+ *   fresh, genuine challenge, just before the signature check and the database: the CPU guard (#73 SEC-34).
  * - [deviceLogins]: per existing device, spent only on a successful login (10 per hour), so someone else's failed
  *   attempts can't lock a device out; buckets exist only for real devices (SEC-30).
  */
@@ -251,11 +281,14 @@ class AuthLimits(
     val authAttempts: KeyedRateLimiter = KeyedRateLimiter(clock, AUTH_BURST, Duration.ofMillis(AUTH_REFILL_MS)),
     val deviceLogins: KeyedRateLimiter = KeyedRateLimiter(clock, DEVICE_BURST, Duration.ofMinutes(DEVICE_REFILL_MINUTES)),
 ) {
+    // Sized to the work behind them (#73 SEC-34): a challenge is one HMAC (microseconds); a counted login or register
+    // is one Ed25519 verification plus a small transaction. Generous on purpose: their only job is to cap CPU and
+    // database load, and a stingy global bucket is easier to drain for everyone.
     private companion object {
-        const val CHALLENGE_BURST = 60
-        const val CHALLENGE_REFILL_MS = 100L
-        const val AUTH_BURST = 30
-        const val AUTH_REFILL_MS = 200L
+        const val CHALLENGE_BURST = 200
+        const val CHALLENGE_REFILL_MS = 10L
+        const val AUTH_BURST = 100
+        const val AUTH_REFILL_MS = 20L
         const val DEVICE_BURST = 10
         const val DEVICE_REFILL_MINUTES = 6L
     }

@@ -4,6 +4,7 @@ import app.gifitup.protocol.HealthResponse
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION_HEADER
 import app.gifitup.server.auth.AuthService
+import app.gifitup.server.auth.CanonicalOrigin
 import app.gifitup.server.auth.Challenges
 import app.gifitup.server.auth.DenyAllInviteRedeemer
 import app.gifitup.server.auth.PUBLIC_PATHS
@@ -55,13 +56,17 @@ internal val AlwaysReady = ReadinessProbe { true }
 /** Marker that must never appear in a response body or a log line. */
 internal const val MARKER = "MARKER-7f3a9c"
 
+/** The configuration tests run with: the origin the test devices sign. */
+internal fun testConfig(limits: HttpLimits = HttpLimits()): ServerConfig =
+    ServerConfig(publicOrigin = checkNotNull(CanonicalOrigin.of("https://gifitup.example.org")), limits = limits)
+
 /** An [AuthService] for tests that never reach the database; any database call fails the test. */
 internal fun noDatabaseAuth(clock: Clock = Clock.systemUTC()): AuthService =
     AuthService(
         object : TransactionRunner {
             override fun <T> transaction(block: (java.sql.Connection) -> T): T = error("this test has no database")
         },
-        ServerConfig().publicOrigin,
+        testConfig().publicOrigin,
         Challenges(clock),
         DenyAllInviteRedeemer,
         clock,
@@ -71,8 +76,8 @@ internal fun noDatabaseAuth(clock: Clock = Clock.systemUTC()): AuthService =
 internal val TEST_PUBLIC_PATHS =
     PUBLIC_PATHS + setOf(ECHO_PATH, BOOM_PATH, SEALED_PATH, REQUIRE_PATH, SLOW_PATH, "/counted", "/test/wrapped")
 
-internal fun Application.testModule(config: ServerConfig = ServerConfig()) {
-    module(config, AlwaysReady, noDatabaseAuth(), TEST_PUBLIC_PATHS)
+internal fun Application.testModule(config: ServerConfig = testConfig()) {
+    configure(config, AlwaysReady, noDatabaseAuth(), TEST_PUBLIC_PATHS)
     routing {
         post(ECHO_PATH) { call.respond(call.receive<HealthResponse>()) }
         get(BOOM_PATH) { error("failure carrying $MARKER") }

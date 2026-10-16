@@ -9,7 +9,6 @@ import app.gifitup.protocol.ProtocolJson
 import app.gifitup.protocol.RegisterRequest
 import app.gifitup.protocol.SessionResponse
 import app.gifitup.server.AlwaysReady
-import app.gifitup.server.ServerConfig
 import app.gifitup.server.allText
 import app.gifitup.server.captureLogs
 import app.gifitup.server.db.APP_ROLE
@@ -17,6 +16,7 @@ import app.gifitup.server.db.Database
 import app.gifitup.server.db.DatabaseConfig
 import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.module
+import app.gifitup.server.testConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.defaultRequest
@@ -46,7 +46,7 @@ import kotlin.test.assertFalse
  */
 class AuthEndpointsTest {
     private val clock = TestClock()
-    private val origin = ServerConfig().publicOrigin
+    private val origin = testConfig().publicOrigin
 
     /** A device: an Ed25519 key pair, as the crate holds it. */
     private class TestDevice {
@@ -86,7 +86,7 @@ class AuthEndpointsTest {
         Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { database ->
             val auth = AuthService(database, origin, Challenges(clock), invites, clock, limits)
             testApplication {
-                application { module(ServerConfig(), AlwaysReady, auth) }
+                application { module(testConfig(), AlwaysReady, auth) }
                 Fixture(this, url).block()
             }
         }
@@ -317,6 +317,60 @@ class AuthEndpointsTest {
 
             assertEquals(HttpStatusCode.Unauthorized, devices(registered.sessionToken).status)
             assertEquals(5, count("sessions"))
+        }
+
+    /** #73 CR-1: a register whose reply was lost can be retried with the same key and name; no second invite needed. */
+    @Test
+    fun aRegisterRetryResumesTheSameDevice() =
+        authTest {
+            val device = TestDevice()
+            val first = register(device, "paula").json<SessionResponse>()
+
+            val retry = register(device, "paula", invite = "already-used-or-not")
+            assertEquals(HttpStatusCode.Created, retry.status)
+            val resumed = retry.json<SessionResponse>()
+            assertEquals(first.deviceId, resumed.deviceId)
+            assertEquals(HttpStatusCode.OK, devices(resumed.sessionToken).status)
+            assertEquals(1, count("accounts"))
+            assertEquals(1, count("devices"))
+        }
+
+    /** #73 CR-2: a key belongs to one device; registering it under another name is refused. */
+    @Test
+    fun aRegisteredKeyCannotRegisterAnotherName() =
+        authTest(invites = TestInvites(INVITE, "second")) {
+            val device = TestDevice()
+            register(device, "quinn")
+
+            val other = register(device, "quentin", invite = "second")
+            assertEquals(HttpStatusCode.BadRequest, other.status)
+            assertEquals(1, count("accounts"))
+        }
+
+    /** #73 SEC-36: only a caller whose signature checked out learns that a device's budget is used up. */
+    @Test
+    fun anExhaustedBudgetIsOnlyRevealedToTheKeyHolder() =
+        authTest(limits = AuthLimits(clock, deviceLogins = KeyedRateLimiter(clock, capacity = 1, refillEvery = Duration.ofHours(1)))) {
+            val device = TestDevice()
+            val id = register(device, "rosa").json<SessionResponse>().deviceId
+            assertEquals(HttpStatusCode.OK, login(device, id).status)
+
+            assertEquals(HttpStatusCode.Unauthorized, login(TestDevice(), id).status, "wrong key: same 401 as always")
+            assertEquals(HttpStatusCode.TooManyRequests, login(device, id).status, "the key holder sees the limit")
+        }
+
+    /** #73 SEC-34: requests without a genuine, fresh challenge don't spend the shared login budget. */
+    @Test
+    fun bogusChallengesDoNotDrainTheGlobalBudget() =
+        authTest(limits = AuthLimits(clock, authAttempts = KeyedRateLimiter(clock, capacity = 3, refillEvery = Duration.ofHours(1)))) {
+            val device = TestDevice()
+            val id = register(device, "sam").json<SessionResponse>().deviceId
+            repeat(50) {
+                val forged = ByteArray(Challenges.CHALLENGE_SIZE) { i -> (i + it).toByte() }
+                assertEquals(HttpStatusCode.Unauthorized, login(device, id, forged).status)
+            }
+
+            assertEquals(HttpStatusCode.OK, login(device, id).status)
         }
 
     /** Deny by default (#68 SEC-6): no session, a malformed one, or two Authorization headers. */

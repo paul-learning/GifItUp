@@ -7,13 +7,12 @@ import app.gifitup.server.auth.CanonicalOrigin
  * [module][app.gifitup.server.module]; nothing else reads environment variables.
  */
 data class ServerConfig(
-    val port: Int = DEFAULT_PORT,
     /**
      * The server's public origin, the only one auth signatures are checked against (ADR-0009, #70 SEC-25). From
-     * configuration only, never from a request header. The default is for tests; production reads it from the
-     * environment and refuses to start without a canonical value.
+     * configuration only, never from a request header; required, with no default (#73 SEC-38).
      */
-    val publicOrigin: CanonicalOrigin = checkNotNull(CanonicalOrigin.of("https://gifitup.example.org")),
+    val publicOrigin: CanonicalOrigin,
+    val port: Int = DEFAULT_PORT,
     val limits: HttpLimits = HttpLimits(),
 ) {
     init {

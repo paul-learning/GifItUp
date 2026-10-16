@@ -89,7 +89,14 @@ fun Application.module(
     config: ServerConfig,
     readiness: ReadinessProbe,
     auth: AuthService,
-    publicPaths: Set<String> = PUBLIC_PATHS,
+) = configure(config, readiness, auth, PUBLIC_PATHS)
+
+/** [module] with the public paths as a parameter, so tests can make their test-only routes public (#73 CR-5). */
+internal fun Application.configure(
+    config: ServerConfig,
+    readiness: ReadinessProbe,
+    auth: AuthService,
+    publicPaths: Set<String>,
 ) {
     installErrorHandling()
     // Must stay the first interceptor after error handling: Plugins-phase interceptors run in install order, and an
