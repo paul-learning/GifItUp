@@ -116,7 +116,7 @@ private class WasmMlsClient(
     ): ByteArray =
         call {
             val bytes = challenge.toUint8Array()
-            guarded { native.signAuth(purpose.wire(), bytes, origin, subject) }.toByteArray()
+            guarded { native.signAuth(purpose.wireName(), bytes, origin, subject) }.toByteArray()
         }
 
     /** Never throws, like the JVM `close()`: if `free()` traps, the module is dead anyway (#66 SEC-10). */
@@ -150,11 +150,11 @@ internal fun <T> kotlinErrorsAsInternal(block: () -> T): T =
         throw MlsException(MlsErrorCode.Internal)
     }
 
-/** The purpose byte the crate's web binding takes (`AuthPurpose::from_wire` in crypto/src/auth.rs). */
-private fun AuthPurpose.wire(): Int =
+/** The purpose name the crate's web binding takes (`AuthPurpose::from_name` in crypto/src/auth.rs). */
+private fun AuthPurpose.wireName(): String =
     when (this) {
-        AuthPurpose.Register -> 1
-        AuthPurpose.Login -> 2
+        AuthPurpose.Register -> "register"
+        AuthPurpose.Login -> "login"
     }
 
 private fun JsPublicIdentity.toShared(): PublicIdentity {

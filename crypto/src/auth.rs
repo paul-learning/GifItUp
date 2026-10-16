@@ -64,6 +64,16 @@ impl AuthPurpose {
             _ => Err(ErrorCode::InvalidInput),
         }
     }
+
+    /// How the web binding passes the purpose: exactly `"register"` or `"login"`. A string, because wasm-bindgen
+    /// truncates JS numbers to the integer parameter's width (257 would become 1; #70 CR-1, SEC-26).
+    pub fn from_name(name: &str) -> Result<Self, ErrorCode> {
+        match name {
+            "register" => Ok(AuthPurpose::Register),
+            "login" => Ok(AuthPurpose::Login),
+            _ => Err(ErrorCode::InvalidInput),
+        }
+    }
 }
 
 impl Client {
@@ -226,6 +236,18 @@ mod tests {
         }
         for byte in [0, 3, 255] {
             assert_eq!(AuthPurpose::from_wire(byte), Err(ErrorCode::InvalidInput));
+        }
+        assert_eq!(
+            AuthPurpose::from_name("register"),
+            Ok(AuthPurpose::Register)
+        );
+        assert_eq!(AuthPurpose::from_name("login"), Ok(AuthPurpose::Login));
+        for name in ["", "Register", "LOGIN", "login ", "1", "registerx"] {
+            assert_eq!(
+                AuthPurpose::from_name(name),
+                Err(ErrorCode::InvalidInput),
+                "{name}"
+            );
         }
     }
 

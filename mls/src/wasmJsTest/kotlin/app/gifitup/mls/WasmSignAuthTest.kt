@@ -9,12 +9,13 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
 /**
- * The web binding takes the purpose as its wire byte (crypto/src/auth.rs). The Kotlin wrapper only ever passes 1 or
- * 2; the module itself must refuse anything else, without dying.
+ * The web binding takes the purpose by name, exactly "register" or "login" (crypto/src/auth.rs): a number would be
+ * truncated by wasm-bindgen (#70 CR-1, SEC-26). The Kotlin wrapper only ever passes the two names; the module itself
+ * must refuse anything else, without dying.
  */
 class WasmSignAuthTest {
     @Test
-    fun unknownPurposeBytesAreRejected() =
+    fun unknownPurposeNamesAreRejected() =
         runTest {
             loadWasmMlsClientFactory()
             val native = guarded { NativeMlsClient("alice", ByteArray(KEY_SIZE) { KEY_FILL }.toUint8Array()) }
@@ -42,7 +43,7 @@ class WasmSignAuthTest {
         const val KEY_SIZE = 32
         const val KEY_FILL: Byte = 7
         const val CHALLENGE_SIZE = 32
-        const val REGISTER = 1
-        val UNKNOWN_PURPOSES = listOf(0, 3, 255)
+        const val REGISTER = "register"
+        val UNKNOWN_PURPOSES = listOf("", "Register", "LOGIN", "login ", "1", "257", "registerx")
     }
 }

@@ -139,19 +139,19 @@ impl NativeMlsClient {
             .map_err(js_err)
     }
 
-    /// Signs the server's login or registration challenge (ADR-0009). `purpose` is the wire byte (1 register,
-    /// 2 login); anything else is `InvalidInput`. No FFI function signs arbitrary bytes.
+    /// Signs the server's login or registration challenge (ADR-0009). `purpose` is exactly `"register"` or
+    /// `"login"`; anything else is `InvalidInput`. No FFI function signs arbitrary bytes.
     #[wasm_bindgen(js_name = signAuth)]
     pub fn sign_auth(
         &self,
-        purpose: u8,
+        purpose: &str,
         challenge: &[u8],
         origin: &str,
         subject: &str,
     ) -> Result<Vec<u8>, JsError> {
         self.guard
             .run(|| {
-                let purpose = AuthPurpose::from_wire(purpose)?;
+                let purpose = AuthPurpose::from_name(purpose)?;
                 self.client.sign_auth(purpose, challenge, origin, subject)
             })
             .map_err(js_err)

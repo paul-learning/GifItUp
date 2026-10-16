@@ -49,10 +49,16 @@ if awk '/^[[:space:]]*\[/ { rel = ($0 ~ /^[[:space:]]*\[profile\.release[].]/) }
 fi
 
 # No signing oracle across the FFI (ADR-0009, round-0 SEC-14 on #68): the bindings may export only the typed sign_auth,
-# never a function that signs caller-supplied bytes. A text check of the binding files' function names: it catches a
-# new function with a `sign` name segment (`sign_bytes`, `raw_sign`), not one hidden behind another name.
-if grep -nE 'fn ([a-z0-9]+_)*sign(_[a-z0-9]+)*[[:space:]]*\(' crypto/src/uniffi_api.rs crypto/src/wasm_api.rs | grep -vE 'fn sign_auth[[:space:]]*\('; then
+# never a function that signs caller-supplied bytes. Text checks: (1) a function with a `sign` name segment in the
+# binding files (`sign_bytes`, `raw_sign`, generics like `sign<T>`); (2) any FFI export attribute outside the two
+# binding files, so a new export can't hide in another module (#70 CR-3, SEC-24). Not caught: a signing function under
+# a name without `sign`, or one reached through a macro; review covers those.
+if grep -nE 'fn ([a-z0-9]+_)*sign(_[a-z0-9]+)*[[:space:]]*[(<]' crypto/src/uniffi_api.rs crypto/src/wasm_api.rs | grep -vE 'fn sign_auth[[:space:]]*\('; then
   fail "crypto bindings export a signing function other than sign_auth (ADR-0009)"
+fi
+
+if grep -rnE 'uniffi::export|#\[wasm_bindgen' crypto/src --include='*.rs' | grep -vE '^crypto/src/(uniffi_api|wasm_api)\.rs:'; then
+  fail "FFI exports belong in crypto/src/uniffi_api.rs or wasm_api.rs only (ADR-0009)"
 fi
 
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."

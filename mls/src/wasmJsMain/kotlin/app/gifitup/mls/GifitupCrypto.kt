@@ -31,9 +31,9 @@ internal external class NativeMlsClient(
 
     fun exportState(): Uint8Array
 
-    /** [purpose] is the wire byte: 1 register, 2 login (crypto/src/auth.rs). */
+    /** [purpose] is exactly "register" or "login" (`AuthPurpose::from_name` in crypto/src/auth.rs). */
     fun signAuth(
-        purpose: Int,
+        purpose: String,
         challenge: Uint8Array,
         origin: String,
         subject: String,
