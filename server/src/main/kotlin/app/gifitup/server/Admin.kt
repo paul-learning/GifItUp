@@ -40,6 +40,7 @@ fun main(args: Array<String>) {
         }.getOrElse { error ->
             // Only our own fixed messages are shown; anything else by class (SQL messages can quote data).
             System.err.println("admin: " + if (error is AdminError) error.message else error::class.java.name)
+            System.err.println("admin: nothing was changed; run the command again")
             EXIT_FAILURE
         }
     exitProcess(exit)

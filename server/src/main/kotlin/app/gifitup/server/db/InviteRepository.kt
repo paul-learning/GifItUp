@@ -140,9 +140,11 @@ class AccountRemoval {
 
     /**
      * Deletes an account and everyone it invited, transitively. Returns how many accounts went. Call inside a
-     * transaction: it first locks `accounts` against inserts (#74 SEC-53), so a registration through an invite of
-     * someone in the subtree either commits before the tree is collected (and is deleted with it) or waits and then
-     * fails its foreign key check. Without the lock it could commit in between and survive with no inviter.
+     * transaction: it first locks `accounts` against inserts (#74 SEC-53), so an account inserted meanwhile can't
+     * survive with no inviter. A registration through an invite of someone in the subtree either committed before
+     * (and is deleted with the tree), or starts after (and finds its invite gone), or is in flight holding its
+     * invite's row lock: then the two deadlock and Postgres aborts one (#74 SEC-60). An aborted registration gets a
+     * 500; an aborted delete deletes nothing and must be run again (the CLI says so).
      */
     fun deleteWithInvitees(
         connection: Connection,

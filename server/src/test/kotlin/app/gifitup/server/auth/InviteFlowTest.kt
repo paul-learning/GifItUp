@@ -131,6 +131,19 @@ class InviteFlowTest {
             return statement.executeQuery().use { if (it.next()) read(it) else null }
         }
 
+        /** Polls until some session in this database waits on a lock (up to 10 s), instead of a fixed sleep. */
+        fun awaitBlockedOnLock() {
+            val blocked =
+                (1..LOCK_WAIT_POLLS).any {
+                    val waiting =
+                        row(
+                            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+                        ) { it.getInt(1) }
+                    (checkNotNull(waiting) > 0).also { if (!it) Thread.sleep(LOCK_WAIT_POLL_MILLIS) }
+                }
+            assertTrue(blocked, "the delete never blocked")
+        }
+
         /** Revokes by hash, now; the user-facing revoke endpoint comes with PR B. */
         fun revoke(code: String) {
             TestPostgres.adminAt(url).use { c ->
@@ -344,7 +357,7 @@ class InviteFlowTest {
                     java.util.concurrent.CompletableFuture.supplyAsync {
                         admin.run(listOf("delete-account", "--with-invitees", "oli"), PrintStream(ByteArrayOutputStream(), true))
                     }
-                Thread.sleep(SETTLE_MILLIS) // let the delete start and block
+                awaitBlockedOnLock() // the delete has started and waits for `pending` (#74 SEC-61)
                 pending.commit()
                 assertEquals(0, deleted.get())
             }
@@ -379,7 +392,8 @@ class InviteFlowTest {
         }
 
     private companion object {
-        const val SETTLE_MILLIS = 1000L
+        const val LOCK_WAIT_POLLS = 500
+        const val LOCK_WAIT_POLL_MILLIS = 20L
         val LINK = Regex("""^https://gifitup\.example\.org/invite#[A-Za-z0-9_-]{22}$""")
     }
 }
