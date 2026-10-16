@@ -92,9 +92,15 @@ cd /opt/gifitup/deploy
 cp .env.example .env                                       # then set GIFITUP_PUBLIC_URL (see deploy.md)
 install -d -m 0700 secrets
 (umask 022; openssl rand -base64 32 | tr -d '\n' > secrets/postgres_password)
-chmod 0444 secrets/postgres_password
+(umask 022; openssl rand -base64 32 | tr -d '\n' > secrets/postgres_app_password)
+chmod 0444 secrets/postgres_password secrets/postgres_app_password
 ```
-The secret file is world-readable *inside* the `0700` directory on purpose. Compose bind-mounts it into the containers, where the Postgres entrypoint (and later the server, #12) reads it as a non-root user. On the host, only `deploy` (and root) can get into `secrets/`.
+The secret files are world-readable *inside* the `0700` directory on purpose. Compose bind-mounts them into the containers, where the Postgres entrypoint, the server and the `migrate` container read them as non-root users. Compose without swarm ignores per-secret modes, so the host mode decides. On the host, only `deploy` (and root) can get into `secrets/`. `deploy.sh` refuses to deploy if either file is missing, empty or not world-readable.
+
+- `postgres_password`: the database superuser. Only Postgres and the one-shot `migrate` container get it (ADR-0008).
+- `postgres_app_password`: the server's least-privilege role `gifitup_app`. `migrate` sets the role's password from this file on every deploy. To rotate it, write a new file and redeploy.
+
+**Existing VM (set up before #12):** create `secrets/postgres_app_password` with the second and third commands above **before approving the first deploy that contains #12's database change**. Nothing else changes: the existing superuser and data stay as they are, and `migrate` creates the roles and schema on the next deploy.
 
 Start Postgres only, until the server image exists (#7):
 ```bash

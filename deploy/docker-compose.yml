@@ -23,6 +23,12 @@ services:
     user: "10001:10001"
     environment:
       PORT: "8080"
+      # Least-privilege app role (ADR-0008): DML on the app's tables only. The superuser password never reaches this
+      # container.
+      DB_URL: jdbc:postgresql://postgres:5432/gifitup
+      DB_USER: gifitup_app
+      DB_PASSWORD_FILE: /run/secrets/postgres_app_password
+    secrets: [postgres_app_password]
     tmpfs: [/tmp]
     mem_limit: 512m
     pids_limit: 256
@@ -35,6 +41,32 @@ services:
       proxy:
         aliases: [gifitup-server]
       backend: {}
+
+  # One-shot schema migration (ADR-0008), run by deploy.sh before the server starts:
+  #   docker compose --profile migrate run --rm migrate
+  # Same image as the server, different entry point. The only container with the superuser password. It creates the
+  # roles, sets the app role's password from its secret and runs Flyway as the NOLOGIN owner role. Never started by
+  # `up` (profile), never restarted.
+  migrate:
+    <<: *hardening
+    image: ${GIFITUP_SERVER_IMAGE:?set GIFITUP_SERVER_IMAGE in .env}
+    profiles: [migrate]
+    restart: "no"
+    user: "10001:10001"
+    entrypoint: ["/usr/bin/java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "-cp", "/app/lib/*", "app.gifitup.server.MigrateKt"]
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/gifitup
+      DB_ADMIN_USER: gifitup
+      DB_ADMIN_PASSWORD_FILE: /run/secrets/postgres_password
+      DB_APP_PASSWORD_FILE: /run/secrets/postgres_app_password
+    secrets: [postgres_password, postgres_app_password]
+    tmpfs: [/tmp]
+    mem_limit: 256m
+    pids_limit: 128
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
 
   postgres:
     <<: *hardening
@@ -73,3 +105,6 @@ volumes:
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
+  # Password of the gifitup_app role; migrate sets it, the server reads it (docs/ops/vm-setup.md).
+  postgres_app_password:
+    file: ./secrets/postgres_app_password

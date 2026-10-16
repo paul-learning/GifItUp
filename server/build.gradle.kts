@@ -22,8 +22,26 @@ dependencies {
     implementation(libs.ktor.server.body.limit)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.logback.classic)
+    implementation(libs.postgresql)
+    implementation(libs.hikaricp)
+    implementation(libs.flyway.core) {
+        // Flyway's POM lists Lombok (an annotation processor) at compile scope; nothing needs it at runtime.
+        exclude(group = "org.projectlombok", module = "lombok")
+    }
+    implementation(libs.flyway.database.postgresql) {
+        exclude(group = "org.projectlombok", module = "lombok")
+        // Pulled in for CockroachDB support only; we run PostgreSQL.
+        exclude(group = "org.flywaydb", module = "flyway-database-cockroachdb")
+    }
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
+    testImplementation(libs.testcontainers.postgresql)
+}
+
+tasks.test {
+    // Ryuk (Testcontainers' reaper) runs as a privileged container with the Docker socket and is pulled by tag
+    // (#12 round 0, SEC-13). The tests stop their container themselves instead.
+    environment("TESTCONTAINERS_RYUK_DISABLED", "true")
 }

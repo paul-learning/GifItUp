@@ -101,7 +101,7 @@ Owner sign-off (shared VM row): ☑ accepted by @paul-learning, 2026-10-14 (answ
 Owner sign-off (shared GIF API key row): ☑ accepted by @paul-learning, 2026-10-14 (in chat with the agent: "yes i accept that risk - maybe we can improve it in the future")
 
 ## Known metadata visible to the server
-- Usernames, devices, IP addresses, connection times.
+- Usernames, devices, IP addresses, connection times. Stored per device (ADR-0008): its Ed25519 signature public key, creation time and last-seen time; per session only a SHA-256 of the token and its expiry. So the database also shows how many devices each account has.
 - Group IDs, group membership (explicit by design, ADR-0002), message counts, timing, and ciphertext and blob sizes (blobs: own uploads, M3). Blob sizes are padded, and MLS application messages are padded to 1024-byte blocks with a content cap of 896 bytes, so a passive server can't tell v1 content types apart by length; timing and context still can (ADR-0006, ADR-0007). MLS `authenticated_data` stays empty, because it is sent in the clear.
 - The client's protocol version (`GifItUp-Protocol` header, ADR-0006), i.e. the coarse app release; the same for everyone on that release.
 - Invite tree (who invited whom).
@@ -116,6 +116,7 @@ Owner sign-off (shared GIF API key row): ☑ accepted by @paul-learning, 2026-10
   - **Web:** the browser's decoders by default. If #24 has to fall back to Compose's bundled Skiko codecs, *we* are responsible. The owner watches Compose releases and Skia/libwebp/giflib advisories (also checked in milestone security reviews), ships an update within 14 days of a codec CVE, and otherwise switches the web client to tap-to-load.
   - The scanner and decode limits only stop resource exhaustion and malformed containers, not codec bugs inside the image data.
 - The TLS-terminating proxy (Caddy) runs on the same VM and is **shared with the owner's other services** (ADR-0005). The server is still treated as untrusted for content. Whoever controls that Caddy, the Docker daemon or another service on the VM through a container escape controls the GifItUp server (see Accepted risks).
+- **Database access is least privilege** (ADR-0008, SEC-M0-6): the server connects as `gifitup_app`, which can read and change the app's rows but can't run programs (`COPY … TO PROGRAM`), change the schema, touch the migration history or switch roles. Only the one-shot `migrate` container gets the superuser password. An SQL injection in the server is therefore a data-integrity and metadata problem, not code execution in the database container. Anyone with the superuser password or the VM's Docker daemon still controls the database (Accepted risks, "Shared VM").
 - The APK is distributed through GitHub Releases. The web client is served by the server we distrust (see Accepted risks).
 
 ## Open questions

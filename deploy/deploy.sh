@@ -94,8 +94,25 @@ healthy() {
 
 start() { quiet compose pull server && quiet compose up -d server; }
 
+# Both containers read their secret as UID 10001 through a bind mount, so the files must exist, be non-empty and
+# world-readable (they sit in the 0700 secrets/ directory; docs/ops/vm-setup.md). Names only, never contents.
+for secret in postgres_password postgres_app_password; do
+  file=$compose_dir/secrets/$secret
+  [ -s "$file" ] || reject "secrets/$secret missing or empty (docs/ops/vm-setup.md)"
+  [ -n "$(find "$file" -perm -o=r)" ] || reject "secrets/$secret must be mode 0444 (docs/ops/vm-setup.md)"
+done
+
+# Schema migration with the NEW image, before the server switches over (ADR-0008). The running server is untouched
+# if it fails. Migrations are expand-only, so the old server keeps working on the migrated schema (rollback below).
+# The shell variable overrides .env for this one command only; `run` pulls the digest-pinned image if it's missing and
+# starts no dependency that isn't already up (postgres is).
+migrate() {
+  quiet env GIFITUP_SERVER_IMAGE="$1" docker compose --project-directory "$compose_dir" --profile migrate     run --rm migrate
+}
+
 image=$image_repo@$digest
 say "deploying $commit ($digest)"
+migrate "$image" || reject "migration failed; server unchanged (journalctl -t gifitup-deploy)"
 set_image "$image"
 if start && healthy "$image"; then
   printf '%s %s\n' "$commit" "$digest" > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"

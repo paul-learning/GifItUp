@@ -7,6 +7,10 @@ androidx-activity = "1.13.0"
 kotlinx-serialization = "1.11.0"
 ktor = "3.6.0"
 logback = "1.6.5"
+postgresql = "42.7.14"
+hikaricp = "7.1.0"
+flyway = "13.10.3"
+testcontainers = "2.0.5"
 detekt = "1.23.8"
 # Kotlin version detekt 1.23.x was built against; detekt fails if its classpath gets a newer Kotlin compiler.
 detektKotlin = "2.0.21"
@@ -50,6 +54,11 @@ kotlinx-browser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.re
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql", version.ref = "testcontainers" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

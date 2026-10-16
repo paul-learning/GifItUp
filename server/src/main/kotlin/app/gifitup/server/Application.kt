@@ -4,12 +4,18 @@ import app.gifitup.protocol.HealthResponse
 import app.gifitup.protocol.MIN_SUPPORTED_PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.ProtocolJson
+import app.gifitup.server.db.Database
+import app.gifitup.server.db.DatabaseConfig
+import app.gifitup.server.http.CachedReadiness
 import app.gifitup.server.http.HEALTH_PATH
+import app.gifitup.server.http.ReadinessProbe
 import app.gifitup.server.http.RequestDeadlineHandler
 import app.gifitup.server.http.installErrorHandling
 import app.gifitup.server.http.installProtocolVersionCheck
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
@@ -20,14 +26,22 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import java.time.Clock
 
 fun main() {
-    val config = ServerConfig.fromEnv(System.getenv())
-    embeddedServer(
-        Netty,
-        configure = { applyTo(this, config) },
-        module = { module(config) },
-    ).start(wait = true)
+    val env = System.getenv()
+    val config = ServerConfig.fromEnv(env)
+    // Fails startup if the database is unreachable or the app role's credentials are wrong; Docker restarts us.
+    val database = Database.connect(DatabaseConfig.fromEnv(env))
+    val readiness = CachedReadiness(Clock.systemUTC()) { database.isReachable() }
+    val server =
+        embeddedServer(
+            Netty,
+            configure = { applyTo(this, config) },
+            module = { module(config, readiness) },
+        )
+    server.monitor.subscribe(ApplicationStopped) { database.close() }
+    server.start(wait = true)
 }
 
 /** Netty settings from [config]: the listening port and the limits peers that bypass Caddy can't lift (SEC-8). */
@@ -62,7 +76,10 @@ internal fun applyTo(
 private const val NETTY_HTTP_CODEC = "codec"
 
 /** Composition root of the server (ADR-0004). */
-fun Application.module(config: ServerConfig) {
+fun Application.module(
+    config: ServerConfig,
+    readiness: ReadinessProbe,
+) {
     installErrorHandling()
     // Must stay the first interceptor after error handling: Plugins-phase interceptors run in install order, and an
     // application-wide plugin installed before it (auth, rate limits) would still run for rejected calls (#68 SEC-21).
@@ -70,10 +87,13 @@ fun Application.module(config: ServerConfig) {
     install(RequestBodyLimit) { bodyLimit { config.limits.defaultBodyLimitBytes } }
     install(ContentNegotiation) { json(ProtocolJson) }
     routing {
+        // 503 when the database is unreachable, so deploy.sh's health gate covers it and rolls back (ADR-0008).
         get(HEALTH_PATH) {
+            val ready = readiness.isReady()
             call.respond(
+                if (ready) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable,
                 HealthResponse(
-                    status = "ok",
+                    status = if (ready) "ok" else "unavailable",
                     protocolVersion = PROTOCOL_VERSION,
                     minProtocolVersion = MIN_SUPPORTED_PROTOCOL_VERSION,
                 ),
