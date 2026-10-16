@@ -3,7 +3,6 @@ package app.gifitup.server.auth
 import app.gifitup.server.db.AccountRepository
 import app.gifitup.server.db.DeviceRecord
 import app.gifitup.server.db.DeviceRepository
-import app.gifitup.server.db.InviteRepository
 import app.gifitup.server.db.Joined
 import app.gifitup.server.db.SessionRecord
 import app.gifitup.server.db.SessionRepository
@@ -80,7 +79,6 @@ class AuthService(
     private val accounts = AccountRepository()
     private val devices = DeviceRepository()
     private val sessions = SessionRepository()
-    private val inviteRecords = InviteRepository()
 
     fun challenge(): AuthOutcome<String> =
         if (!limits.challenges.spend(GLOBAL)) {
@@ -215,7 +213,8 @@ class AuthService(
                             val joined = invite.inviter?.let { Joined.InvitedBy(it) } ?: Joined.ViaAdmin
                             val created = accounts.insert(c, accountId, subject.text, now, joined)
                             rollbackUnless(created, AuthError.USERNAME_UNAVAILABLE)
-                            inviteRecords.markUsedBy(c, invite.inviteId, accountId)
+                            // Not a client error: a failure here is a server bug, so it fails the request (500).
+                            check(invites.recordUse(c, invite, accountId)) { "invite use not recorded" }
                             val device = DeviceRecord(UUID.randomUUID(), accountId, key, now, now)
                             rollbackUnless(devices.insert(c, device.id, accountId, key, now), AuthError.BAD_REQUEST)
                             issueSession(c, device)

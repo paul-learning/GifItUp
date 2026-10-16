@@ -131,6 +131,17 @@ class InviteFlowTest {
             return statement.executeQuery().use { if (it.next()) read(it) else null }
         }
 
+        /** Revokes by hash, now; the user-facing revoke endpoint comes with PR B. */
+        fun revoke(code: String) {
+            TestPostgres.adminAt(url).use { c ->
+                c.prepareStatement("UPDATE gifitup.invites SET revoked_at = ? WHERE code_hash = ?").use {
+                    it.setObject(1, java.time.OffsetDateTime.ofInstant(clock.now, java.time.ZoneOffset.UTC))
+                    it.setBytes(2, InviteCodes.hash(code))
+                    it.executeUpdate()
+                }
+            }
+        }
+
         fun count(table: String): Int = checkNotNull(row("SELECT count(*) FROM gifitup.$table") { it.getInt(1) })
     }
 
@@ -204,13 +215,7 @@ class InviteFlowTest {
             val expired = adminInvite()
             clock.advance(AdminCommands.ADMIN_INVITE_LIFETIME.plusSeconds(1))
             val revoked = adminInvite()
-            // Revocation by hash; the user-facing revoke endpoint comes with PR B.
-            TestPostgres.adminAt(url).use { c ->
-                c.prepareStatement("UPDATE gifitup.invites SET revoked_at = created_at WHERE code_hash = ?").use {
-                    it.setBytes(1, InviteCodes.hash(revoked))
-                    it.executeUpdate()
-                }
-            }
+            revoke(revoked)
             register("eve", adminInvite())
             val orphaned = friendInvite(assertNotNull(accountId("eve")))
             TestPostgres.adminAt(url).use { it.createStatement().executeUpdate("DELETE FROM gifitup.accounts WHERE username = 'eve'") }
@@ -277,12 +282,19 @@ class InviteFlowTest {
         inviteTest {
             register("ivy", adminInvite())
             adminInvite() // will expire unused
+            revoke(adminInvite())
             val cleanup = InviteCleanup(db, clock)
 
-            clock.advance(Duration.ofDays(2).plusSeconds(1))
+            clock.advance(Duration.ofDays(1))
+            assertEquals(0, cleanup.runOnce(), "the revoked one is kept for a day")
+            clock.advance(Duration.ofSeconds(1))
+            assertEquals(1, cleanup.runOnce(), "the revoked one, more than a day after revocation")
+            clock.advance(Duration.ofDays(1))
             assertEquals(1, cleanup.runOnce(), "the expired one, more than a day after it ended")
             assertEquals(1, count("invites"))
-            clock.advance(Duration.ofDays(29))
+            clock.advance(Duration.ofDays(27))
+            assertEquals(0, cleanup.runOnce(), "the used one is kept for 30 days")
+            clock.advance(Duration.ofDays(1))
             assertEquals(1, cleanup.runOnce(), "the used one, after 30 days")
             assertEquals(0, count("invites"))
             assertNotNull(accountId("ivy"), "accounts are never touched")
@@ -312,6 +324,34 @@ class InviteFlowTest {
             assertEquals(0, count("devices") - 1, "only max's device is left")
         }
 
+    /** #74 SEC-53: an invitee whose registration is in flight during `--with-invitees` doesn't escape the delete. */
+    @Test
+    fun aRegistrationInFlightDoesNotEscapeASubtreeDelete() =
+        inviteTest {
+            register("oli", adminInvite())
+            val oli = assertNotNull(accountId("oli"))
+            TestPostgres.adminAt(url).use { pending ->
+                pending.autoCommit = false
+                pending
+                    .prepareStatement(
+                        "INSERT INTO gifitup.accounts (id, username, created_at, invited_by) VALUES (?, 'pia', now(), ?)",
+                    ).use {
+                        it.setObject(1, UUID.randomUUID())
+                        it.setObject(2, oli)
+                        it.executeUpdate()
+                    }
+                val deleted =
+                    java.util.concurrent.CompletableFuture.supplyAsync {
+                        admin.run(listOf("delete-account", "--with-invitees", "oli"), PrintStream(ByteArrayOutputStream(), true))
+                    }
+                Thread.sleep(SETTLE_MILLIS) // let the delete start and block
+                pending.commit()
+                assertEquals(0, deleted.get())
+            }
+            assertNull(accountId("oli"))
+            assertNull(accountId("pia"), "registered while the delete ran")
+        }
+
     @Test
     fun loginResponsesAreNotCacheable() =
         inviteTest {
@@ -339,6 +379,7 @@ class InviteFlowTest {
         }
 
     private companion object {
+        const val SETTLE_MILLIS = 1000L
         val LINK = Regex("""^https://gifitup\.example\.org/invite#[A-Za-z0-9_-]{22}$""")
     }
 }

@@ -33,7 +33,7 @@ On the VM, as `deploy`, from `/opt/gifitup/deploy`. Always with `--rm`: the `adm
   docker compose --profile admin run --rm admin create-invite
   ```
   It prints the link once, plus its expiry (24 h). Open it on the phone or browser that should get the account, or send it over a channel you trust. Each link works once. Don't paste it anywhere shared: whoever opens it first gets the account.
-- **Remove an account** (its devices, sessions and invites; people it invited keep their accounts):
+- **Remove an account** (its devices, sessions and invites; people it invited keep their accounts, but are cut off from the invite tree, so a later `--with-invitees` on someone above won't reach them; to remove a whole branch, use the next command instead):
   ```bash
   docker compose --profile admin run --rm admin delete-account <username>
   ```

@@ -83,18 +83,20 @@ class InviteRepository {
             }
     }
 
-    /** Records which account an invite created (shown to the inviter for [USED_RETENTION]; the tree lives on accounts). */
+    /**
+     * Records which account a redeemed invite created (shown to the inviter for [USED_RETENTION]; the tree lives on
+     * accounts). Returns the number of rows updated: 1, or 0 if there is no such redeemed invite.
+     */
     fun markUsedBy(
         connection: Connection,
         inviteId: UUID,
         accountId: UUID,
-    ) {
-        connection.prepareStatement("UPDATE invites SET used_by = ? WHERE id = ?").use {
+    ): Int =
+        connection.prepareStatement("UPDATE invites SET used_by = ? WHERE id = ? AND used_at IS NOT NULL").use {
             it.setObject(1, accountId)
             it.setObject(2, inviteId)
             it.executeUpdate()
         }
-    }
 
     /**
      * Retention (#13 SEC-45, owner decision 2026-10-16): deletes revoked and expired-unused invites one day after they
@@ -136,12 +138,18 @@ class AccountRemoval {
             it.executeUpdate()
         }
 
-    /** Deletes an account and everyone it invited, transitively, in one statement. Returns how many accounts went. */
+    /**
+     * Deletes an account and everyone it invited, transitively. Returns how many accounts went. Call inside a
+     * transaction: it first locks `accounts` against inserts (#74 SEC-53), so a registration through an invite of
+     * someone in the subtree either commits before the tree is collected (and is deleted with it) or waits and then
+     * fails its foreign key check. Without the lock it could commit in between and survive with no inviter.
+     */
     fun deleteWithInvitees(
         connection: Connection,
         username: String,
-    ): Int =
-        connection
+    ): Int {
+        connection.createStatement().use { it.execute("LOCK TABLE accounts IN SHARE ROW EXCLUSIVE MODE") }
+        return connection
             .prepareStatement(
                 "WITH RECURSIVE tree AS (SELECT id FROM accounts WHERE username = ? " +
                     "UNION SELECT a.id FROM accounts a JOIN tree t ON a.invited_by = t.id) " +
@@ -150,6 +158,7 @@ class AccountRemoval {
                 it.setString(1, username)
                 it.executeUpdate()
             }
+    }
 }
 
 private fun Instant.utc(): OffsetDateTime = atOffset(ZoneOffset.UTC)

@@ -14,7 +14,8 @@ data class ChallengeResponse(
 
 /**
  * `POST /accounts`: registers an account and its first device. [signature] is the device's `signAuth(Register,
- * challenge, <the app's own origin>, username)` with the key in [signaturePublicKey].
+ * challenge, <the app's own origin>, username)` with the key in [signaturePublicKey]. [inviteCode] is exactly 22
+ * characters of canonical base64url (16 bytes, ADR-0010), taken from the invite link's fragment; anything else is a 400.
  */
 @Serializable
 data class RegisterRequest(

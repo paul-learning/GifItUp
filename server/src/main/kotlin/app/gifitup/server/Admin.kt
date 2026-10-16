@@ -33,13 +33,13 @@ fun main(args: Array<String>) {
     val exit =
         runCatching {
             val origin =
-                requireNotNull(CanonicalOrigin.of(env["GIFITUP_PUBLIC_URL"].orEmpty())) { "GIFITUP_PUBLIC_URL must be set and canonical" }
+                CanonicalOrigin.of(env["GIFITUP_PUBLIC_URL"].orEmpty()) ?: throw AdminError("GIFITUP_PUBLIC_URL must be set and canonical")
             Database.connect(DatabaseConfig.fromEnv(env)).use { db ->
                 AdminCommands(db, origin, Clock.systemUTC(), SecureRandom()).run(args.toList(), System.out)
             }
         }.getOrElse { error ->
-            // Only our own require() messages are shown; anything else by class (SQL messages can quote data).
-            System.err.println("admin: " + if (error is IllegalArgumentException) error.message else error::class.java.name)
+            // Only our own fixed messages are shown; anything else by class (SQL messages can quote data).
+            System.err.println("admin: " + if (error is AdminError) error.message else error::class.java.name)
             EXIT_FAILURE
         }
     exitProcess(exit)
@@ -95,7 +95,7 @@ class AdminCommands(
         out: PrintStream,
     ): Int {
         // Validated before it reaches the database (#69 SEC-23); the rule is public, so echoing it is fine.
-        require(UsernamePolicy.isValid(username)) { "not a valid username" }
+        if (!UsernamePolicy.isValid(username)) throw AdminError("not a valid username")
         val deleted =
             db.transaction { c ->
                 if (withInvitees) removal.deleteWithInvitees(c, username) else removal.deleteAccount(c, username)
@@ -112,6 +112,11 @@ class AdminCommands(
             "usage: create-invite | delete-account <username> | delete-account --with-invitees <username>"
     }
 }
+
+/** An admin error with a fixed message that is safe to print. */
+class AdminError(
+    override val message: String,
+) : Exception(message)
 
 private const val EXIT_OK = 0
 private const val EXIT_FAILURE = 1

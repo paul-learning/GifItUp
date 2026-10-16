@@ -53,6 +53,7 @@ fun main() {
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
+        inviteCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         database.close()
     }
     server.start(wait = true)
@@ -127,3 +128,5 @@ internal fun Application.configure(
         }
     }
 }
+
+private const val CLEANUP_SHUTDOWN_SECONDS = 5L

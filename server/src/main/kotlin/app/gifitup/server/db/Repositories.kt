@@ -30,9 +30,6 @@ sealed interface Joined {
     data class InvitedBy(
         val inviter: UUID,
     ) : Joined
-
-    /** No invite record (tests of other features). */
-    data object Untracked : Joined
 }
 
 class AccountRepository {
@@ -45,7 +42,7 @@ class AccountRepository {
         id: UUID,
         username: String,
         now: Instant,
-        joined: Joined = Joined.Untracked,
+        joined: Joined,
     ): Boolean {
         require(UsernamePolicy.isValid(username)) { "username must be validated before it reaches the database" }
         return connection.returnsRow(

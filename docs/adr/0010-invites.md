@@ -15,12 +15,12 @@ Constraints:
 ## Options considered
 - **Who may invite** (owner decision, 2026-10-16): every member, at most 5 open invites at a time, each valid 7 days (chosen), vs. only the owner (tighter, but the owner becomes the bottleneck for every new friend).
 - **Bootstrap** (owner decision): an admin CLI on the VM that prints the first link once (chosen), vs. a code in `.env` that the server creates at startup (the code would sit in a file and in the container environment).
-- **Code format:** 128-bit random codes, stored as a plain SHA-256 (chosen). Short human-typeable codes would need a slow hash and rate limits per code; 128 bits makes online guessing hopeless at any rate the server allows.
+- **Code format:** 128-bit random codes, stored as a plain SHA-256 of the 16 bytes (chosen). Short human-typeable codes would need a slow hash and rate limits per code; 128 bits makes online guessing hopeless at any rate the server allows.
 
 ## Decision
 ### Codes and links
 - **Code:** 16 bytes from `SecureRandom`, written as 22 characters of canonical base64url (`InviteCodes`). Registration accepts only that form (strict decode; anything else is a 400).
-- **Storage:** the database stores only `SHA-256(code)` (`invites.code_hash`, unique). The code is never logged and never returned after creation.
+- **Storage:** the database stores only the SHA-256 of the 16 decoded bytes (`invites.code_hash`, unique), never the 22-character string. The code is never logged and never returned after creation.
 - **Link:** `<GIFITUP_PUBLIC_URL>/invite#<code>`. The code is in the URL **fragment**, which browsers never send to a server (SEC-M0-10).
 - **What each control protects, and against whom** (#13 SEC-44):
   - **The hash** protects against someone who reads the database: a backup leak, or an SQL injection as the app role. They can't turn a stored hash into a working link.
@@ -43,8 +43,8 @@ In the server image, run as the compose service `admin` (profile `admin`) with t
 - `create-invite`:
   - **What:** an admin invite (`created_by` NULL), valid **24 h** (#13 SEC-47).
   - **Output:** the link is written once, straight to stdout, never through the logger. The service has Docker logging off (`logging: driver: none`) and is run with `--rm`, so the link isn't kept in a container log on disk.
-- `delete-account <username>`: removes one account with its devices, sessions and invites. People it invited keep their accounts.
-- `delete-account --with-invitees <username>`: removes an account and everyone it invited, transitively (recursive CTE, one transaction). This contains a leaked link (#13 SEC-46).
+- `delete-account <username>`: removes one account with its devices, sessions and invites. People it invited keep their accounts, but drop out of the tree (`invited_by` becomes NULL): a later `--with-invitees` on someone above can't reach them any more. To remove a branch, use `--with-invitees` first.
+- `delete-account --with-invitees <username>`: removes an account and everyone it invited, transitively (recursive CTE, one transaction, holding a lock that blocks new registrations meanwhile so nobody joins the subtree unseen, #74 SEC-53). This contains a leaked link (#13 SEC-46).
 
 Runbook: `docs/ops/deploy.md`.
 

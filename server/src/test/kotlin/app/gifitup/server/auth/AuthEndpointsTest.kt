@@ -58,6 +58,12 @@ class AuthEndpointsTest {
             code: String,
             now: java.time.Instant,
         ): RedeemedInvite? = if (unused.remove(code)) RedeemedInvite(UUID.randomUUID(), null) else null
+
+        override fun recordUse(
+            connection: java.sql.Connection,
+            invite: RedeemedInvite,
+            accountId: UUID,
+        ) = true
     }
 
     private fun authTest(
