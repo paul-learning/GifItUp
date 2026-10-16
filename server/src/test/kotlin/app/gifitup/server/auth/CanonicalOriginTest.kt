@@ -1,34 +1,22 @@
 package app.gifitup.server.auth
 
 import kotlin.test.Test
-import kotlin.test.assertFalse
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** The crate's table (`only_canonical_origins_are_accepted` in crypto/src/auth.rs): both sides accept the same origins. */
+/** The crate's rule (`is_canonical_origin` in crypto/src/auth.rs) on the shared cases file (#71 SEC-33). */
 class CanonicalOriginTest {
     @Test
-    fun acceptsExactlyTheCanonicalSpelling() {
-        listOf("https://gifitup.example.org", "https://localhost:8443", "https://a.b-c.d:1", "https://10.0.0.1").forEach {
-            assertTrue(CanonicalOrigin.isCanonical(it), it)
+    fun matchesTheCratesRuleOnTheSharedCases() {
+        val lines =
+            checkNotNull(javaClass.getResource("/origin-rule-cases.txt"))
+                .readText()
+                .lines()
+                .filter { it.isNotEmpty() && !it.startsWith("#") }
+        lines.forEach { line ->
+            val origin = hex(line.substring(1).trim()).decodeToString()
+            assertEquals(line.startsWith("+"), CanonicalOrigin.isCanonical(origin), origin)
         }
-        listOf(
-            "https://gifitup.example.org/",
-            "https://GifItUp.example.org",
-            "http://gifitup.example.org",
-            "https://gifitup.example.org:443",
-            "https://gifitup.example.org:0443",
-            "https://gifitup.example.org:65536",
-            "https://gifitup.example.org:",
-            "https://gifitup.example.org/path",
-            "https://gifitup.example.org?x",
-            "https://user@gifitup.example.org",
-            "https://.example.org",
-            "https://example..org",
-            "https://-a.org",
-            "https://a-.org",
-            "https://",
-            " https://gifitup.example.org",
-            "https://" + "a".repeat(256) + ".org",
-        ).forEach { assertFalse(CanonicalOrigin.isCanonical(it), it) }
+        assertTrue(lines.size >= 20, "the shared file lost cases")
     }
 }

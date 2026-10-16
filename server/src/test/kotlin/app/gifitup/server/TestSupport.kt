@@ -3,6 +3,11 @@ package app.gifitup.server
 import app.gifitup.protocol.HealthResponse
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION_HEADER
+import app.gifitup.server.auth.AuthService
+import app.gifitup.server.auth.Challenges
+import app.gifitup.server.auth.DenyAllInviteRedeemer
+import app.gifitup.server.auth.PUBLIC_PATHS
+import app.gifitup.server.db.TransactionRunner
 import app.gifitup.server.http.ReadinessProbe
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
@@ -22,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import java.time.Clock
 
 /** Test-only routes that exercise decoding, body limits and unhandled errors before real endpoints exist. */
 internal const val ECHO_PATH = "/test/echo"
@@ -49,8 +55,24 @@ internal val AlwaysReady = ReadinessProbe { true }
 /** Marker that must never appear in a response body or a log line. */
 internal const val MARKER = "MARKER-7f3a9c"
 
+/** An [AuthService] for tests that never reach the database; any database call fails the test. */
+internal fun noDatabaseAuth(clock: Clock = Clock.systemUTC()): AuthService =
+    AuthService(
+        object : TransactionRunner {
+            override fun <T> transaction(block: (java.sql.Connection) -> T): T = error("this test has no database")
+        },
+        ServerConfig().publicOrigin,
+        Challenges(clock),
+        DenyAllInviteRedeemer,
+        clock,
+    )
+
+/** The test-only routes below are public, like the real public routes; everything else still needs a session. */
+internal val TEST_PUBLIC_PATHS =
+    PUBLIC_PATHS + setOf(ECHO_PATH, BOOM_PATH, SEALED_PATH, REQUIRE_PATH, SLOW_PATH, "/counted", "/test/wrapped")
+
 internal fun Application.testModule(config: ServerConfig = ServerConfig()) {
-    module(config, AlwaysReady)
+    module(config, AlwaysReady, noDatabaseAuth(), TEST_PUBLIC_PATHS)
     routing {
         post(ECHO_PATH) { call.respond(call.receive<HealthResponse>()) }
         get(BOOM_PATH) { error("failure carrying $MARKER") }

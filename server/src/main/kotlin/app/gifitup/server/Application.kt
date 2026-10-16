@@ -4,6 +4,12 @@ import app.gifitup.protocol.HealthResponse
 import app.gifitup.protocol.MIN_SUPPORTED_PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.ProtocolJson
+import app.gifitup.server.auth.AuthService
+import app.gifitup.server.auth.Challenges
+import app.gifitup.server.auth.DenyAllInviteRedeemer
+import app.gifitup.server.auth.PUBLIC_PATHS
+import app.gifitup.server.auth.authRoutes
+import app.gifitup.server.auth.installSessionAuth
 import app.gifitup.server.db.Database
 import app.gifitup.server.db.DatabaseConfig
 import app.gifitup.server.http.CachedReadiness
@@ -33,12 +39,15 @@ fun main() {
     val config = ServerConfig.fromEnv(env)
     // Fails startup if the database is unreachable or the app role's credentials are wrong; Docker restarts us.
     val database = Database.connect(DatabaseConfig.fromEnv(env))
-    val readiness = CachedReadiness(Clock.systemUTC()) { database.isReachable() }
+    val clock = Clock.systemUTC()
+    val readiness = CachedReadiness(clock) { database.isReachable() }
+    // Registration stays closed (deny-all invites) until #13 brings real invite codes.
+    val auth = AuthService(database, config.publicOrigin, Challenges(clock), DenyAllInviteRedeemer, clock)
     val server =
         embeddedServer(
             Netty,
             configure = { applyTo(this, config) },
-            module = { module(config, readiness) },
+            module = { module(config, readiness, auth) },
         )
     server.monitor.subscribe(ApplicationStopped) { database.close() }
     server.start(wait = true)
@@ -79,14 +88,19 @@ private const val NETTY_HTTP_CODEC = "codec"
 fun Application.module(
     config: ServerConfig,
     readiness: ReadinessProbe,
+    auth: AuthService,
+    publicPaths: Set<String> = PUBLIC_PATHS,
 ) {
     installErrorHandling()
     // Must stay the first interceptor after error handling: Plugins-phase interceptors run in install order, and an
     // application-wide plugin installed before it (auth, rate limits) would still run for rejected calls (#68 SEC-21).
     installProtocolVersionCheck()
+    // Second: deny by default. Every path but the public ones needs a session before routing runs (ADR-0009).
+    installSessionAuth(auth, publicPaths)
     install(RequestBodyLimit) { bodyLimit { config.limits.defaultBodyLimitBytes } }
     install(ContentNegotiation) { json(ProtocolJson) }
     routing {
+        authRoutes(auth)
         // 503 when the database is unreachable, so deploy.sh's health gate covers it and rolls back (ADR-0008).
         get(HEALTH_PATH) {
             val ready = readiness.isReady()

@@ -153,10 +153,10 @@ class NettyLimitsTest {
         assertDeadlineAfterEarlyResponse("GET /health HTTP/1.1\r\nHost: t\r\nContent-Length: 1\r\n\r\n", 200)
 
     @Test
-    fun notFoundBeforeTheBodyKeepsTheDeadline() =
+    fun unauthorizedBeforeTheBodyKeepsTheDeadline() =
         assertDeadlineAfterEarlyResponse(
             "POST /nope HTTP/1.1\r\nHost: t\r\n$PROTOCOL_VERSION_HEADER: $PROTOCOL_VERSION\r\nContent-Length: 1\r\n\r\n",
-            404,
+            401,
         )
 
     // #68 SEC-20: a 100 Continue is not the answer to the request, so a slow handler after it is not cut off.

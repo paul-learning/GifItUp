@@ -18,7 +18,7 @@ class HealthRouteTest {
     @Test
     fun healthReturnsOkWithoutProtocolHeader() =
         testApplication {
-            application { module(ServerConfig(), AlwaysReady) }
+            application { module(ServerConfig(), AlwaysReady, noDatabaseAuth()) }
             val client = createClient { install(ContentNegotiation) { json(ProtocolJson) } }
 
             val response = client.get("/health")
@@ -37,7 +37,7 @@ class HealthRouteTest {
     @Test
     fun healthIsUnavailableWhenNotReady() =
         testApplication {
-            application { module(ServerConfig(), ReadinessProbe { false }) }
+            application { module(ServerConfig(), ReadinessProbe { false }, noDatabaseAuth()) }
             val client = createClient { install(ContentNegotiation) { json(ProtocolJson) } }
 
             val response = client.get("/health")
@@ -47,13 +47,14 @@ class HealthRouteTest {
         }
 
     @Test
-    fun unknownRouteIsNotFoundWithClosedBody() =
+    fun unknownRouteWithoutSessionIsUnauthorizedNotNotFound() =
         testApplication {
-            application { module(ServerConfig(), AlwaysReady) }
+            // Deny by default (ADR-0009): a caller without a session can't even tell which paths exist.
+            application { module(ServerConfig(), AlwaysReady, noDatabaseAuth()) }
 
             val response = versionedClient().get("/does-not-exist")
 
-            assertEquals(HttpStatusCode.NotFound, response.status)
-            assertEquals("""{"error":"not_found"}""", response.body<String>())
+            assertEquals(HttpStatusCode.Unauthorized, response.status)
+            assertEquals("""{"error":"unauthorized"}""", response.body<String>())
         }
 }

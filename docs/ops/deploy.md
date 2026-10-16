@@ -68,7 +68,7 @@ Secrets live **only in the `production` environment**, never at repo level. Name
    sudo -iu deploy git -C /opt/gifitup/repo pull --ff-only
    ls -l /opt/gifitup/deploy/deploy.sh          # must exist and be executable
    ```
-   Then add `GIFITUP_PUBLIC_URL=https://gifitup.<domain>` to `/opt/gifitup/deploy/.env` (see `deploy/.env.example`). The `GIFITUP_SERVER_IMAGE` line is managed by `deploy.sh`. From now on, deploys keep the checkout up to date (detached at the deployed commit).
+   Then add `GIFITUP_PUBLIC_URL=https://gifitup.<domain>` to `/opt/gifitup/deploy/.env` (see `deploy/.env.example`). Since #12 the server reads it too, as the only origin device signatures are checked against (ADR-0009), so it must be canonical: lowercase, no trailing slash, no `:443`. Otherwise the server refuses to start and the deploy rolls back. The `GIFITUP_SERVER_IMAGE` line is managed by `deploy.sh`. From now on, deploys keep the checkout up to date (detached at the deployed commit).
 6. **Make the package public before approving the first deploy.** New GHCR packages start private. Once the first run has pushed the image (the deploy job then waits for approval), go to *Packages → gifitup-server → Package settings → Change visibility → Public* (owner decision, #7), **then** approve. The provenance check, the rollback lookup and the VM's pull all read the registry without credentials. The image contains only code that is already public.
 
 ## Notes
