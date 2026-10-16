@@ -34,7 +34,7 @@ class ServerConfigTest {
     @Test
     fun limitsMustBePositive() {
         assertFailsWith<IllegalArgumentException> { HttpLimits(maxHeaderSize = 0) }
-        assertFailsWith<IllegalArgumentException> { HttpLimits(requestReadTimeoutSeconds = 0) }
+        assertFailsWith<IllegalArgumentException> { HttpLimits(requestDeadlineSeconds = 0) }
         assertFailsWith<IllegalArgumentException> { HttpLimits(defaultBodyLimitBytes = 0) }
     }
 }

@@ -44,18 +44,19 @@ data class HttpLimits(
     val maxHeaderSize: Int = 8_192,
     val maxChunkSize: Int = 8_192,
     /**
-     * Idle read timeout (Netty `ReadTimeoutHandler`): a connection that sends nothing for this long is closed, idle
-     * keep-alive connections included. It is not a deadline for the whole request, so a peer trickling bytes stays
-     * connected; the container's memory and PID limits bound that.
+     * Time a connection gets to deliver a complete request (head and body) while no request is being answered: a new
+     * connection, one between requests (idle keep-alive) or one trickling bytes is closed after this
+     * ([RequestDeadlineHandler][app.gifitup.server.http.RequestDeadlineHandler], #12 SEC-15). #21 has to replace it on
+     * a WebSocket upgrade, or open sockets without traffic get closed.
      */
-    val requestReadTimeoutSeconds: Int = 10,
+    val requestDeadlineSeconds: Int = 10,
     val responseWriteTimeoutSeconds: Int = 10,
     /** Body limit for every route that doesn't set its own, enforced before deserialization (ADR-0006 A9). */
     val defaultBodyLimitBytes: Long = DEFAULT_BODY_LIMIT_BYTES,
 ) {
     init {
         require(maxInitialLineLength > 0 && maxHeaderSize > 0 && maxChunkSize > 0) { "sizes must be positive" }
-        require(requestReadTimeoutSeconds > 0 && responseWriteTimeoutSeconds > 0) { "timeouts must be positive" }
+        require(requestDeadlineSeconds > 0 && responseWriteTimeoutSeconds > 0) { "timeouts must be positive" }
         require(defaultBodyLimitBytes > 0) { "body limit must be positive" }
     }
 

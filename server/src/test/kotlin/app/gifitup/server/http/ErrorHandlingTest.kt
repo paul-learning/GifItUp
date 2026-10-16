@@ -3,6 +3,8 @@ package app.gifitup.server.http
 import app.gifitup.server.BOOM_PATH
 import app.gifitup.server.ECHO_PATH
 import app.gifitup.server.MARKER
+import app.gifitup.server.REQUIRE_PATH
+import app.gifitup.server.SEALED_PATH
 import app.gifitup.server.allText
 import app.gifitup.server.captureLogs
 import app.gifitup.server.testModule
@@ -35,6 +37,38 @@ class ErrorHandlingTest {
 
     @Test
     fun missingFieldIsClosedBadRequestWithoutEcho() = assertClosedBadRequest("""{"status":"$MARKER"}""")
+
+    @Test
+    fun plainIllegalArgumentFromTheDecoderIsClosedBadRequest() =
+        testApplication {
+            application { testModule() }
+            captureLogs { logs ->
+                val response =
+                    versionedClient().post(SEALED_PATH) {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"type":{"x":"$MARKER"},"member":"m"}""")
+                    }
+
+                assertEquals(HttpStatusCode.BadRequest, response.status)
+                assertEquals("""{"error":"bad_request"}""", response.body<String>())
+                assertFalse(logs.allText().contains(MARKER))
+            }
+        }
+
+    @Test
+    fun failedRequireInServerCodeIsLoggedInternalErrorNotBadRequest() =
+        testApplication {
+            application { testModule() }
+            captureLogs { logs ->
+                val response = versionedClient().get(REQUIRE_PATH)
+
+                assertEquals(HttpStatusCode.InternalServerError, response.status)
+                assertEquals("""{"error":"internal"}""", response.body<String>())
+                val logged = logs.allText()
+                assertTrue(logged.contains("exception=java.lang.IllegalArgumentException"), logged)
+                assertFalse(logged.contains(MARKER))
+            }
+        }
 
     @Test
     fun wellFormedBodyIsAccepted() =

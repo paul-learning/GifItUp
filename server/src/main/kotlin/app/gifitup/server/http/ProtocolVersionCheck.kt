@@ -7,7 +7,9 @@ import app.gifitup.protocol.MIN_SUPPORTED_PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION_HEADER
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.createApplicationPlugin
+import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.call
 import io.ktor.server.request.path
 import io.ktor.server.response.respond
 
@@ -43,28 +45,30 @@ internal fun checkProtocolVersion(
 }
 
 /**
- * Rejects every request except `GET /health` whose protocol version this server doesn't serve. Installed for the whole
- * application, so a new route is covered without opting in. The raw header value is never logged or echoed.
+ * Rejects every request whose protocol version this server doesn't serve, except requests to `/health` (any method:
+ * only `GET` has a route there, so the others get a closed 405). Intercepts the whole application, so a new route is
+ * covered without opting in. A rejected call is finished here, so routing, route-scoped plugins (auth, rate limits) and
+ * handlers never run for it (#68 SEC-16). The raw header value is never logged or echoed.
  */
-internal val ProtocolVersionCheck =
-    createApplicationPlugin("ProtocolVersionCheck") {
-        onCall { call ->
-            if (call.request.path() == HEALTH_PATH) return@onCall
-            when (checkProtocolVersion(call.request.headers.getAll(PROTOCOL_VERSION_HEADER))) {
-                VersionCheck.Supported -> {
-                    Unit
-                }
+internal fun Application.installProtocolVersionCheck() {
+    intercept(ApplicationCallPipeline.Plugins) {
+        if (call.request.path() == HEALTH_PATH) return@intercept
+        when (checkProtocolVersion(call.request.headers.getAll(PROTOCOL_VERSION_HEADER))) {
+            VersionCheck.Supported -> {
+                return@intercept
+            }
 
-                VersionCheck.ClientOutdated -> {
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ClientOutdatedResponse(ApiErrorCode.CLIENT_OUTDATED, MIN_SUPPORTED_PROTOCOL_VERSION),
-                    )
-                }
+            VersionCheck.ClientOutdated -> {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ClientOutdatedResponse(ApiErrorCode.CLIENT_OUTDATED, MIN_SUPPORTED_PROTOCOL_VERSION),
+                )
+            }
 
-                VersionCheck.ServerOutdated -> {
-                    call.respond(HttpStatusCode.BadRequest, ErrorResponse(ApiErrorCode.SERVER_OUTDATED))
-                }
+            VersionCheck.ServerOutdated -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse(ApiErrorCode.SERVER_OUTDATED))
             }
         }
+        finish()
     }
+}

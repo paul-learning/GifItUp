@@ -25,8 +25,10 @@ private val log = LoggerFactory.getLogger("app.gifitup.server.http.ErrorHandling
  */
 internal fun Application.installErrorHandling() {
     install(StatusPages) {
-        // Decoding failures. Ktor wraps them in BadRequestException; kotlinx throws IllegalArgumentException for some
-        // malformed JSON, so both base types are caught as well (ADR-0006 B5).
+        // Decoding failures. Ktor's converter wraps them in BadRequestException, including the plain
+        // IllegalArgumentException kotlinx throws for some malformed JSON (ADR-0006 B5). SerializationException is
+        // mapped too for decoding outside the converter. A bare IllegalArgumentException is deliberately not mapped: a
+        // failed require() in server code is a bug and must surface as a logged 500, not look like a client error.
         exception<BadRequestException> { call, cause ->
             // The JSON converter wraps a body limit hit during the read, depending on timing; it is still a 413.
             if (cause.causes().any { it is PayloadTooLargeException }) {
@@ -36,7 +38,6 @@ internal fun Application.installErrorHandling() {
             }
         }
         exception<SerializationException> { call, _ -> call.respondError(HttpStatusCode.BadRequest, ApiErrorCode.BAD_REQUEST) }
-        exception<IllegalArgumentException> { call, _ -> call.respondError(HttpStatusCode.BadRequest, ApiErrorCode.BAD_REQUEST) }
         exception<PayloadTooLargeException> { call, _ ->
             call.respondError(HttpStatusCode.PayloadTooLarge, ApiErrorCode.PAYLOAD_TOO_LARGE)
         }
