@@ -10,11 +10,13 @@ import app.gifitup.protocol.RegisterRequest
 import app.gifitup.protocol.SessionResponse
 import app.gifitup.server.http.HEALTH_PATH
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
+import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -35,12 +37,29 @@ internal const val DEVICES_PATH = "/devices"
 internal val PUBLIC_PATHS = setOf(HEALTH_PATH, CHALLENGE_PATH, REGISTER_PATH, LOGIN_PATH)
 
 /**
- * Authenticated paths that don't spend the account budget (#76 SEC-65): the ones that end a session or revoke a
- * device. Otherwise a stolen session could drain the account's budget and lock the owner's other devices out of
- * the very calls that end it. They limit themselves (logout destroys the calling session). Device revocation
- * (`DELETE /devices/{id}`, #72) belongs here too.
+ * One route exempt from the account budget: an exact [method] and a whole-path [path] pattern, so a templated route
+ * fits (`Regex("/devices/[^/]+")` for `DELETE /devices/{id}`) and another method on the same path doesn't (#77
+ * SEC-70, SEC-71).
  */
-internal val BUDGET_EXEMPT_PATHS = setOf(LOGOUT_PATH)
+internal class BudgetExemption(
+    private val method: HttpMethod,
+    private val path: Regex,
+) {
+    fun matches(
+        method: HttpMethod,
+        path: String,
+    ): Boolean = method == this.method && this.path.matches(path)
+}
+
+/**
+ * Authenticated routes that don't spend the account budget (#76 SEC-65): the ones that end a session or revoke a
+ * device. Otherwise one session draining the account's budget (say, a stolen one) would also block those calls.
+ * Today that only means every device can still log itself out: logout ends the calling session only, so a stolen
+ * session can't be ended through the API yet. The protection that matters comes with device revocation
+ * (`DELETE /devices/{id}`, #72), which belongs here too, tested through the real route. They limit themselves
+ * (logout destroys the calling session).
+ */
+internal val BUDGET_EXEMPTIONS = listOf(BudgetExemption(HttpMethod.Post, Regex(Regex.escape(LOGOUT_PATH))))
 
 private val SessionKey = AttributeKey<AuthenticatedSession>("gifitup.session")
 
@@ -54,12 +73,12 @@ internal val ApplicationCall.session: AuthenticatedSession get() = attributes[Se
  * no route-scoped plugin runs for a rejected call (#68 SEC-16, SEC-21). The token is never logged.
  *
  * Then the account's request budget (#76): a call over it gets `429 rate_limited` and never reaches its route. Every
- * authenticated HTTP request counts, except [budgetExemptPaths]. Nothing is logged per throttled request.
+ * authenticated HTTP request counts, except [budgetExemptions]. Nothing is logged per throttled request.
  */
 internal fun Application.installSessionAuth(
     auth: AuthService,
     publicPaths: Set<String> = PUBLIC_PATHS,
-    budgetExemptPaths: Set<String> = BUDGET_EXEMPT_PATHS,
+    budgetExemptions: List<BudgetExemption> = BUDGET_EXEMPTIONS,
 ) {
     intercept(ApplicationCallPipeline.Plugins) {
         val path = call.request.path()
@@ -76,7 +95,7 @@ internal fun Application.installSessionAuth(
                 finish()
             }
 
-            path !in budgetExemptPaths && !auth.requestBudget.spend(session) -> {
+            budgetExemptions.none { it.matches(call.request.httpMethod, path) } && !auth.requestBudget.spend(session) -> {
                 call.respond(HttpStatusCode.TooManyRequests, ErrorResponse(ApiErrorCode.RATE_LIMITED))
                 finish()
             }

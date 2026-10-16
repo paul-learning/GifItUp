@@ -403,7 +403,7 @@ class InviteEndpointsTest {
             assertEquals(InviteStatus.OPEN, list(rae).invites.single().status, "the revoke didn't run")
         }
 
-    /** #76 SEC-65: a drained budget (say, by a stolen session) can't stop the owner from ending sessions. */
+    /** #76 SEC-65: a budget drained by one session (say, a stolen one) doesn't stop any session from logging itself out. */
     @Test
     fun logoutIsExemptFromTheBudget() =
         budgetTest {
@@ -418,6 +418,11 @@ class InviteEndpointsTest {
                 "drained for the whole account",
             )
 
+            assertEquals(
+                HttpStatusCode.TooManyRequests,
+                client.get("/auth/logout") { bearerAuth(stolen) }.status,
+                "only POST is exempt (#77 SEC-70)",
+            )
             assertEquals(HttpStatusCode.NoContent, client.post("/auth/logout") { bearerAuth(stolen) }.status)
             assertEquals(HttpStatusCode.NoContent, client.post("/auth/logout") { bearerAuth(owner) }.status)
         }
