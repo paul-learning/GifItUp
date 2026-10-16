@@ -95,7 +95,7 @@ install -d -m 0700 secrets
 (umask 022; openssl rand -base64 32 | tr -d '\n' > secrets/postgres_app_password)
 chmod 0444 secrets/postgres_password secrets/postgres_app_password
 ```
-The secret files are world-readable *inside* the `0700` directory on purpose. Compose bind-mounts them into the containers, where the Postgres entrypoint, the server and the `migrate` container read them as non-root users. Compose without swarm ignores per-secret modes, so the host mode decides. On the host, only `deploy` (and root) can get into `secrets/`. `deploy.sh` refuses to deploy if either file is missing, empty or not world-readable.
+The secret files are world-readable *inside* the `0700` directory on purpose. Compose bind-mounts them into the containers, where the Postgres entrypoint, the server and the `migrate` container read them as non-root users. Compose without swarm ignores per-secret modes, so the host mode decides. On the host, only `deploy` (and root) can get into `secrets/`. `deploy.sh` refuses to deploy unless `secrets/` is mode `0700`, owned by `deploy` and not a symlink, and both files are regular files (not symlinks), non-empty and world-readable.
 
 - `postgres_password`: the database superuser. Only Postgres and the one-shot `migrate` container get it (ADR-0008).
 - `postgres_app_password`: the server's least-privilege role `gifitup_app`. `migrate` sets the role's password from this file on every deploy. To rotate it, write a new file and redeploy.
