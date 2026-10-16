@@ -1,5 +1,6 @@
 package app.gifitup.mls
 
+import app.gifitup.shared.data.crypto.AuthPurpose
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
@@ -8,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -77,6 +79,45 @@ class MlsClientContractTest {
         }
 
     @Test
+    fun signAuthIsA64ByteDeterministicSignatureOverEveryField() =
+        runTest {
+            platformMlsClientFactory().create("alice", key()).use { alice ->
+                val challenge = ByteArray(32) { 3 }
+                val register = alice.signAuth(AuthPurpose.Register, challenge, ORIGIN, "alice")
+                assertEquals(SIGNATURE_SIZE, register.size)
+                assertContentEquals(register, alice.signAuth(AuthPurpose.Register, challenge, ORIGIN, "alice"), "Ed25519 is deterministic")
+
+                val login = alice.signAuth(AuthPurpose.Login, challenge, ORIGIN, DEVICE)
+                val others =
+                    listOf(
+                        register,
+                        alice.signAuth(AuthPurpose.Login, ByteArray(32) { 4 }, ORIGIN, DEVICE),
+                        alice.signAuth(AuthPurpose.Login, challenge, "https://localhost:8443", DEVICE),
+                        alice.signAuth(AuthPurpose.Login, challenge, ORIGIN, DEVICE.replace('0', '1')),
+                    )
+                others.forEach { assertFalse(it.contentEquals(login)) }
+            }
+        }
+
+    @Test
+    fun signAuthRejectsInputsOutsideTheRules() =
+        runTest {
+            platformMlsClientFactory().create("alice", key()).use { alice ->
+                val challenge = ByteArray(32)
+                assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Register, challenge, ORIGIN, "bob") }
+                assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, challenge, ORIGIN, "alice") }
+                assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, challenge, ORIGIN, DEVICE.uppercase()) }
+                assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, ByteArray(15), ORIGIN, DEVICE) }
+                assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, ByteArray(65), ORIGIN, DEVICE) }
+                listOf("$ORIGIN/", "https://GifItUp.example.org", "http://gifitup.example.org", "$ORIGIN:443").forEach { bad ->
+                    assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, challenge, bad, DEVICE) }
+                }
+                // A rejected call doesn't harm the client.
+                assertEquals("alice", alice.publicIdentity().username)
+            }
+        }
+
+    @Test
     fun stateSurvivesExportAndRestoreWithTheSameKeyOnly() =
         runTest {
             val factory = platformMlsClientFactory()
@@ -106,5 +147,8 @@ class MlsClientContractTest {
         const val REF_SIZE = 32
         const val MAX_PER_CALL = 100
         const val YEAR_2026 = 1_767_225_600L
+        const val SIGNATURE_SIZE = 64
+        const val ORIGIN = "https://gifitup.example.org"
+        const val DEVICE = "123e4567-e89b-12d3-a456-426614174000"
     }
 }

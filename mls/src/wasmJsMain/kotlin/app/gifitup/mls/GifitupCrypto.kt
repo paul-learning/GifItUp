@@ -31,6 +31,14 @@ internal external class NativeMlsClient(
 
     fun exportState(): Uint8Array
 
+    /** [purpose] is exactly "register" or "login" (`AuthPurpose::from_name` in crypto/src/auth.rs). */
+    fun signAuth(
+        purpose: String,
+        challenge: Uint8Array,
+        origin: String,
+        subject: String,
+    ): Uint8Array
+
     /** Releases the Rust-side object (wasm memory is not garbage collected). */
     fun free()
 

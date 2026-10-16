@@ -1,5 +1,6 @@
 package app.gifitup.mls
 
+import app.gifitup.shared.data.crypto.AuthPurpose
 import app.gifitup.shared.data.crypto.CreatedKeyPackage
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsClientFactory
@@ -8,6 +9,7 @@ import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.crypto.PublicIdentity
 import uniffi.gifitup_crypto.ErrorCode
 import uniffi.gifitup_crypto.NativeMlsClient
+import uniffi.gifitup_crypto.AuthPurpose as NativeAuthPurpose
 
 /** [MlsClientFactory] over the uniffi bindings (Android and JVM; ADR-0007). */
 object UniffiMlsClientFactory : MlsClientFactory {
@@ -64,6 +66,13 @@ internal class UniffiMlsClient(
 
     override fun exportState(): ByteArray = call { native.exportState() }
 
+    override fun signAuth(
+        purpose: AuthPurpose,
+        challenge: ByteArray,
+        origin: String,
+        subject: String,
+    ): ByteArray = call { native.signAuth(purpose.toNative(), challenge, origin, subject) }
+
     override fun close() {
         dead = true
         native.close()
@@ -113,3 +122,9 @@ private fun ErrorCode.toShared(): MlsErrorCode =
     }
 
 private fun uniffi.gifitup_crypto.PublicIdentity.toShared() = PublicIdentity(username, signaturePublicKey)
+
+private fun AuthPurpose.toNative(): NativeAuthPurpose =
+    when (this) {
+        AuthPurpose.Register -> NativeAuthPurpose.REGISTER
+        AuthPurpose.Login -> NativeAuthPurpose.LOGIN
+    }

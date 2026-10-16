@@ -21,6 +21,23 @@ class FakeMlsClientTest {
     }
 
     @Test
+    fun signAuthFollowsTheCratesInputRules() {
+        val alice = FakeMlsClient.Factory.create("alice", key())
+        val challenge = ByteArray(32) { 3 }
+        val origin = "https://gifitup.example.org"
+        val device = "123e4567-e89b-12d3-a456-426614174000"
+
+        alice.signAuth(AuthPurpose.Register, challenge, origin, "alice")
+        alice.signAuth(AuthPurpose.Login, challenge, "https://localhost:8443", device)
+        assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Register, challenge, origin, "bob") }
+        assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, challenge, origin, device.uppercase()) }
+        assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, ByteArray(15), origin, device) }
+        assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, ByteArray(65), origin, device) }
+        listOf("$origin/", "https://GifItUp.example.org", "http://gifitup.example.org", "$origin:443", "$origin:65536", "$origin:0443")
+            .forEach { bad -> assertCode(MlsErrorCode.InvalidInput) { alice.signAuth(AuthPurpose.Login, challenge, bad, device) } }
+    }
+
+    @Test
     fun zeroesTheSnapshotKey() {
         val key = key()
         FakeMlsClient.Factory.create("alice", key).close()
