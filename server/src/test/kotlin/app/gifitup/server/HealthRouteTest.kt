@@ -15,9 +15,9 @@ import kotlin.test.assertEquals
 
 class HealthRouteTest {
     @Test
-    fun healthReturnsOk() =
+    fun healthReturnsOkWithoutProtocolHeader() =
         testApplication {
-            application { module() }
+            application { module(ServerConfig()) }
             val client = createClient { install(ContentNegotiation) { json(ProtocolJson) } }
 
             val response = client.get("/health")
@@ -34,10 +34,13 @@ class HealthRouteTest {
         }
 
     @Test
-    fun unknownRouteIsNotFound() =
+    fun unknownRouteIsNotFoundWithClosedBody() =
         testApplication {
-            application { module() }
+            application { module(ServerConfig()) }
 
-            assertEquals(HttpStatusCode.NotFound, client.get("/does-not-exist").status)
+            val response = versionedClient().get("/does-not-exist")
+
+            assertEquals(HttpStatusCode.NotFound, response.status)
+            assertEquals("""{"error":"not_found"}""", response.body<String>())
         }
 }

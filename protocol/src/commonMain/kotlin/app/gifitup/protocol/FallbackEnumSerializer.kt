@@ -13,15 +13,20 @@ import kotlinx.serialization.encoding.Encoder
  * [fallback] instead of failing the whole payload. Receivers treat [fallback] as "not supported" (exhaustive `when`,
  * no `else`); the server rejects it in requests.
  *
- * The wire value is the constant's [Enum.name], matched case-sensitively, so renaming a constant is a breaking change.
- * Encoding [fallback] throws: it only ever stands for "something this build doesn't know".
+ * The wire value is [wireName] of the constant (by default its [Enum.name]), matched case-sensitively, so changing it
+ * is a breaking change. Encoding [fallback] throws: it only ever stands for "something this build doesn't know".
  */
 open class FallbackEnumSerializer<T : Enum<T>>(
     serialName: String,
     values: Iterable<T>,
     private val fallback: T,
+    private val wireName: (T) -> String = { it.name },
 ) : KSerializer<T> {
-    private val byName: Map<String, T> = values.filter { it != fallback }.associateBy { it.name }
+    private val byName: Map<String, T> = values.filter { it != fallback }.associateBy(wireName)
+
+    init {
+        require(byName.size == values.count { it != fallback }) { "Wire names of $serialName must be distinct" }
+    }
 
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor(serialName, PrimitiveKind.STRING)
 
@@ -30,7 +35,7 @@ open class FallbackEnumSerializer<T : Enum<T>>(
         value: T,
     ) {
         if (value == fallback) throw SerializationException("The fallback value of $descriptor can't be encoded")
-        encoder.encodeString(value.name)
+        encoder.encodeString(wireName(value))
     }
 
     override fun deserialize(decoder: Decoder): T = byName[decoder.decodeString()] ?: fallback
