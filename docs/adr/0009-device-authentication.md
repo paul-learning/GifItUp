@@ -24,7 +24,7 @@ Constraints:
 ## Decision
 
 ### The signature (in place with PR C)
-`NativeMlsClient.sign_auth(purpose, challenge, origin, subject)` in `crypto/src/auth.rs`, exposed as `MlsClient.signAuth` (both bindings, contract-tested on the JVM and in headless Chrome). The crate builds the signed bytes itself from typed parameters; **no FFI function signs arbitrary bytes**. Two checks in `scripts/check-repo-hygiene.sh`: no function with a `sign` name segment other than `sign_auth` in the binding files (generics included), and no FFI export attribute outside the two binding files (#70 SEC-24). They are text checks: a signing export under a name without `sign` is left to review.
+`NativeMlsClient.sign_auth(purpose, challenge, origin, subject)` in `crypto/src/auth.rs`, exposed as `MlsClient.signAuth` (both bindings, contract-tested on the JVM and in headless Chrome). The crate builds the signed bytes itself from typed parameters; **no FFI function signs arbitrary bytes**. Two checks in `scripts/check-repo-hygiene.sh`: no function with a `sign` name segment other than `sign_auth` in the binding files (generics included), and neither `wasm_bindgen` nor `uniffi::export` (any spacing, `cfg_attr` included) outside the two binding files (#70 SEC-24, SEC-27). They are text checks of the usual spellings: an export under a name without `sign`, or one reached through a macro or alias, is left to review.
 
 The signed bytes use MLS `SignWithLabel` framing (RFC 9420 §5.1.2) with our own label. `<V>` is the MLS variable-length vector with a minimal RFC 9000 varint length prefix (RFC 9420 §2.1.2):
 
