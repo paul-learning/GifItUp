@@ -41,7 +41,7 @@ On the VM, as `deploy`, from `/opt/gifitup/deploy`. Always with `--rm`: the `adm
   ```bash
   docker compose --profile admin run --rm admin delete-account --with-invitees <username>
   ```
-  Both print how many accounts were removed and exit 1 if the username doesn't exist. If a command fails (`admin: …` and "nothing was changed", e.g. a registration was in flight at the same moment and the database aborted the delete), nothing was deleted: run it again (#74 SEC-60).
+  Both print how many accounts were removed and exit 1 if the username doesn't exist. If a command fails with a database error and printed no result (e.g. a registration was in flight at the same moment and the database aborted the delete), nothing was changed: run it again (#74 SEC-60). If a link or a "deleted" line was printed before the error, that result stands: a printed invite link stays valid, so don't create a second one (#74 SEC-62).
 
 ## Rollback or redeploy
 - **Automatic:** a failed health check restores the previous commit and image.

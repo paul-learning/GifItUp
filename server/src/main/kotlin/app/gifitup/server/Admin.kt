@@ -40,7 +40,10 @@ fun main(args: Array<String>) {
         }.getOrElse { error ->
             // Only our own fixed messages are shown; anything else by class (SQL messages can quote data).
             System.err.println("admin: " + if (error is AdminError) error.message else error::class.java.name)
-            System.err.println("admin: nothing was changed; run the command again")
+            // A retry can help only with a database failure, and only if no result was printed (#74 SEC-62).
+            if (error !is AdminError) {
+                System.err.println("admin: if no result was printed above, nothing was changed; run the command again")
+            }
             EXIT_FAILURE
         }
     exitProcess(exit)
