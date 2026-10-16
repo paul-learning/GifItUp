@@ -86,6 +86,21 @@ class DeviceRepository {
     ): DeviceRecord? =
         connection.query("SELECT $DEVICE_COLUMNS FROM devices WHERE id = ?", { setObject(1, id) }) { it.toDevice() }.singleOrNull()
 
+    /** The device registered with [signatureKey] and its account's username, or null. */
+    fun findByKey(
+        connection: Connection,
+        signatureKey: ByteArray,
+    ): Pair<DeviceRecord, String>? {
+        require(signatureKey.size == SignatureVerifier.PUBLIC_KEY_SIZE) { "signature key must be 32 bytes" }
+        return connection
+            .query(
+                "SELECT d.id, d.account_id, d.signature_key, d.created_at, d.last_seen_at, a.username " +
+                    "FROM devices d JOIN accounts a ON a.id = d.account_id WHERE d.signature_key = ?",
+                { setBytes(1, signatureKey) },
+            ) { it.toDevice() to it.getString("username") }
+            .singleOrNull()
+    }
+
     fun listForAccount(
         connection: Connection,
         accountId: UUID,

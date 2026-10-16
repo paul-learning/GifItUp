@@ -302,36 +302,26 @@ mod tests {
 
     #[test]
     fn only_canonical_origins_are_accepted() {
-        for good in [
-            "https://gifitup.example.org",
-            "https://localhost:8443",
-            "https://a.b-c.d:1",
-            "https://10.0.0.1",
-        ] {
-            assert!(is_canonical_origin(good), "{good}");
+        // The same cases as the server's CanonicalOriginTest (#71 SEC-33): one shared file, so the rules can't drift.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../server/src/test/resources/origin-rule-cases.txt");
+        let cases = std::fs::read_to_string(path).expect("shared origin cases");
+        let mut checked = 0;
+        for line in cases
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        {
+            let (sign, hex) = line.split_at(1);
+            let hex = hex.trim();
+            let bytes: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            let origin = String::from_utf8(bytes).unwrap();
+            assert_eq!(is_canonical_origin(&origin), sign == "+", "{origin:?}");
+            checked += 1;
         }
-        let long = format!("https://{}.org", "a".repeat(MAX_ORIGIN_LEN));
-        for bad in [
-            "https://gifitup.example.org/",
-            "https://GifItUp.example.org",
-            "http://gifitup.example.org",
-            "https://gifitup.example.org:443",
-            "https://gifitup.example.org:0443",
-            "https://gifitup.example.org:65536",
-            "https://gifitup.example.org:",
-            "https://gifitup.example.org/path",
-            "https://gifitup.example.org?x",
-            "https://user@gifitup.example.org",
-            "https://.example.org",
-            "https://example..org",
-            "https://-a.org",
-            "https://a-.org",
-            "https://",
-            " https://gifitup.example.org",
-            long.as_str(),
-        ] {
-            assert!(!is_canonical_origin(bad), "{bad}");
-        }
+        assert!(checked >= 20, "the shared file lost cases");
     }
 
     #[test]

@@ -23,6 +23,9 @@ services:
     user: "10001:10001"
     environment:
       PORT: "8080"
+      # The origin device signatures are checked against (ADR-0009). Must be canonical (https://, lowercase host, no
+      # trailing slash, no :443) or the server refuses to start; deploy.sh's health check then rolls the deploy back.
+      GIFITUP_PUBLIC_URL: ${GIFITUP_PUBLIC_URL:?set GIFITUP_PUBLIC_URL in .env}
       # Least-privilege app role (ADR-0008): DML on the app's tables only. The superuser password never reaches this
       # container.
       DB_URL: jdbc:postgresql://postgres:5432/gifitup

@@ -13,15 +13,21 @@ internal const val FLYWAY_SCHEMA = "flyway"
 internal const val APP_ROLE = "gifitup_app"
 internal const val OWNER_ROLE = "gifitup_owner"
 
+/** Runs work in one database transaction; [Database] in production, a stand-in in tests without a database. */
+interface TransactionRunner {
+    /** Runs [block] in one transaction: commit on success, rollback on any exception (which is rethrown). */
+    fun <T> transaction(block: (Connection) -> T): T
+}
+
 /**
- * The server's connection pool, as the app role. Repositories (PR D of #12) run their SQL through [transaction] with
- * prepared statements only.
+ * The server's connection pool, as the app role. Repositories run their SQL through [transaction] with prepared
+ * statements only.
  */
 class Database internal constructor(
     private val dataSource: HikariDataSource,
-) : AutoCloseable {
-    /** Runs [block] in one transaction: commit on success, rollback on any exception (which is rethrown). */
-    fun <T> transaction(block: (Connection) -> T): T =
+) : TransactionRunner,
+    AutoCloseable {
+    override fun <T> transaction(block: (Connection) -> T): T =
         dataSource.connection.use { connection ->
             connection.autoCommit = false
             var committed = false

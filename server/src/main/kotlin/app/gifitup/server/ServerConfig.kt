@@ -1,10 +1,17 @@
 package app.gifitup.server
 
+import app.gifitup.server.auth.CanonicalOrigin
+
 /**
  * Typed server configuration (ARCH-M0-10). Built once from the environment in `main()` and passed to
  * [module][app.gifitup.server.module]; nothing else reads environment variables.
  */
 data class ServerConfig(
+    /**
+     * The server's public origin, the only one auth signatures are checked against (ADR-0009, #70 SEC-25). From
+     * configuration only, never from a request header; required, with no default (#73 SEC-38).
+     */
+    val publicOrigin: CanonicalOrigin,
     val port: Int = DEFAULT_PORT,
     val limits: HttpLimits = HttpLimits(),
 ) {
@@ -26,7 +33,12 @@ data class ServerConfig(
                     require(raw.matches(PORT_PATTERN)) { "PORT must be a decimal port number" }
                     raw.toInt()
                 } ?: DEFAULT_PORT
-            return ServerConfig(port = port)
+            val origin =
+                CanonicalOrigin.of(requireNotNull(env["GIFITUP_PUBLIC_URL"]) { "GIFITUP_PUBLIC_URL is not set" })
+            requireNotNull(origin) {
+                "GIFITUP_PUBLIC_URL must be canonical: https://, lowercase host, optional port other than 443, nothing after it"
+            }
+            return ServerConfig(port = port, publicOrigin = origin)
         }
 
         private val PORT_PATTERN = Regex("^[1-9][0-9]{0,4}$")

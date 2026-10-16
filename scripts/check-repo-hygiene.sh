@@ -62,5 +62,11 @@ if grep -rnE 'wasm_bindgen|uniffi[[:space:]]*::[[:space:]]*export' crypto/src --
   fail "FFI exports belong in crypto/src/uniffi_api.rs or wasm_api.rs only (ADR-0009)"
 fi
 
+# The unchecked auth encoder bypasses the typed subject and origin (#71 SEC-31, SEC-32): only tests may use it. Route
+# code must go through authSignContent(challenge, CanonicalOrigin, AuthSubject).
+if grep -rln 'authSignContentUnchecked' server/src/main --include='*.kt' | grep -v 'server/src/main/kotlin/app/gifitup/server/auth/AuthSignContent.kt'; then
+  fail "authSignContentUnchecked is for tests only (ADR-0009)"
+fi
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

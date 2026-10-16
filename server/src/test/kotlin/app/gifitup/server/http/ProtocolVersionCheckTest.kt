@@ -32,8 +32,8 @@ class ProtocolVersionCheckTest {
         versionTest {
             val response = getWith(PROTOCOL_VERSION.toString())
 
-            // Passes the check and reaches routing (an unknown route).
-            assertEquals(HttpStatusCode.NotFound, response.status)
+            // Passes the version check and reaches the session check (no session: 401, not client_outdated).
+            assertEquals(HttpStatusCode.Unauthorized, response.status)
         }
 
     @Test

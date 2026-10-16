@@ -103,6 +103,26 @@ class ChallengesTest {
         assertFalse(challenges.consume(challenge))
     }
 
+    /** #73 SEC-39 follow-up: two requests racing with the same challenge; exactly one may use it. */
+    @Test
+    fun concurrentConsumersOfOneChallengeGetExactlyOneSuccess() {
+        repeat(20) {
+            val challenge = challenges.issue()
+            val start = java.util.concurrent.CountDownLatch(1)
+            val results = java.util.concurrent.ConcurrentLinkedQueue<Boolean>()
+            val threads =
+                List(8) {
+                    Thread {
+                        start.await()
+                        results.add(challenges.consume(challenge))
+                    }.apply { start() }
+                }
+            start.countDown()
+            threads.forEach { it.join() }
+            assertEquals(1, results.count { it }, "round $it")
+        }
+    }
+
     @Test
     fun aFullUsedSetRefusesInsteadOfForgetting() {
         val small = Challenges(clock, usedCapacity = 2)

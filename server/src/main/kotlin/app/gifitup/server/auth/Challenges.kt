@@ -16,10 +16,13 @@ import javax.crypto.spec.SecretKeySpec
  * Issuing stores nothing, so flooding the challenge endpoint costs the server no memory. [key] is generated at server
  * start and never leaves the process; a restart invalidates outstanding challenges, and clients just ask again.
  *
- * Single use: [consume] is called only **after** a valid signature, so the used set grows only with successful
- * requests. Validity and single use share one TTL and one time source that never goes backwards (#71 CR-3, SEC-29):
- * a clock that jumps forward (dropping a used entry) and then back can't make a used challenge valid again. If the
- * used set is full of unexpired entries, [consume] refuses (fails closed) instead of forgetting one. Thread-safe.
+ * Single use: [consume] is called as soon as a request with a fresh challenge arrives, before any shared budget or
+ * signature check (#73 CR-7, SEC-39), so one challenge can be tried exactly once. The used set is then bounded by the
+ * challenge endpoint's rate limit times the TTL (about 100/s × 65 s ≈ 6.5k entries), far below its capacity.
+ *
+ * Validity and single use share one TTL and one time source that never goes backwards (#71 CR-3, SEC-29): a clock that
+ * jumps forward (dropping a used entry) and then back can't make a used challenge valid again. If the used set is full
+ * of unexpired entries, [consume] refuses (fails closed) instead of forgetting one. Thread-safe.
  */
 class Challenges(
     private val clock: Clock,
@@ -43,14 +46,18 @@ class Challenges(
     }
 
     /**
-     * True if [challenge] was issued by this process (MAC, compared in constant time), is at most [ttl] old, isn't from
-     * the future beyond [MAX_CLOCK_SKEW], and hasn't been consumed. Checked before any signature verification, so a
-     * forged challenge costs one HMAC.
+     * True if [challenge] was issued by this process, is fresh and hasn't been consumed. **Not for endpoints:** checking
+     * without consuming lets one challenge be replayed (#73 SEC-39, SEC-41); endpoints call [consume]. Kept for tests.
      */
     @Synchronized
-    fun isValid(challenge: ByteArray): Boolean = isFresh(challenge, now()) && hexOf(challenge) !in used
+    internal fun isValid(challenge: ByteArray): Boolean = isFresh(challenge, now()) && hexOf(challenge) !in used
 
-    /** Marks a valid challenge as used. Call only after its signature verified. False if invalid, reused, or the set is full. */
+    /**
+     * Checks [challenge] (issued by this process: MAC compared in constant time; at most [ttl] old; not from the future
+     * beyond [MAX_CLOCK_SKEW]) and uses it up in the same step. Endpoints call this **first**, before any shared budget or
+     * signature work, so each challenge is tried exactly once (#73 SEC-39). False if invalid, already used, or the set
+     * is full.
+     */
     @Synchronized
     fun consume(challenge: ByteArray): Boolean {
         val now = now()

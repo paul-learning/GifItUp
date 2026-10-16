@@ -24,6 +24,18 @@ enum class ApiErrorCode(
     UNSUPPORTED_MEDIA_TYPE("unsupported_media_type"),
     INTERNAL("internal"),
 
+    /** No valid session, or a challenge, signature or device that doesn't check out. Deliberately one code for all. */
+    UNAUTHORIZED("unauthorized"),
+
+    /** The invite code was not accepted (unknown, used or expired). */
+    INVITE_INVALID("invite_invalid"),
+
+    /** The username is taken or reserved. */
+    USERNAME_UNAVAILABLE("username_unavailable"),
+
+    /** Too many requests; try again later. */
+    RATE_LIMITED("rate_limited"),
+
     /** A code this build doesn't know. Never sent. */
     UNKNOWN("unknown"),
 }
