@@ -18,6 +18,7 @@ import app.gifitup.server.db.InviteRepository
 import app.gifitup.server.db.NewInvite
 import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.module
+import app.gifitup.server.noDatabaseInvites
 import app.gifitup.server.testConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.defaultRequest
@@ -64,7 +65,7 @@ class InviteFlowTest {
             return link.substringAfter('#')
         }
 
-        /** An invite created by [account] (the user endpoints come with PR B; the repository is what they will use). */
+        /** An invite created by [account] (inserted directly; `InviteEndpointsTest` covers the endpoint). */
         fun friendInvite(account: UUID): String {
             val code = InviteCodes.generate(SecureRandom())
             db.transaction { c ->
@@ -144,7 +145,7 @@ class InviteFlowTest {
             assertTrue(blocked, "the delete never blocked")
         }
 
-        /** Revokes by hash, now; the user-facing revoke endpoint comes with PR B. */
+        /** Revokes by hash, now (the endpoint revokes by id; `InviteEndpointsTest` covers it). */
         fun revoke(code: String) {
             TestPostgres.adminAt(url).use { c ->
                 c.prepareStatement("UPDATE gifitup.invites SET revoked_at = ? WHERE code_hash = ?").use {
@@ -163,7 +164,7 @@ class InviteFlowTest {
         Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { db ->
             val auth = AuthService(db, origin, Challenges(clock), DbInviteRedeemer(), clock)
             testApplication {
-                application { module(testConfig(), AlwaysReady, auth) }
+                application { module(testConfig(), AlwaysReady, auth, noDatabaseInvites()) }
                 val client = createClient { defaultRequest { header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString()) } }
                 Fixture(db, url, client).block()
             }
