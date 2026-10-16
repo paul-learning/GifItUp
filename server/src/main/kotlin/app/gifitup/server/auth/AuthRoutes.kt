@@ -34,6 +34,14 @@ internal const val DEVICES_PATH = "/devices"
 /** The only paths reachable without a session (ADR-0009). Everything else, unknown paths included, needs one. */
 internal val PUBLIC_PATHS = setOf(HEALTH_PATH, CHALLENGE_PATH, REGISTER_PATH, LOGIN_PATH)
 
+/**
+ * Authenticated paths that don't spend the account budget (#76 SEC-65): the ones that end a session or revoke a
+ * device. Otherwise a stolen session could drain the account's budget and lock the owner's other devices out of
+ * the very calls that end it. They limit themselves (logout destroys the calling session). Device revocation
+ * (`DELETE /devices/{id}`, #72) belongs here too.
+ */
+internal val BUDGET_EXEMPT_PATHS = setOf(LOGOUT_PATH)
+
 private val SessionKey = AttributeKey<AuthenticatedSession>("gifitup.session")
 
 /** The session of an authenticated call. Only present on non-public paths, where the interceptor guarantees it. */
@@ -44,24 +52,38 @@ internal val ApplicationCall.session: AuthenticatedSession get() = attributes[Se
  * <token>` with a live session, checked before routing. A new route is protected without opting in, and an unknown path
  * answers 401, not 404, to a caller without a session. Installed directly after the protocol version check, so
  * no route-scoped plugin runs for a rejected call (#68 SEC-16, SEC-21). The token is never logged.
+ *
+ * Then the account's request budget (#76): a call over it gets `429 rate_limited` and never reaches its route. Every
+ * authenticated HTTP request counts, except [budgetExemptPaths]. Nothing is logged per throttled request.
  */
 internal fun Application.installSessionAuth(
     auth: AuthService,
     publicPaths: Set<String> = PUBLIC_PATHS,
+    budgetExemptPaths: Set<String> = BUDGET_EXEMPT_PATHS,
 ) {
     intercept(ApplicationCallPipeline.Plugins) {
-        if (call.request.path() in publicPaths) return@intercept
+        val path = call.request.path()
+        if (path in publicPaths) return@intercept
         val header =
             call.request.headers
                 .getAll(HttpHeaders.Authorization)
                 ?.singleOrNull()
         val token = header?.takeIf { it.startsWith(BEARER) }?.removePrefix(BEARER)
         val session = token?.let { withContext(Dispatchers.IO) { auth.authenticate(it) } }
-        if (session == null) {
-            call.respond(HttpStatusCode.Unauthorized, ErrorResponse(ApiErrorCode.UNAUTHORIZED))
-            finish()
-        } else {
-            call.attributes.put(SessionKey, session)
+        when {
+            session == null -> {
+                call.respond(HttpStatusCode.Unauthorized, ErrorResponse(ApiErrorCode.UNAUTHORIZED))
+                finish()
+            }
+
+            path !in budgetExemptPaths && !auth.requestBudget.spend(session) -> {
+                call.respond(HttpStatusCode.TooManyRequests, ErrorResponse(ApiErrorCode.RATE_LIMITED))
+                finish()
+            }
+
+            else -> {
+                call.attributes.put(SessionKey, session)
+            }
         }
     }
 }

@@ -11,12 +11,14 @@ import app.gifitup.protocol.RegisterRequest
 import app.gifitup.protocol.SessionResponse
 import app.gifitup.server.AlwaysReady
 import app.gifitup.server.allText
+import app.gifitup.server.auth.AuthLimits
 import app.gifitup.server.auth.AuthPurpose
 import app.gifitup.server.auth.AuthService
 import app.gifitup.server.auth.Base64Url
 import app.gifitup.server.auth.Challenges
 import app.gifitup.server.auth.DbInviteRedeemer
 import app.gifitup.server.auth.InviteCodes
+import app.gifitup.server.auth.KeyedRateLimiter
 import app.gifitup.server.auth.TestClock
 import app.gifitup.server.auth.TestDevice
 import app.gifitup.server.auth.authSignContentUnchecked
@@ -83,8 +85,8 @@ class InviteEndpointsTest {
         suspend fun register(
             username: String,
             invite: String = insertInvite(null).second,
+            device: TestDevice = TestDevice(),
         ): HttpResponse {
-            val device = TestDevice()
             val challenge =
                 checkNotNull(
                     Base64Url.decode(
@@ -153,10 +155,13 @@ class InviteEndpointsTest {
         ): HttpResponse = client.delete("$INVITES_PATH/$id") { bearerAuth(token) }
     }
 
-    private fun invitesTest(block: suspend Fixture.() -> Unit) {
+    private fun invitesTest(
+        limits: AuthLimits = AuthLimits(clock),
+        block: suspend Fixture.() -> Unit,
+    ) {
         val url = TestPostgres.migratedDatabase()
         Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { db ->
-            val auth = AuthService(db, origin, Challenges(clock), DbInviteRedeemer(), clock)
+            val auth = AuthService(db, origin, Challenges(clock), DbInviteRedeemer(), clock, limits)
             val invites = InviteService(db, origin, clock)
             testApplication {
                 application { module(testConfig(), AlwaysReady, auth, invites) }
@@ -356,7 +361,69 @@ class InviteEndpointsTest {
             }
         }
 
+    // The per-account request budget (#76), with a budget of 3 and one token per minute.
+    private fun budgetTest(block: suspend Fixture.() -> Unit) =
+        invitesTest(AuthLimits(clock, accountRequests = KeyedRateLimiter(clock, BUDGET, Duration.ofMinutes(1))), block)
+
+    @Test
+    fun theBudgetIsSharedByAnAccountsRoutesAndRefills() =
+        budgetTest {
+            val pat = member("pat")
+            val quinn = member("quinn")
+            assertEquals(HttpStatusCode.OK, client.get(INVITES_PATH) { bearerAuth(pat) }.status)
+            assertEquals(HttpStatusCode.OK, client.get("/devices") { bearerAuth(pat) }.status)
+            assertEquals(HttpStatusCode.OK, client.get(INVITES_PATH) { bearerAuth(pat) }.status)
+
+            val over = client.get("/devices") { bearerAuth(pat) }
+            assertEquals(HttpStatusCode.TooManyRequests, over.status)
+            assertEquals("""{"error":"rate_limited"}""", over.bodyAsText())
+            assertEquals(HttpStatusCode.OK, client.get(INVITES_PATH) { bearerAuth(quinn) }.status, "another account")
+            assertEquals(HttpStatusCode.OK, client.get("/health").status, "public paths don't spend it")
+            assertEquals(HttpStatusCode.OK, client.post("/auth/challenge").status, "public paths don't spend it")
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.get(INVITES_PATH) { bearerAuth("not-a-session") }.status,
+                "no session: 401, never 429",
+            )
+
+            clock.advance(Duration.ofMinutes(1))
+            assertEquals(HttpStatusCode.OK, client.get(INVITES_PATH) { bearerAuth(pat) }.status, "refilled")
+        }
+
+    /** #76 SEC-66: a throttled request never reaches its route. */
+    @Test
+    fun aThrottledRequestDoesNotRun() =
+        budgetTest {
+            val rae = member("rae")
+            val invite = created(rae)
+            repeat(BUDGET - 1) { client.get("/devices") { bearerAuth(rae) } }
+
+            assertEquals(HttpStatusCode.TooManyRequests, revoke(rae, invite.inviteId).status)
+            clock.advance(Duration.ofMinutes(1))
+            assertEquals(InviteStatus.OPEN, list(rae).invites.single().status, "the revoke didn't run")
+        }
+
+    /** #76 SEC-65: a drained budget (say, by a stolen session) can't stop the owner from ending sessions. */
+    @Test
+    fun logoutIsExemptFromTheBudget() =
+        budgetTest {
+            val device = TestDevice()
+            val stolen = ProtocolJson.decodeFromString<SessionResponse>(register("sam", device = device).bodyAsText()).sessionToken
+            // The same key and username again: the lost-reply retry, a second session of the same device (#73 CR-1).
+            val owner = ProtocolJson.decodeFromString<SessionResponse>(register("sam", device = device).bodyAsText()).sessionToken
+            repeat(BUDGET) { client.get("/devices") { bearerAuth(stolen) } }
+            assertEquals(
+                HttpStatusCode.TooManyRequests,
+                client.get("/devices") { bearerAuth(owner) }.status,
+                "drained for the whole account",
+            )
+
+            assertEquals(HttpStatusCode.NoContent, client.post("/auth/logout") { bearerAuth(stolen) }.status)
+            assertEquals(HttpStatusCode.NoContent, client.post("/auth/logout") { bearerAuth(owner) }.status)
+        }
+
     private companion object {
+        const val BUDGET = 3
         val LINK = Regex("""^https://gifitup\.example\.org/invite#[A-Za-z0-9_-]{22}$""")
     }
 }
