@@ -246,6 +246,7 @@ class InviteEndpointsTest {
             val gil = member("gil")
             val revoked = created(gil)
             revoke(gil, revoked.inviteId)
+            clock.advance(Duration.ofSeconds(1))
             val open = created(gil)
             clock.advance(Duration.ofSeconds(1))
             val body = client.get(INVITES_PATH) { bearerAuth(gil) }
@@ -253,15 +254,24 @@ class InviteEndpointsTest {
             val text = body.bodyAsText()
             listOf(revoked, open).forEach { assertFalse(text.contains(it.link.substringAfter('#')), "no code in the list") }
             assertEquals(
-                mapOf(revoked.inviteId to InviteStatus.REVOKED, open.inviteId to InviteStatus.OPEN),
-                ProtocolJson.decodeFromString<InviteListResponse>(text).invites.associate { it.inviteId to it.status },
+                listOf(open.inviteId to InviteStatus.OPEN, revoked.inviteId to InviteStatus.REVOKED),
+                ProtocolJson.decodeFromString<InviteListResponse>(text).invites.map { it.inviteId to it.status },
+                "newest first",
             )
             val gilId = accountId("gil")
             clock.advance(InviteService.LIFETIME) // the session expires too: the service directly from here
             assertEquals(InviteStatus.EXPIRED, service.list(gilId).single { it.id.toString() == open.inviteId }.status)
 
-            repeat(InviteService.LIST_LIMIT + 5) { insertInvite(gilId) }
-            assertEquals(InviteService.LIST_LIMIT, service.list(gilId).size)
+            val inserted =
+                List(InviteService.LIST_LIMIT + 5) {
+                    clock.advance(Duration.ofSeconds(1))
+                    insertInvite(gilId).first
+                }
+            assertEquals(
+                inserted.reversed().take(InviteService.LIST_LIMIT),
+                service.list(gilId).map { it.id },
+                "the newest 50, newest first",
+            )
         }
 
     @Test

@@ -64,14 +64,12 @@ class InviteService(
      */
     fun create(accountId: UUID): CreateOutcome {
         val code = InviteCodes.generate(random)
-        val now = clock.instant()
         val outcome =
             db.transaction { c ->
+                if (!invites.lockCreator(c, accountId)) return@transaction CreateOutcome.NoAccount
+                // Read after the lock is held, so a request that waited counts with the current time (#75 SEC-64).
+                val now = clock.instant()
                 when {
-                    !invites.lockCreator(c, accountId) -> {
-                        CreateOutcome.NoAccount
-                    }
-
                     invites.countOpen(c, accountId, now) >= MAX_OPEN -> {
                         CreateOutcome.LimitReached
                     }

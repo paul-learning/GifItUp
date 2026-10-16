@@ -25,6 +25,7 @@ _Users can join through an invite, devices register keys, and the server can rel
 - `crypto/` crate: identity/signature keys, credentials, KeyPackage generation; Android + Web bindings; Kotlin facade in `shared`. (#11)
 - Server: DB schema and migrations, accounts, invite codes (single-use, expiring), device registration, session auth. (#12, #13)
 - Server: KeyPackage directory (upload, single-use claim, low-water-mark refill). (#14)
+- Server: one per-session request budget for every authenticated endpoint, before more of them arrive (#76, from #75 SEC-63).
 - Client: onboarding (redeem invite → choose username → generate keys → register), secure local key storage (Android Keystore / browser IndexedDB plus wrapping). (#16, #17)
 - Client: contacts list (users from the same invite tree). (#18)
 - Build logic: convention plugins, detekt 2.x when stable (#34, moved from M0).

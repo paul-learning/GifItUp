@@ -61,12 +61,15 @@ internal const val MARKER = "MARKER-7f3a9c"
 internal fun testConfig(limits: HttpLimits = HttpLimits()): ServerConfig =
     ServerConfig(publicOrigin = checkNotNull(CanonicalOrigin.of("https://gifitup.example.org")), limits = limits)
 
+/** A database for tests that never reach one; any call fails the test. */
+internal object NoDatabase : TransactionRunner {
+    override fun <T> transaction(block: (java.sql.Connection) -> T): T = error("this test has no database")
+}
+
 /** An [AuthService] for tests that never reach the database; any database call fails the test. */
 internal fun noDatabaseAuth(clock: Clock = Clock.systemUTC()): AuthService =
     AuthService(
-        object : TransactionRunner {
-            override fun <T> transaction(block: (java.sql.Connection) -> T): T = error("this test has no database")
-        },
+        NoDatabase,
         testConfig().publicOrigin,
         Challenges(clock),
         DenyAllInviteRedeemer,
@@ -76,9 +79,7 @@ internal fun noDatabaseAuth(clock: Clock = Clock.systemUTC()): AuthService =
 /** An [InviteService] for tests that never reach the database. */
 internal fun noDatabaseInvites(clock: Clock = Clock.systemUTC()): InviteService =
     InviteService(
-        object : TransactionRunner {
-            override fun <T> transaction(block: (java.sql.Connection) -> T): T = error("this test has no database")
-        },
+        NoDatabase,
         testConfig().publicOrigin,
         clock,
     )
