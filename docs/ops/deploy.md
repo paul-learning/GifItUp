@@ -13,6 +13,8 @@ How a merge to `main` reaches the VM, and the one-time setup the owner does. VM 
 
    The SSH key can only run [`deploy/deploy.sh`](../../deploy/deploy.sh), and the script only accepts `<commit> sha256:<digest>`. It then:
    - checks the commit is on `main` and checks it out (detached), so compose and script come from **that** commit
+   - checks the two secret files (exist, non-empty, world-readable; [vm-setup.md](vm-setup.md))
+   - runs the one-shot `migrate` container with the **new** image (roles, app password, Flyway; ADR-0008). If that fails, the deploy stops and the running server is untouched
    - writes the digest into `.env` and restarts `server`
    - checks that the container runs that image and that `https://…/health` returns 200
    - if the check fails, it **rolls back automatically** to the last good commit and digest
@@ -26,7 +28,12 @@ How a merge to `main` reaches the VM, and the one-time setup the owner does. VM 
 ## Rollback or redeploy
 - **Automatic:** a failed health check restores the previous commit and image.
 - **By hand:** *Actions → Deploy → Run workflow* on `main`, with `commit` set to the full SHA of an earlier deployed commit. Each deploy run's summary lists its commit and digest. The run skips the build, looks up that commit's image, verifies its provenance, and deploys it after your approval.
-- **Database:** once migrations exist (#12), rolling back the image does **not** roll back the schema. Migrations must stay compatible with the previous release, or come with a documented manual rollback.
+- **Database:** rolling back the image does **not** roll back the schema. So migrations are **expand-only**: the previous release must keep working against the new schema (ADR-0008). A destructive change (dropping or renaming a column, a new NOT NULL without a default) needs a two-release plan.
+- **Owner runbook: remove a device or account now** (e.g. a stolen phone, until device management exists; #12 round-0 SEC-11). On the VM, as `deploy`, from `/opt/gifitup/deploy`:
+  ```bash
+  docker compose exec postgres psql -U gifitup -d gifitup -c "DELETE FROM gifitup.devices WHERE id = '<device id>'"
+  ```
+  This also deletes the device's sessions (cascade). Deleting from `gifitup.accounts` removes all of an account's devices. Don't paste usernames or ids into shared logs.
 
 ## One-time setup (owner)
 Secrets live **only in the `production` environment**, never at repo level. Names: `DEPLOY_HOST`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`.

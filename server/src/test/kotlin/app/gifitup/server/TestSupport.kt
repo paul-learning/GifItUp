@@ -3,6 +3,7 @@ package app.gifitup.server
 import app.gifitup.protocol.HealthResponse
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION_HEADER
+import app.gifitup.server.http.ReadinessProbe
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
@@ -42,11 +43,14 @@ internal sealed interface TestEvent {
     ) : TestEvent
 }
 
+/** Readiness for tests that don't involve the database. */
+internal val AlwaysReady = ReadinessProbe { true }
+
 /** Marker that must never appear in a response body or a log line. */
 internal const val MARKER = "MARKER-7f3a9c"
 
 internal fun Application.testModule(config: ServerConfig = ServerConfig()) {
-    module(config)
+    module(config, AlwaysReady)
     routing {
         post(ECHO_PATH) { call.respond(call.receive<HealthResponse>()) }
         get(BOOM_PATH) { error("failure carrying $MARKER") }

@@ -2,7 +2,7 @@
 
 Deployment of the backend to the owner's shared Hetzner VM (ADR-0005). Setup and hardening: [`docs/ops/vm-setup.md`](../docs/ops/vm-setup.md).
 
-- `docker-compose.yml`: Compose project `gifitup` (Ktor server + its own PostgreSQL). TLS comes from the VM's existing Caddy, not from this project.
+- `docker-compose.yml`: Compose project `gifitup` (Ktor server, its own PostgreSQL, and the one-shot `migrate` container under the `migrate` profile; ADR-0008). TLS comes from the VM's existing Caddy, not from this project.
 - `caddy/gifitup.caddy`: site block the owner adds to that Caddy's Caddyfile.
 - `backup/`: nightly `pg_dump` script and systemd units.
 - `.env.example`: copied to `.env` on the VM.
