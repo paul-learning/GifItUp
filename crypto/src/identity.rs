@@ -227,24 +227,25 @@ mod tests {
 
     #[test]
     fn username_rule() {
-        for ok in ["abc", "alice", "bob_42", "a".repeat(32).as_str(), "___"] {
-            assert!(is_valid_username(ok), "{ok}");
+        // The same cases as the server's UsernamePolicy test (#12): one shared file, so the two rules can't drift.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../server/src/test/resources/username-rule-cases.txt");
+        let cases = std::fs::read_to_string(path).expect("shared username cases");
+        let mut checked = 0;
+        for line in cases
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        {
+            let (sign, hex) = line.split_at(1);
+            let bytes: Vec<u8> = (0..hex.trim().len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex.trim()[i..i + 2], 16).unwrap())
+                .collect();
+            let name = String::from_utf8(bytes).unwrap();
+            assert_eq!(is_valid_username(&name), sign == "+", "{name:?}");
+            checked += 1;
         }
-        let too_long = "a".repeat(33);
-        for bad in [
-            "",
-            "ab",
-            too_long.as_str(),
-            "Alice",
-            "al ice",
-            "al-ice",
-            "al.ice",
-            "älice",
-            "alice\n",
-            "аlice",
-        ] {
-            assert!(!is_valid_username(bad), "{bad:?}");
-        }
+        assert!(checked >= 20, "the shared file lost cases");
         assert_eq!(
             Client::new("Alice".into(), crate::test_support::key()).err(),
             Some(ErrorCode::InvalidUsername)

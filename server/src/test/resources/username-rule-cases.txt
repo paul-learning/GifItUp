@@ -1,0 +1,27 @@
+# Username rule cases shared by crypto/src/identity.rs and the server's UsernamePolicy test (ADR-0007, #12).
+# One case per line: '+' (valid) or '-' (invalid), a space, then the name as hex-encoded UTF-8 (empty = empty name).
+# Hex keeps newlines, NUL and look-alike letters unambiguous. Edit both sides' rule only together with this file.
++ 616263
++ 616c696365
++ 626f625f3432
++ 6161616161616161616161616161616161616161616161616161616161616161
++ 5f5f5f
+- 
+- 6162
+- 616161616161616161616161616161616161616161616161616161616161616161
+- 416c696365
+- 616c20696365
+- 616c2d696365
+- 616c2e696365
+- c3a46c696365
+- 616c6963650a
+- d0b06c696365
+- 616c69636500
+- 616c69636520
+- 5f5f
+- 303030303030303030303030303030303030303030303030303030303030303030
+- 414c494345
+- 616c216365
+- e284aa6c696365
+- 616c696365e2808b
+- efbc913233
