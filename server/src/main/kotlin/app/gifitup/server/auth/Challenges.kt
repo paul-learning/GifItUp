@@ -16,10 +16,13 @@ import javax.crypto.spec.SecretKeySpec
  * Issuing stores nothing, so flooding the challenge endpoint costs the server no memory. [key] is generated at server
  * start and never leaves the process; a restart invalidates outstanding challenges, and clients just ask again.
  *
- * Single use: [consume] is called only **after** a valid signature, so the used set grows only with successful
- * requests. Validity and single use share one TTL and one time source that never goes backwards (#71 CR-3, SEC-29):
- * a clock that jumps forward (dropping a used entry) and then back can't make a used challenge valid again. If the
- * used set is full of unexpired entries, [consume] refuses (fails closed) instead of forgetting one. Thread-safe.
+ * Single use: [consume] is called as soon as a request with a fresh challenge arrives, before any shared budget or
+ * signature check (#73 CR-7, SEC-39), so one challenge can be tried exactly once. The used set is then bounded by the
+ * challenge endpoint's rate limit times the TTL (about 100/s × 65 s ≈ 6.5k entries), far below its capacity.
+ *
+ * Validity and single use share one TTL and one time source that never goes backwards (#71 CR-3, SEC-29): a clock that
+ * jumps forward (dropping a used entry) and then back can't make a used challenge valid again. If the used set is full
+ * of unexpired entries, [consume] refuses (fails closed) instead of forgetting one. Thread-safe.
  */
 class Challenges(
     private val clock: Clock,

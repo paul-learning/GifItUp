@@ -68,7 +68,7 @@ class AuthEndpointsTest {
     private class TestInvites(
         vararg codes: String,
     ) : InviteRedeemer {
-        private val unused = codes.toMutableSet()
+        val unused = codes.toMutableSet()
 
         override fun redeem(
             connection: java.sql.Connection,
@@ -333,6 +333,41 @@ class AuthEndpointsTest {
             assertEquals(HttpStatusCode.OK, devices(resumed.sessionToken).status)
             assertEquals(1, count("accounts"))
             assertEquals(1, count("devices"))
+        }
+
+    /** #73 CR-9: a resume never touches the invite it carries. */
+    @Test
+    fun aResumeLeavesAValidInviteUnused() {
+        val invites = TestInvites(INVITE, "spare")
+        authTest(invites = invites) {
+            val device = TestDevice()
+            register(device, "uma")
+
+            assertEquals(HttpStatusCode.Created, register(device, "uma", invite = "spare").status)
+            assertEquals(setOf("spare"), invites.unused, "the resume must not redeem the invite")
+        }
+    }
+
+    /** #73 CR-9: the resume is a login, so it is bound by the same per-device budget. */
+    @Test
+    fun aResumeIsBoundByTheDeviceBudget() =
+        authTest(limits = AuthLimits(clock, deviceLogins = KeyedRateLimiter(clock, capacity = 1, refillEvery = Duration.ofHours(1)))) {
+            val device = TestDevice()
+            register(device, "vera")
+            assertEquals(HttpStatusCode.Created, register(device, "vera").status)
+            assertEquals(HttpStatusCode.TooManyRequests, register(device, "vera").status)
+        }
+
+    /** #73 CR-7, SEC-39: one genuine challenge, replayed with bad signatures, costs the shared budget at most once. */
+    @Test
+    fun aReplayedChallengeCostsTheSharedBudgetOnce() =
+        authTest(limits = AuthLimits(clock, authAttempts = KeyedRateLimiter(clock, capacity = 3, refillEvery = Duration.ofHours(1)))) {
+            val device = TestDevice()
+            val id = register(device, "walt").json<SessionResponse>().deviceId // spends 1
+            val genuine = challenge()
+            repeat(30) { assertEquals(HttpStatusCode.Unauthorized, login(TestDevice(), id, genuine).status) } // spends 1
+
+            assertEquals(HttpStatusCode.OK, login(device, id).status, "one unit of budget is still left")
         }
 
     /** #73 CR-2: a key belongs to one device; registering it under another name is refused. */

@@ -49,17 +49,19 @@ class AuthenticatedSession(
  * Registration, login, logout and session lookup (ADR-0009). HTTP-agnostic: the routes parse JSON and map [AuthError]s.
  *
  * Order of checks, cheapest and least revealing first:
- * - **register** (#68 round 0, SEC-3): input format → username rule and reserved names → challenge MAC and age → global
- *   budget → signature over the username with the submitted key → challenge consumed → in one transaction: if this key
+ * - **register** (#68 round 0, SEC-3): input format → username rule and reserved names → challenge checked and used up
+ *   → global budget → signature over the username with the submitted key → in one transaction: if this key
  *   is already registered under this username, a retry whose reply was lost (#73 CR-1) gets a new session for that
  *   device (per-device budget applies); otherwise invite redeemed → account (a taken name rolls back, so the invite
  *   stays unused) → device → session. A taken username is only ever revealed to someone holding a valid invite.
- * - **login:** input format → challenge MAC and age → global budget → the device exists → signature over the device id
- *   → challenge consumed → per-device budget spent (#73 SEC-36: only a caller whose signature checked out can see a
- *   429). An unknown device, a bad signature and a stale or reused challenge all fail as [AuthError.UNAUTHORIZED].
+ * - **login:** input format → challenge checked and used up → global budget → the device exists → signature over the
+ *   device id → per-device budget spent (#73 SEC-36: only a caller whose signature checked out can see a 429). An
+ *   unknown device, a bad signature and a stale or reused challenge all fail as [AuthError.UNAUTHORIZED].
  *
- * The global budget is spent only after the cheap checks pass (#73 SEC-34): a request needs a fresh, genuine challenge
- * before it costs anything shared. The remaining lockout risk is accepted (threat model, "Accepted risks").
+ * The global budget is spent only after the cheap checks pass (#73 SEC-34), and the challenge is used up **before** it
+ * (#73 CR-7, SEC-39), whether the signature then verifies or not: every request that costs anything shared needs its
+ * own fresh challenge from the challenge endpoint. The remaining lockout risk is accepted (threat model). Login and
+ * the register retry both issue sessions; a later revocation check must cover both (#73 SEC-40).
  *
  * The signed bytes are always rebuilt from the server's own [origin], never from the request (#70 SEC-25).
  */
@@ -102,7 +104,8 @@ class AuthService(
 
             UsernamePolicy.isReserved(username) -> AuthOutcome.Failed(AuthError.USERNAME_UNAVAILABLE)
 
-            !challenges.isValid(challengeBytes) -> AuthOutcome.Failed(AuthError.UNAUTHORIZED)
+            // Used up here, before any shared budget: a replayed challenge fails at this lookup (#73 CR-7, SEC-39).
+            !challenges.consume(challengeBytes) -> AuthOutcome.Failed(AuthError.UNAUTHORIZED)
 
             !limits.authAttempts.spend(GLOBAL) -> AuthOutcome.Failed(AuthError.RATE_LIMITED)
 
@@ -124,7 +127,8 @@ class AuthService(
             challengeBytes == null || signatureBytes == null -> AuthOutcome.Failed(AuthError.BAD_REQUEST)
 
             // Cheap checks before anything shared: a forged or stale challenge costs one HMAC.
-            id == null || !challenges.isValid(challengeBytes) -> AuthOutcome.Failed(AuthError.UNAUTHORIZED)
+            // Used up here, before any shared budget: a replayed challenge fails at this lookup (#73 CR-7, SEC-39).
+            id == null || !challenges.consume(challengeBytes) -> AuthOutcome.Failed(AuthError.UNAUTHORIZED)
 
             !limits.authAttempts.spend(GLOBAL) -> AuthOutcome.Failed(AuthError.RATE_LIMITED)
 
@@ -171,20 +175,16 @@ class AuthService(
     fun devices(session: AuthenticatedSession): List<DeviceRecord> =
         db.transaction { c -> devices.listForAccount(c, session.record.accountId) }
 
-    /**
-     * Challenge fresh → signature valid → challenge consumed. Consuming only after a valid signature keeps the used
-     * set limited to successful requests (SEC-1); a `false` from [Challenges.consume] (reused or set full) fails.
-     */
+    /** True if [signature] by the key from [key] covers [challenge], our [origin] and [subject]. */
     private fun verified(
         challenge: ByteArray,
         subject: AuthSubject,
         signature: ByteArray,
         key: () -> java.security.PublicKey?,
     ): Boolean {
-        val publicKey = if (challenges.isValid(challenge)) key() else null
+        val publicKey = key()
         return publicKey != null &&
-            SignatureVerifier.verify(publicKey, authSignContent(challenge, origin, subject), signature) &&
-            challenges.consume(challenge)
+            SignatureVerifier.verify(publicKey, authSignContent(challenge, origin, subject), signature)
     }
 
     /**
