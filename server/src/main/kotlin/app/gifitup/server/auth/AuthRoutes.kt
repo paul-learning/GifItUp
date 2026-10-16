@@ -108,6 +108,8 @@ private suspend fun ApplicationCall.respondSession(
     success: HttpStatusCode,
 ) = when (outcome) {
     is AuthOutcome.Ok -> {
+        // The body carries a session token: no cache may keep it (#13 SEC-48).
+        response.headers.append(HttpHeaders.CacheControl, "no-store")
         respond(success, with(outcome.value) { SessionResponse(deviceId.toString(), token, expiresAt.epochSecond) })
     }
 

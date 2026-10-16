@@ -25,15 +25,33 @@ How a merge to `main` reaches the VM, and the one-time setup the owner does. VM 
 
 **Agents never dispatch, re-run or approve deploys** (CLAUDE.md hard rule; deny list in `.claude/settings.json`).
 
+## Invites and accounts (admin CLI, ADR-0010)
+On the VM, as `deploy`, from `/opt/gifitup/deploy`. Always with `--rm`: the `admin` service has Docker logging off, and `--rm` removes the container afterwards, so an invite link isn't kept on disk.
+
+- **Create an invite** (the first one for yourself, or any time for someone):
+  ```bash
+  docker compose --profile admin run --rm admin create-invite
+  ```
+  It prints the link once, plus its expiry (24 h). Open it on the phone or browser that should get the account, or send it over a channel you trust. Each link works once. Don't paste it anywhere shared: whoever opens it first gets the account.
+- **Remove an account** (its devices, sessions and invites; people it invited keep their accounts):
+  ```bash
+  docker compose --profile admin run --rm admin delete-account <username>
+  ```
+- **Remove an account and everyone it invited** (contains a leaked or misused link):
+  ```bash
+  docker compose --profile admin run --rm admin delete-account --with-invitees <username>
+  ```
+  Both print how many accounts were removed and exit 1 if the username doesn't exist.
+
 ## Rollback or redeploy
 - **Automatic:** a failed health check restores the previous commit and image.
 - **By hand:** *Actions → Deploy → Run workflow* on `main`, with `commit` set to the full SHA of an earlier deployed commit. Each deploy run's summary lists its commit and digest. The run skips the build, looks up that commit's image, verifies its provenance, and deploys it after your approval.
 - **Database:** rolling back the image does **not** roll back the schema. So migrations are **expand-only**: the previous release must keep working against the new schema (ADR-0008). A destructive change (dropping or renaming a column, a new NOT NULL without a default) needs a two-release plan.
-- **Owner runbook: remove a device or account now** (e.g. a stolen phone, until device management exists; #12 round-0 SEC-11). On the VM, as `deploy`, from `/opt/gifitup/deploy`:
+- **Owner runbook: remove a single device now** (e.g. a stolen phone, until device management exists, #72; #12 round-0 SEC-11). Whole accounts: use the admin CLI above. On the VM, as `deploy`, from `/opt/gifitup/deploy`:
   ```bash
   docker compose exec postgres psql -U gifitup -d gifitup -c "DELETE FROM gifitup.devices WHERE id = '<device id>'"
   ```
-  This also deletes the device's sessions (cascade). Deleting from `gifitup.accounts` removes all of an account's devices. Don't paste usernames or ids into shared logs.
+  This also deletes the device's sessions (cascade). Don't paste usernames or ids into shared logs.
 
 ## One-time setup (owner)
 Secrets live **only in the `production` environment**, never at repo level. Names: `DEPLOY_HOST`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`.

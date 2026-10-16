@@ -21,21 +21,42 @@ import java.util.UUID
 //   exception whose message could carry the value;
 // - each method takes the caller's Connection, so a use case can run several of them in one transaction.
 
+/** How an account joined (ADR-0010): the invite tree's edge. */
+sealed interface Joined {
+    /** With an admin invite: a bootstrap root, no inviter. */
+    data object ViaAdmin : Joined
+
+    /** With an invite created by [inviter]. */
+    data class InvitedBy(
+        val inviter: UUID,
+    ) : Joined
+
+    /** No invite record (tests of other features). */
+    data object Untracked : Joined
+}
+
 class AccountRepository {
-    /** Inserts an account; false if the username (or, astronomically unlikely, the id) is taken. */
+    /**
+     * Inserts an account; false if the username (or, astronomically unlikely, the id) is taken. [joined] records the
+     * invite tree edge (ADR-0010).
+     */
     fun insert(
         connection: Connection,
         id: UUID,
         username: String,
         now: Instant,
+        joined: Joined = Joined.Untracked,
     ): Boolean {
         require(UsernamePolicy.isValid(username)) { "username must be validated before it reaches the database" }
         return connection.returnsRow(
-            "INSERT INTO accounts (id, username, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING id",
+            "INSERT INTO accounts (id, username, created_at, invited_by, joined_via_admin) VALUES (?, ?, ?, ?, ?) " +
+                "ON CONFLICT DO NOTHING RETURNING id",
         ) {
             setObject(1, id)
             setString(2, username)
             setObject(3, now.utc())
+            setObject(4, (joined as? Joined.InvitedBy)?.inviter)
+            setBoolean(5, joined == Joined.ViaAdmin)
         }
     }
 }
