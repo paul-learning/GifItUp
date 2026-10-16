@@ -46,14 +46,18 @@ class Challenges(
     }
 
     /**
-     * True if [challenge] was issued by this process (MAC, compared in constant time), is at most [ttl] old, isn't from
-     * the future beyond [MAX_CLOCK_SKEW], and hasn't been consumed. Checked before any signature verification, so a
-     * forged challenge costs one HMAC.
+     * True if [challenge] was issued by this process, is fresh and hasn't been consumed. **Not for endpoints:** checking
+     * without consuming lets one challenge be replayed (#73 SEC-39, SEC-41); endpoints call [consume]. Kept for tests.
      */
     @Synchronized
-    fun isValid(challenge: ByteArray): Boolean = isFresh(challenge, now()) && hexOf(challenge) !in used
+    internal fun isValid(challenge: ByteArray): Boolean = isFresh(challenge, now()) && hexOf(challenge) !in used
 
-    /** Marks a valid challenge as used. Call only after its signature verified. False if invalid, reused, or the set is full. */
+    /**
+     * Checks [challenge] (issued by this process: MAC compared in constant time; at most [ttl] old; not from the future
+     * beyond [MAX_CLOCK_SKEW]) and uses it up in the same step. Endpoints call this **first**, before any shared budget or
+     * signature work, so each challenge is tried exactly once (#73 SEC-39). False if invalid, already used, or the set
+     * is full.
+     */
     @Synchronized
     fun consume(challenge: ByteArray): Boolean {
         val now = now()
