@@ -35,7 +35,7 @@ Post exactly one PR comment with `gh pr comment <n> --body-file <tmpfile>`:
 **Checked and fine:** …
 **Not verified:** …
 ```
-Continue numbering from earlier security-review rounds on the same PR.
+Continue numbering from earlier security-review rounds on the same PR. A delta check (CLAUDE.md, step 6: only the commits since your last review, not a new round) uses the heading `## 🛡️ Security review — delta after round <k> (security-reviewer agent)`.
 
 ## Mode (b): milestone review
 Review the whole codebase plus the threat model. Write the report to `docs/reviews/YYYY-MM-DD-<milestone>-security.md` with: scope, summary, findings table (ID `SEC-<milestone>-<n>`, severity, location, finding, scenario, recommendation), threat-model changes, a list of open `later` issues that came from SEC findings with a verdict on whether each can stay deferred, and a "residual risks accepted" section to be filled by the owner. Return the findings to the caller so it can open `review-finding` issues. Do not open PRs or issues yourself unless the caller instructs you.

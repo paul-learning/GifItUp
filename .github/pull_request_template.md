@@ -25,7 +25,7 @@ Closes #
 
 ## Review log
 <!-- Filled by the authoring agent after the independent review agent(s) post their comments.
-     Max 2 rounds (round 0 doesn't count). Design-heavy work (crypto/, auth, keys/secrets, protocol/, new endpoints) starts with round 0 (plan) by security-reviewer. -->
+     Max 2 rounds (round 0 doesn't count); delta security checks get their own row ("delta after <k>") and don't count as rounds. Design-heavy work (crypto/, auth, keys/secrets, protocol/, new endpoints) starts with round 0 (plan) by security-reviewer. -->
 | Round | Reviewer | Verdict | Comment |
 |---|---|---|---|
 | 1 | code-reviewer | | |
