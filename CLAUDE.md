@@ -16,6 +16,7 @@ Read this file and `docs/review-lessons.md` fully at the start of every session.
 | MLS bindings | KMP module implementing `MlsClient` over `crypto/` (uniffi on Android/JVM, wasm-bindgen on web); only the app modules depend on it (ADR-0007) | `mls/` |
 | E2EE core | Rust crate wrapping OpenMLS; uniffi → Android, wasm-bindgen → Web | `crypto/` |
 | Backend | Ktor server (Kotlin/JVM), PostgreSQL | `server/` |
+| Dev CLI (planned, #79) | JVM command-line client over `shared` + `mls` + `protocol`; dev/test tool only, never shipped (see Architecture rules) | `cli/` |
 | Deployment | Docker Compose + Caddy (TLS) on the Hetzner VM | `deploy/` |
 | Docs | Roadmap, ADRs, threat model, review reports | `docs/` |
 
@@ -29,7 +30,8 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 - **Server is untrusted:** the server stores and forwards opaque ciphertext, KeyPackages, and encrypted blobs. It must never receive plaintext content, GIF identities, GIF search queries, or private keys. Any new server-visible field needs a justification in the PR ("metadata it reveals").
 - **Wire models** live in `protocol/` (the server depends on `protocol`, never on `shared`), are `@Serializable` and versioned; changes must stay backward compatible or bump the protocol version, following the compatibility rules in ADR-0006. The encrypted message content schema (GIF reference, `GroupMeta`) lives in `shared` (data layer) and never in `protocol`: the server must not get it.
 - Prefer small, testable units; constructor injection (DI approach decided in #1 and recorded as an ADR); no global mutable state.
-- Significant decisions (new dependency, new module, protocol change, data stored server-side) → write an ADR in `docs/adr/` using the template there, in the same PR. Use the **next free ADR number at the time of writing**; issue texts name ADR topics, not numbers.
+- **ADRs are for hard-to-reverse decisions only:** a new dependency, a protocol change, data stored server-side, crypto, deployment. Write the ADR in `docs/adr/` using the template there, in the same PR. Use the **next free ADR number at the time of writing**; issue texts name ADR topics, not numbers. Any other decision (e.g. a new module, a library-internal design choice) gets a short **Decision** paragraph in the PR body instead.
+- **Dev CLI (`cli/`, planned, #79):** a dev/test tool, never shipped and never part of an app artifact. It keeps keys unprotected in a local state dir and is used with test accounts only. Reviews must not treat it as a product platform (no key-storage or UX hardening findings for it). It stays a thin shell: no client logic of its own (logic it needs goes into a shared use case the app uses too), and no server endpoint, flag or bypass exists only for it.
 
 ## Security rules (non-negotiable)
 
@@ -58,18 +60,27 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 - One issue → one branch → one PR. Branch names: `feat/<issue#>-short-name`, `fix/…`, `chore/…`, `spike/…`, `docs/…`.
 - Conventional commits (`feat(server): add invite endpoint`). Reference the issue (`Closes #12`) in the PR body.
 - Keep PRs reviewable (aim < ~600 changed lines excluding generated code). Split otherwise.
-- Before opening a PR, self-check: build, run all tests and linters (`./gradlew check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` when relevant), `bash scripts/check-repo-hygiene.sh`, and `shellcheck`/`actionlint` when shell scripts or workflows change (CI runs both too); then go through *What to check* in `code-reviewer.md`, the *Focus areas* in `security-reviewer.md` if step 2 below applies, and `docs/review-lessons.md`, and fix what you find. The agent files are the single source for these checklists. Report honestly in the PR if something could not be run locally and why.
+- Before opening a PR, self-check: build, run all tests and linters (`./gradlew check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` when relevant), `bash scripts/check-repo-hygiene.sh`, and `shellcheck`/`actionlint` when shell scripts or workflows change (CI runs both too); then go through *What to check* in `code-reviewer.md`, the *Focus areas* in `security-reviewer.md` if the security reviewer runs on the PR (see the risk tiers below), and `docs/review-lessons.md`, and fix what you find. The agent files are the single source for these checklists. Report honestly in the PR if something could not be run locally and why.
 - Fill out `.github/pull_request_template.md` completely.
 
-### Mandatory independent code review (every PR)
+### Risk tiers and independent review (every PR)
+
+Every PR has a **risk tier**: the highest tier that any changed path or change type hits. The author states it in the PR template's *Risk tier* field with a one-line reason; the code reviewer checks the claim against the diff.
+
+| Tier | What it covers | Reviews |
+|---|---|---|
+| **High** | `crypto/`, authentication/authorization and session logic, key or secret storage, `protocol/`, `deploy/`, `.github/workflows/`, `.github/CODEOWNERS`, `.githooks/`, `.claude/` (agents/settings), `scripts/`, the rules in this file | `code-reviewer` **and** `security-reviewer` |
+| **Normal** | Other server and client features | `code-reviewer`; **also** `security-reviewer` if the PR adds a server endpoint or a server-stored field, or changes an existing endpoint's input validation or rate limits |
+| **Low** | UI, tests, docs (incl. `docs/review-lessons.md`), build tweaks, the dev CLI | `code-reviewer`, one round (a second only to check a fixed `high`/`critical` finding); nits are optional (list them as "won't fix" if skipped) |
 
 After opening a PR (new commits afterwards: see step 5):
 
 1. Launch a **separate agent** with the `code-reviewer` subagent (`.claude/agents/code-reviewer.md`). Give it only the PR number — it must form its own view from the diff, not from your reasoning.
-2. If the PR touches `crypto/`, authentication/authorization, key or secret storage, `protocol/`, server endpoints, `deploy/`, `.github/workflows/`, `.github/CODEOWNERS`, `.claude/` (agents/settings), `scripts/`, `docs/review-lessons.md` or CLAUDE.md's security/workflow rules, **also** launch the `security-reviewer` subagent.
+2. If the tier table above requires it, **also** launch the `security-reviewer` subagent.
 3. The reviewer posts its findings as a PR comment in the standard **Review log** format (see the agent file). Findings are numbered (`CR-1`, `SEC-1`, …).
-4. You (the author) address every finding: fix it (reference the commit SHA) or reply with a justification for not fixing. Then update the PR body's *Review log* section with a status table. Blocking (`high`/`critical`) findings must be fixed, not waived — or escalated to the human in the PR. Add a line to `docs/review-lessons.md` for any finding type that could recur (merge with existing lines).
-5. Run another round only if a `high`/`critical` finding was fixed or a fix changed the design/approach. Low/medium findings and nits are fixed and listed in the review log without a new round, except: on PRs under step 2, if a fix addresses a `medium`+ SEC finding or any new commit (fix, added scope, rebase) touches a step-2 path, the `security-reviewer` checks only the new commits (last reviewed SHA..HEAD).
+4. You (the author) address every finding: fix it (reference the commit SHA), reply with a justification for not fixing, or (non-blocking only) move it to a new issue labeled `later`. Then update the PR body's *Review log* section with a status table. Blocking (`high`/`critical`) findings must be fixed, not waived or deferred — or escalated to the human in the PR. Add a line to `docs/review-lessons.md` for any finding type that could recur (merge with existing lines).
+5. **At most 2 review rounds per PR** (the round 0 plan review doesn't count). Run a second round only if a `high`/`critical` finding was fixed or a fix changed the design/approach. Low/medium findings and nits are fixed and listed in the review log without a new round, except: on PRs where the `security-reviewer` runs, if a fix addresses a `medium`+ SEC finding or any new commit (fix, added scope, rebase) touches a high-tier path, the `security-reviewer` checks only the new commits (last reviewed SHA..HEAD) within the second round. If a blocking finding is still open, or was fixed, after round 2, **stop and ask the owner** whether a third round runs.
+6. Non-blocking findings left after the last round become issues labeled `later`. A `later` issue is never added to the current milestone without the owner's OK.
 
 ### Periodic reviews
 
@@ -81,7 +92,8 @@ After opening a PR (new commits afterwards: see step 5):
 ## Working on issues
 
 - Pick issues from the current milestone (see `docs/ROADMAP.md`), respecting dependencies listed in the issue.
-- Issues touching `crypto/`, auth, key or secret storage, `protocol/` or new server endpoints (deliberately a subset of the step-2 list: design-heavy work): write the plan first (plan mode) and have the `security-reviewer` review it (mode c). Post its result as the first PR comment and record it in the review log as round 0 (plan).
+- Never pick up issues labeled `idea` unless the owner explicitly asks. They are not scheduled. The same goes for issues labeled `later`.
+- Issues touching `crypto/`, auth, key or secret storage, `protocol/` or new server endpoints (deliberately a subset of the review triggers: design-heavy work): write the plan first (plan mode) and have the `security-reviewer` review it (mode c). Post its result as the first PR comment and record it in the review log as round 0 (plan).
 - Spikes produce a written result (ADR or `docs/spikes/<name>.md`) and may contain throwaway code; mark it clearly.
 - If an issue is ambiguous or a decision belongs to the owner (product choices, paid services, anything touching the VM), ask in the issue/PR or in chat instead of guessing.
 - When scope grows, open a new issue rather than expanding the current PR.

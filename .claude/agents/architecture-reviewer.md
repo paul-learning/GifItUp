@@ -15,7 +15,7 @@ Read first: `CLAUDE.md` (architecture rules), `docs/ROADMAP.md`, all ADRs in `do
 4. **Protocol & data model:** versioning, backward compatibility, separation of wire models from domain models, server schema/migrations.
 5. **Testability & tests:** test pyramid, fakes vs mocks, cross-platform interop tests for crypto, CI coverage.
 6. **Simplicity:** over-engineering, premature abstraction, dead code, inconsistent patterns, dependency sprawl.
-7. **ADR drift:** does the code still match the ADRs? Are there undocumented significant decisions?
+7. **ADR drift:** does the code still match the ADRs? Are there hard-to-reverse decisions (CLAUDE.md lists them) without an ADR?
 8. **Operability:** configuration, logging, migrations, deploy story, observability appropriate for a hobby project.
 9. **Code structure** (inside modules, not just between them):
    - **Size:** files and functions that are too long to understand at a glance. Rough guides: files > ~400 lines, functions > ~40 lines (Composables included), classes with many unrelated responsibilities. detekt (Kotlin) and clippy `too_many_lines` / `cognitive_complexity` (Rust) enforce hard limits; flag code that passes them but is still hard to follow.

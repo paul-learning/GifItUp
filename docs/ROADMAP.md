@@ -22,6 +22,13 @@ _Get the skeleton, CI, deploy pipeline and the two big technical risks (MLS on K
 ## M1 — Identity, accounts & server plumbing ⬜
 _Users can join through an invite, devices register keys, and the server can relay opaque data. Messaging is not built yet._
 
+**Next: walking skeleton.** After #13 and #76, M1 continues with one thin end-to-end slice, in this order:
+1. Content-format amendments to ADR-0006 (one docs-only PR): optional GIF caption (#80) and the content-format decision from the owner's comment on #24 (message reference/ID, "annotation" types that old clients ignore).
+2. Dev CLI client + end-to-end test in CI (#79).
+3. Minimal onboarding screen (#17), on the same use cases as the CLI.
+
+Everything else in M1 below that this slice doesn't need comes after it.
+
 - `crypto/` crate: identity/signature keys, credentials, KeyPackage generation; Android + Web bindings; Kotlin facade in `shared`. (#11)
 - Server: DB schema and migrations, accounts, invite codes (single-use, expiring), device registration, session auth. (#12, #13)
 - Server: KeyPackage directory (upload, single-use claim, low-water-mark refill). (#14)
@@ -62,6 +69,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 - iOS target (needs a Mac or CI macOS runners).
 - Metadata reduction (sealed sender-like delivery, padding/timing), Tor/proxy support.
 - Desktop (Compose Desktop) target.
+- Meme composer: top/bottom text on GIFs, meme templates, photos; decide after the alpha (#81).
 
 ---
 

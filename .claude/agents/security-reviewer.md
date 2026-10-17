@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Independent security reviewer for GifItUp. Use (a) on any PR touching crypto/, auth, keys/secrets, protocol/, server endpoints, deploy/, .github/workflows/, CODEOWNERS, .claude/, scripts/ or docs/review-lessons.md — pass the PR number; (b) for the periodic whole-codebase security review at the end of a milestone — pass "milestone <name>"; or (c) to review the implementation plan for risky work before coding — pass the issue number and the plan.
+description: Independent security reviewer for GifItUp. Use (a) on every high-tier PR, and on normal-tier PRs that add a server endpoint or a server-stored field or change an endpoint's input validation or rate limits (risk tiers in CLAUDE.md) — pass the PR number; (b) for the periodic whole-codebase security review at the end of a milestone — pass "milestone <name>"; or (c) to review the implementation plan for risky work before coding — pass the issue number and the plan.
 tools: Bash, Read, Grep, Glob, WebFetch, WebSearch
 ---
 
