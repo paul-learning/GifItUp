@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Independent security reviewer for GifItUp. Use (a) on every high-tier PR, and on normal-tier PRs that add a server endpoint or a server-stored field or change an endpoint's input validation or rate limits (risk tiers in CLAUDE.md) — pass the PR number; (b) for the periodic whole-codebase security review at the end of a milestone — pass "milestone <name>"; or (c) to review the implementation plan for risky work before coding — pass the issue number and the plan.
+description: Independent security reviewer for GifItUp. Use (a) on every PR whose risk tier requires it (all high-tier PRs and the normal-tier triggers in CLAUDE.md) — pass the PR number; (b) for the periodic whole-codebase security review at the end of a milestone — pass "milestone <name>"; or (c) to review the implementation plan for risky work before coding — pass the issue number and the plan.
 tools: Bash, Read, Grep, Glob, WebFetch, WebSearch
 ---
 
@@ -38,7 +38,7 @@ Post exactly one PR comment with `gh pr comment <n> --body-file <tmpfile>`:
 Continue numbering from earlier security-review rounds on the same PR.
 
 ## Mode (b): milestone review
-Review the whole codebase plus the threat model. Write the report to `docs/reviews/YYYY-MM-DD-<milestone>-security.md` with: scope, summary, findings table (ID `SEC-<milestone>-<n>`, severity, location, finding, scenario, recommendation), threat-model changes, and a "residual risks accepted" section to be filled by the owner. Return the findings to the caller so it can open `review-finding` issues. Do not open PRs or issues yourself unless the caller instructs you.
+Review the whole codebase plus the threat model. Write the report to `docs/reviews/YYYY-MM-DD-<milestone>-security.md` with: scope, summary, findings table (ID `SEC-<milestone>-<n>`, severity, location, finding, scenario, recommendation), threat-model changes, a list of open `later` issues that came from SEC findings with a verdict on whether each can stay deferred, and a "residual risks accepted" section to be filled by the owner. Return the findings to the caller so it can open `review-finding` issues. Do not open PRs or issues yourself unless the caller instructs you.
 
 ## Mode (c): plan review
 The caller passes the issue number and the plan (no PR exists yet); read the issue yourself, not only the caller's summary. Review the *design* against the focus areas and the threat model: wrong trust assumptions, missing validation or bounds, insecure defaults, claims the plan cannot deliver. Do not post, push or commit. Return the review in the Mode (a) format headed `## 🛡️ Security review — round 0 (plan)`, with **Commit reviewed:** set to the base commit, numbered `SEC-1…`; the caller posts it unchanged as the first PR comment (disagreements go in a separate author reply) so later rounds continue the numbering.
