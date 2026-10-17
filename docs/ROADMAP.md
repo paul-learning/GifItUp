@@ -23,7 +23,7 @@ _Get the skeleton, CI, deploy pipeline and the two big technical risks (MLS on K
 _Users can join through an invite, devices register keys, and the server can relay opaque data. Messaging is not built yet._
 
 **Next: walking skeleton.** After #13 and #76, M1 continues with one thin end-to-end slice, in this order:
-1. Content-format amendments to ADR-0006 (one docs-only PR): optional GIF caption (#80) and the content-format decision from the owner's comment on #24 (message reference/ID, "annotation" types that old clients ignore).
+1. ✅ Content-format amendments to ADR-0006 (one docs-only PR, #92): optional GIF caption (#80) and the content-format decision from the owner's comment on #24 (message reference/ID, "annotation" types that old clients ignore).
 2. Dev CLI client + end-to-end test in CI (#79).
 3. Minimal onboarding screen (#17), on the same use cases as the CLI.
 
@@ -43,11 +43,11 @@ Everything else in M1 below that this slice doesn't need comes after it.
 _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted._
 
 - Server: MLS Delivery Service. Covers per-group ordered message log, commit ordering per epoch, Welcome delivery, and a WebSocket push channel for online clients. (#21)
-- Client: create a group / 1:1 chat (a group of 2), add members, process Welcome/Commit, persist MLS group state. (#22)
+- Client: create a group / 1:1 chat (a group of 2), add members, process Welcome/Commit, persist MLS group state, message references from `crypto/` (ADR-0006 B9). (#22)
 - Client: GIF search UI, talking to the provider directly. (#23)
 - Server: hand the GIF provider API key to authenticated clients only (spike #5). (#40)
-- Client: send flow (pick → validated provider reference → MLS application message) and receive/render flow with URL checks and decode limits (ADR-0003 Mode B′). (#24)
-- Client: chat list + conversation screen UI (GIF grid, timestamps, sender). (#25)
+- Client: send flow (pick → validated provider reference, optional caption → MLS application message) and receive/render flow with URL checks and decode limits (ADR-0003 Mode B′); the annotation drop rule and the message store (ADR-0006 as amended in #92: B3a, B9, B10). (#24)
+- Client: chat list + conversation screen UI (GIF grid, timestamps, sender, caption input and caption below the GIF). (#25)
 - Key fingerprints in contact/chat info and in-chat "member/device added" notices, which mitigate the first-contact MITM risk (#31).
 - Cross-platform interop test: an Android client and a Web client in the same group (CI). (#26)
 - Release: Android APK through GitHub Releases, web app served by Caddy, alpha with friends. (#27)
