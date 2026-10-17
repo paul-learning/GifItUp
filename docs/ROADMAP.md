@@ -46,7 +46,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 - Client: create a group / 1:1 chat (a group of 2), add members, process Welcome/Commit, persist MLS group state. (#22)
 - Client: GIF search UI, talking to the provider directly. (#23)
 - Server: hand the GIF provider API key to authenticated clients only (spike #5). (#40)
-- Client: send flow (pick → validated provider reference → MLS application message) and receive/render flow with URL checks and decode limits (ADR-0003 Mode B′). (#24)
+- Client: send flow (pick → validated provider reference, optional caption → MLS application message) and receive/render flow with URL checks and decode limits (ADR-0003 Mode B′); message references and the annotation drop rule (ADR-0006 B9, B10). (#24, #80)
 - Client: chat list + conversation screen UI (GIF grid, timestamps, sender). (#25)
 - Key fingerprints in contact/chat info and in-chat "member/device added" notices, which mitigate the first-contact MITM risk (#31).
 - Cross-platform interop test: an Android client and a Web client in the same group (CI). (#26)
