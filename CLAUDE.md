@@ -105,6 +105,7 @@ After opening a PR (new commits afterwards: see steps 5 and 6):
 
 - Dev machine: Windows 11 (PowerShell + Git Bash). Scripts must work on Windows *and* Linux CI — prefer Gradle tasks / Kotlin scripts, or provide both `.sh` and `.ps1`.
 - CI: GitHub Actions on `ubuntu-latest` is the source of truth for builds.
+- Cloud agent sessions (Claude Code on the web): don't run `wasmJs` or Android tests locally. The sandbox's GitHub proxy blocks the tarball download Kotlin's Wasm test tooling needs (`Kotlin/karma`), and there is no Android SDK. Run the JVM/Rust checks you can, rely on CI for the rest, and name the suites left to CI (and why) in the PR's *How it was tested*.
 - Backend host: Hetzner VM (Linux). Deployment happens via GitHub Actions or documented scripts, never ad hoc from an agent session unless the owner asks.
 
 ## Commands
@@ -121,7 +122,7 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Install on device/emulator | `./gradlew :androidApp:installDebug` |
 | Web dev server | `./gradlew :composeApp:wasmJsBrowserDevelopmentRun` (opens http://localhost:8080) |
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
-| MLS contract tests (needs Rust and `wasm-bindgen-cli` at the crate's pinned version; part of `check`) | `./gradlew :mls:jvmTest :mls:wasmJsTest` |
+| MLS contract tests (needs Rust and `wasm-bindgen-cli` at the crate's pinned version; part of `check`; in cloud sessions run only `:mls:jvmTest`, see *Environment notes*) | `./gradlew :mls:jvmTest :mls:wasmJsTest` |
 | Android `.so` files of `crypto/` (needs `cargo-ndk`) | `./gradlew :mls:cargoNdkBuild` |
 | Run server locally | `./gradlew :server:run` with `DB_URL`, `DB_USER`, `DB_PASSWORD_FILE` set and a migrated Postgres (ADR-0008; easiest: the `deploy/` compose stack with a local image, `migrate` first). Port from `PORT`, default 8080; `GET /health` |
 | Turn on the repo's git hooks (once per clone; agent sessions do it automatically, check with `git rev-parse --git-path hooks` → `.githooks`) | `git config core.hooksPath .githooks` (owner; `git config` is denied for the agent) |
