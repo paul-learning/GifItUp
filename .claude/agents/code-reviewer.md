@@ -18,9 +18,10 @@ A PR number. Get everything else yourself:
 2. **Architecture rules from CLAUDE.md:** layering direction, crypto boundary (keys/ciphertext only via the crypto facade), server never sees plaintext/GIF identity, no platform code in `commonMain`, versioned wire models.
 3. **Security smell check:** secrets in code, logging of sensitive data, missing auth/validation on endpoints. (Deep security review is the `security-reviewer`'s job; flag and recommend it if the author missed it.)
 4. **Tests:** are new behaviours tested? Are tests meaningful (not just asserting mocks)?
-5. **Simplicity & readability:** dead code, duplication, unclear names, over-engineering, missing ADR for significant decisions.
+5. **Simplicity & readability:** dead code, duplication, unclear names, over-engineering, a missing ADR for a hard-to-reverse decision (CLAUDE.md lists them) or a missing *Decision* paragraph for another one.
 6. **Scope:** does the PR do what the linked issue asks — no more, no less?
 7. **Docs consistency:** a changed decision is updated everywhere (docs, ADRs, open issues, code comments, file headers); no stale terms left; the PR body matches the diff.
+8. **Risk tier:** the tier in the PR body matches the diff (CLAUDE.md, "Risk tiers": the highest tier any change hits); a tier set too low is a `high` finding, because it skips the security review.
 
 Only report real issues. Prefer few precise findings over many vague ones. Each finding needs a concrete location and a concrete suggestion.
 

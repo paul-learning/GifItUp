@@ -1,5 +1,7 @@
 # GifItUp
 
+*Serious crypto for silly people.*
+
 A messenger for friends where you can only send GIFs. Every chat is end-to-end encrypted with [MLS](https://www.rfc-editor.org/rfc/rfc9420) via [OpenMLS](https://github.com/openmls/openmls), and the server never learns which GIF you sent.
 
 - **Clients:** Android + Web (Kotlin Multiplatform, Compose Multiplatform)
