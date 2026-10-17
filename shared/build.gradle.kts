@@ -21,9 +21,12 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.protocol)
+            implementation(libs.ktor.client.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }
