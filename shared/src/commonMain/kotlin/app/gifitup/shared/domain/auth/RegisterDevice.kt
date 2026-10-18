@@ -27,9 +27,11 @@ import kotlin.time.Duration.Companion.seconds
  *   the server treats it as a retry instead of spending a second invite.
  * - **A resume can see transient refusals** (#73 CR-6): the first attempt may still be committing, so a `403` or `409`
  *   on a resumed attempt is retried once after [TRANSIENT_RETRY_DELAY].
- * - **A definite refusal discards the pending identity** (#95 CR-2): after a `400`, a `403` or a `409` that is final
- *   (on a first attempt, or after the retry on a resume) no account holds this key, so identity and key are cleared
- *   and the user can try again, e.g. with another username. Any other failure keeps them for a resume.
+ * - **A refused first attempt discards the pending identity** (#95 CR-2): the key was never sent before, so after a
+ *   `400`, `403` or `409` no account can hold it, and identity and key are cleared so the user can try again (e.g. with
+ *   another username). **A refused resume keeps them** (#95 CR-5, SEC-6): the lost attempt it resumes may still be
+ *   committing on the server, and discarding its key would orphan that account. The user decides, through
+ *   [DiscardPendingRegistration]. Any other failure keeps them for a resume.
  * - Every attempt fetches a new challenge; the origin signed is the configured one, never one the server sent.
  * - The invite code is used for the request only and never stored.
  * - **One registration at a time** (#95 CR-3, SEC-1): calls on this instance run one after the other, so two calls
@@ -130,7 +132,7 @@ class RegisterDevice(
         if (result is ApiResult.Ok) {
             val username = client.publicIdentity().username
             identities.save(StoredIdentity(api.endpoint.origin, username, client.exportState(), result.value.deviceId))
-        } else if (result is ApiResult.Failed && result.error in DEFINITE_REFUSALS) {
+        } else if (!resumed && result is ApiResult.Failed && result.error in DEFINITE_REFUSALS) {
             identities.clear()
             keys.clear()
         }
@@ -152,7 +154,7 @@ class RegisterDevice(
         val TRANSIENT_RETRY_DELAY = 3.seconds
         private val TRANSIENT_ON_RESUME = setOf(ApiError.INVITE_INVALID, ApiError.USERNAME_UNAVAILABLE)
 
-        /** Answers after which the server holds no account for this key (ADR-0009's order); see the class doc. */
+        /** Answers to a first attempt after which the server holds no account for its new key; see the class doc. */
         private val DEFINITE_REFUSALS = setOf(ApiError.BAD_REQUEST, ApiError.INVITE_INVALID, ApiError.USERNAME_UNAVAILABLE)
     }
 }

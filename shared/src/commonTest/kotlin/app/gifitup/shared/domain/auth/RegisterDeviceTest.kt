@@ -101,16 +101,34 @@ class RegisterDeviceTest {
         }
 
     @Test
-    fun aRefusalOnAResumeIsFinalAfterTheRetryAndDiscardsTheIdentity() =
+    fun aRefusalOnAResumeKeepsTheIdentityUntilTheUserDiscardsIt() =
         runTest {
             val refused = error(HttpStatusCode.Forbidden, "invite_invalid")
             server.on("/accounts", dropped, refused, refused)
             register("ann", INVITE)
-            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.INVITE_INVALID)), register("ann", INVITE))
+            // E.g. a resume with another, mistyped code: the lost attempt may still be committing (#95 CR-5, SEC-6).
+            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.INVITE_INVALID)), register("ann", "BAAAAAAAAAAAAAAAAAAAAA"))
             assertEquals(1, waits.size)
             assertEquals(3, registerRequests().size)
+            assertEquals("ann", identities.identity?.username)
+            assertEquals(1, keys.saves)
+
+            assertIs<AuthResult.Ok<Unit>>(DiscardPendingRegistration(identities, keys)())
             assertNull(identities.identity)
             assertNull(keys.key)
+            assertIs<AuthResult.Ok<Session>>(register("bob", INVITE))
+            assertEquals(AuthResult.Failed(AuthError.Local.ALREADY_REGISTERED), DiscardPendingRegistration(identities, keys)())
+            assertEquals("bob", identities.identity?.username)
+        }
+
+    @Test
+    fun aBadRequestOnAResumeKeepsTheIdentityToo() =
+        runTest {
+            server.on("/accounts", dropped, error(HttpStatusCode.BadRequest, "bad_request"))
+            register("ann", INVITE)
+            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.BAD_REQUEST)), register("ann", INVITE))
+            assertEquals("ann", identities.identity?.username)
+            assertEquals(emptyList(), waits)
         }
 
     @Test

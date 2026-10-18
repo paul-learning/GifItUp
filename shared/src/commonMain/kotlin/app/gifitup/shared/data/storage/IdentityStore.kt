@@ -25,7 +25,10 @@ interface IdentityStore {
 
     suspend fun save(identity: StoredIdentity)
 
-    /** Removes the identity; only for a pending registration the server definitely refused (#95 CR-2). */
+    /**
+     * Removes the identity, durably when it returns. Only for a pending registration: one the server definitely refused
+     * on a first attempt, or one the user discards (#95 CR-2, CR-5).
+     */
     suspend fun clear()
 }
 
@@ -40,5 +43,6 @@ interface SnapshotKeyStore {
 
     suspend fun save(key: ByteArray)
 
+    /** Removes the stored key, durably when it returns; called with [IdentityStore.clear] (#95 CR-6). */
     suspend fun clear()
 }
