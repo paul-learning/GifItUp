@@ -2,7 +2,6 @@ package app.gifitup.shared.domain.auth
 
 import app.gifitup.shared.data.crypto.AuthPurpose
 import app.gifitup.shared.data.crypto.MlsClient
-import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.ApiError
@@ -10,11 +9,10 @@ import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.IdentityStore
+import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -34,24 +32,26 @@ import kotlin.time.Duration.Companion.seconds
  *   [discardPending]. Any other failure keeps them for a resume.
  * - Every attempt fetches a new challenge; the origin signed is the configured one, never one the server sent.
  * - The invite code is used for the request only and never stored.
- * - **One call at a time** (#95 CR-3, SEC-1, SEC-7): registrations and [discardPending] on this instance run one
- *   after the other, so two calls can't each create a key and leave a snapshot next to the wrong one, and a discard
- *   can't clear what a registration is saving. Use one instance per pair of stores; a store shared between processes
- *   (the CLI's state dir) needs its own lock, which also covers its discard.
+ * - **One call at a time** (#95 CR-3, SEC-1, SEC-7; #108 SEC-15): registrations and [discardPending] hold the
+ *   device's [DeviceLock], which login and wipe share, so two calls can't each create a key and leave a snapshot next to
+ *   the wrong one, and a discard or a wipe can't clear what a registration is saving. A store shared between processes
+ *   (the CLI's state dir) needs its own lock too, which also covers its discard.
  */
+@Suppress("LongParameterList") // Constructor injection of the use case's collaborators (ADR-0004).
 class RegisterDevice(
     private val api: GifItUpApi,
-    private val mls: MlsClientFactory,
+    private val mls: GuardedMlsFactory,
     private val identities: IdentityStore,
     private val keys: SnapshotKeyStore,
     private val random: SecureRandomSource,
+    private val lock: DeviceLock,
     private val wait: suspend (Duration) -> Unit = { delay(it) },
 ) {
     suspend operator fun invoke(
         username: String,
         inviteCode: String,
     ): AuthResult<Session> =
-        single.withLock {
+        lock.holding {
             try {
                 when (val start = prepare(username, inviteCode)) {
                     is Start.Refused -> failed(start.error)
@@ -59,25 +59,32 @@ class RegisterDevice(
                 }
             } catch (e: MlsException) {
                 e.toAuthFailure()
+            } catch (e: LocalStateException) {
+                e.toAuthFailure()
+            } catch (ignored: RestoreBlockedException) {
+                failed(AuthError.Local.RESTORE_BLOCKED)
             }
         }
-
-    private val single = Mutex()
 
     /**
      * Discards a pending registration on the user's explicit request (#95 CR-5, SEC-6): after a refused resume, the user
      * decides whether the earlier attempt is lost. If that attempt did create the account, it is orphaned (the owner can
-     * delete it). A registered identity is never discarded: [AuthError.Local.ALREADY_REGISTERED]. Runs under the same
-     * lock as registration, so it can't interleave with one (#95 SEC-7).
+     * delete it). A registered identity is never discarded: [AuthError.Local.ALREADY_REGISTERED]. Runs under the device
+     * lock, so it can't interleave with a registration (#95 SEC-7).
      */
     suspend fun discardPending(): AuthResult<Unit> =
-        single.withLock {
-            if (identities.load()?.deviceId != null) {
-                failed(AuthError.Local.ALREADY_REGISTERED)
-            } else {
-                identities.clear()
-                keys.clear()
-                AuthResult.Ok(Unit)
+        lock.holding {
+            try {
+                if (identities.load()?.deviceId != null) {
+                    failed(AuthError.Local.ALREADY_REGISTERED)
+                } else {
+                    identities.clear()
+                    keys.clear()
+                    AuthResult.Ok(Unit)
+                }
+            } catch (e: LocalStateException) {
+                // A record that can't be read may be a registered one: only a wipe removes it (WipeLocalData).
+                e.toAuthFailure()
             }
         }
 

@@ -5,6 +5,7 @@ import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.Base64Url
+import app.gifitup.shared.data.storage.LocalStateException
 
 /** Outcome of an auth use case. Failures are closed codes only, so a caller can map each to its own fixed text. */
 sealed interface AuthResult<out T> {
@@ -45,6 +46,18 @@ sealed interface AuthError {
 
         /** The MLS client failed (`MlsException`). */
         CRYPTO,
+
+        /**
+         * The stored snapshot key can't be unwrapped right now: the platform key is missing or refused (ADR-0011). Can
+         * be transient; it is never counted as a failed restore (#16 SEC-4).
+         */
+        KEY_UNAVAILABLE,
+
+        /** The last restores never returned ([GuardedMlsFactory]); the user chooses "try again" or a reset. */
+        RESTORE_BLOCKED,
+
+        /** The device's storage failed to read or write; can be transient (#108 SEC-13). */
+        STORAGE_FAILED,
     }
 }
 
@@ -74,6 +87,14 @@ internal inline fun <T, R> ApiResult<T>.then(next: (T) -> ApiResult<R>): ApiResu
     when (this) {
         is ApiResult.Ok -> next(value)
         is ApiResult.Failed -> this
+    }
+
+/** A store's or the restore guard's refusal, as a closed result (no message, no cause). */
+internal fun LocalStateException.toAuthFailure(): AuthResult.Failed =
+    when (problem) {
+        LocalStateException.Problem.DAMAGED -> failed(AuthError.Local.STATE_INVALID)
+        LocalStateException.Problem.KEY_UNAVAILABLE -> failed(AuthError.Local.KEY_UNAVAILABLE)
+        LocalStateException.Problem.STORAGE -> failed(AuthError.Local.STORAGE_FAILED)
     }
 
 /** Snapshot problems mean the stored state is unusable; anything else is a crypto failure. */

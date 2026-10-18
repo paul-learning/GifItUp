@@ -1,7 +1,10 @@
 package app.gifitup.shared.domain.auth
 
+import app.gifitup.shared.data.crypto.FakeMlsClient
+import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.storage.IdentityStore
+import app.gifitup.shared.data.storage.RestoreCounter
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.yield
@@ -48,6 +51,16 @@ class InMemoryKeyStore(
     override suspend fun clear() {
         key = null
     }
+}
+
+/** The fake factory without a restore counter, as the use cases' tests had it before the guard (#16). */
+fun unguarded(mls: MlsClientFactory = FakeMlsClient.Factory) = GuardedMlsFactory(mls, NoCounter)
+
+/** Counts nothing: the use cases' own tests don't test the guard. */
+object NoCounter : RestoreCounter {
+    override suspend fun failures(): Int = 0
+
+    override suspend fun set(failures: Int) = Unit
 }
 
 /** Deterministic, distinct keys: fine for tests, never for anything else. */
