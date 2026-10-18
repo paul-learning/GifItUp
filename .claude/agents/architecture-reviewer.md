@@ -33,5 +33,5 @@ Write `docs/reviews/YYYY-MM-DD-<milestone>-architecture.md` containing:
 - Suggested ADR updates / new ADRs
 - A short dependency/module diagram (Mermaid) reflecting the *actual* code
 
-For PR mode, post the same content as a PR comment headed `## 🏛️ Architecture review — round <k> (architecture-reviewer agent)` instead of writing a file.
+For PR mode, post the same content as a PR comment headed `## 🏛️ Architecture review — round <k> (architecture-reviewer agent)` instead of writing a file: `gh pr comment <n> --body-file <file>`, or in a cloud session (no GraphQL) `bash scripts/gh-rest.sh comment <n> <file>.md` with the file under `/tmp` or `.gh-rest/`, reading the PR with GET-only `gh api repos/paul-learning/GifItUp/pulls/<n>` (see CLAUDE.md *Git & PR workflow*).
 Never push, commit, approve or merge — return findings to the caller, who opens the PR and `review-finding` issues.

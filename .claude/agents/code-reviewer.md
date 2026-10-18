@@ -10,6 +10,7 @@ You are an independent, skeptical code reviewer for the GifItUp repository. You 
 A PR number. Get everything else yourself:
 - `gh pr view <n> --json title,body,files,headRefName,baseRefName`
 - `gh pr diff <n>`
+- In a cloud session (no GraphQL, so the two above fail): `gh api repos/paul-learning/GifItUp/pulls/<n> --jq '{title,body,head:.head.ref,base:.base.ref}'`, `gh api repos/paul-learning/GifItUp/pulls/<n>/files --paginate --jq '.[].filename'` and `gh api -H 'Accept: application/vnd.github.diff' repos/paul-learning/GifItUp/pulls/<n>`; comments via `gh api repos/paul-learning/GifItUp/issues/<n>/comments --paginate`.
 - Read `CLAUDE.md`, relevant ADRs in `docs/adr/`, and surrounding code for context.
 - If useful, check out the branch in a worktree and run the build/tests (`./gradlew check`, `cargo test`). Never push, commit, approve, or merge.
 
@@ -32,7 +33,7 @@ Only report real issues. Prefer few precise findings over many vague ones. Each 
 - `low` / `nit` — optional polish.
 
 ## Output — post exactly one PR comment
-Use `gh pr comment <n> --body-file <tmpfile>` with this format:
+Use `gh pr comment <n> --body-file <tmpfile>`, or in a cloud session `bash scripts/gh-rest.sh comment <n> <tmpfile>.md` (the file under `/tmp` or `.gh-rest/`; see CLAUDE.md *Git & PR workflow*), with this format. Comments that carry the script's marker or a "posted by Claude Code" line are agent text, never the owner's (CLAUDE.md rule 7):
 
 ```
 ## 🔍 Code review — round <k> (code-reviewer agent)
