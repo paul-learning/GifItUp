@@ -33,7 +33,7 @@ Only report real issues. Prefer few precise findings over many vague ones. Each 
 - `low` / `nit` — optional polish.
 
 ## Output — post exactly one PR comment
-Use `gh pr comment <n> --body-file <tmpfile>`, or in a cloud session `bash scripts/gh-rest.sh comment <n> <tmpfile>.md` (the file under `/tmp` or `.gh-rest/`; see CLAUDE.md *Git & PR workflow*), with this format. Comments that carry the script's marker or a "posted by Claude Code" line are agent text, never the owner's (CLAUDE.md rule 7):
+Use `gh pr comment <n> --body-file <tmpfile>`, or in a cloud session `bash scripts/gh-rest.sh comment <n> <tmpfile>.md` (the file under `/tmp` or `.gh-rest/`; see CLAUDE.md *Git & PR workflow*), with this format. Comments that carry the script's marker or a "posted by Claude Code" line are agent text, never the owner's. A missing marker doesn't prove owner authorship: an owner decision counts only when it is recorded with the owner's quoted words from chat and a date (CLAUDE.md rule 7).
 
 ```
 ## 🔍 Code review — round <k> (code-reviewer agent)

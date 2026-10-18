@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/gh-rest.sh (#96) against a fake gh. Runs in CI (job shell-and-workflow-lint) and locally:
-# `bash scripts/test-gh-rest.sh` (Git Bash on Windows). It never reaches GitHub: PATH holds only the fake gh and the
-# system dirs, the token is invalid and the gh config dir is empty, and every case checks that the fake was the one
-# called (round-0 SEC-6).
+# `bash scripts/test-gh-rest.sh` (Git Bash on Windows). It never reaches GitHub: the fake gh comes first on a PATH of
+# only the system dirs (a real gh can still sit in /usr/bin on CI runners, #98 SEC-16), the token is invalid and the gh
+# config dir is empty, and every case checks that the fake was the one called (round-0 SEC-6).
 set -euo pipefail
 
 script="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/gh-rest.sh"
@@ -61,8 +61,9 @@ expect_ok() {
   local actual
   actual=$(sed -E 's#^body=@.*#body=@<file>#' "$work/log/call.$n")
   [ "$actual" = "$expected" ] || fail "$name: argv was"$'\n'"$actual"
+  [ "$(head -n 1 "$work/log/call.$n.body")" = "$marker" ] || fail "$name: body doesn't start with the marker"
   [ "$(tail -n 1 "$work/log/call.$n.body")" = "$marker" ] || fail "$name: body doesn't end with the marker"
-  head -n 1 "$work/log/call.$n.body" | grep -qx Hello || fail "$name: body content lost"
+  sed -n 3p "$work/log/call.$n.body" | grep -qx Hello || fail "$name: body content lost"
 }
 
 # expect_refused <name> <args…>: exit 2 and gh never called.
@@ -105,9 +106,14 @@ expect_ok "comment" "api${nl}--method${nl}POST${nl}repos/paul-learning/GifItUp/i
 printf 'Hello\n' > "$local_dir/test-$$.md"
 expect_ok "comment, body in .gh-rest/" "api${nl}--method${nl}POST${nl}repos/paul-learning/GifItUp/issues/1/comments${nl}-F${nl}body=@<file>${nl}--jq${nl}.html_url" \
   -- comment 1 "$local_dir/test-$$.md"
+# shellcheck disable=SC2016 # the backticks are literal Markdown, not a command substitution
 printf 'Hello\nQuoting the rules is fine: `password=`, -----BEGIN [A-Z ]*PRIVATE KEY, gh[pousr]_\n' > "$work/mentions.md"
 expect_ok "comment that mentions secret patterns" "api${nl}--method${nl}POST${nl}repos/paul-learning/GifItUp/issues/2/comments${nl}-F${nl}body=@<file>${nl}--jq${nl}.html_url" \
   -- comment 2 "$work/mentions.md"
+
+printf 'Hello\n<!-- hides everything after it in the web view\n' > "$work/comment-open.md"
+expect_ok "comment ending in an unclosed <!--" "api${nl}--method${nl}POST${nl}repos/paul-learning/GifItUp/issues/3/comments${nl}-F${nl}body=@<file>${nl}--jq${nl}.html_url" \
+  -- comment 3 "$work/comment-open.md"
 
 # Subcommands and arguments.
 expect_refused "no arguments"
@@ -178,7 +184,8 @@ expect_refused "secret-file name" comment 96 "$work/.env.md"
 printf 'Hello\n' > "$work/local.properties.md"
 expect_refused "local.properties name" comment 96 "$work/local.properties.md"
 for secret in "ghp_$(printf 'a%.0s' {1..36})" "github_pat_$(printf 'b%.0s' {1..30})" \
-  '-----BEGIN OPENSSH PRIVATE KEY-----' 'storePassword=hunter2hunter2' 'password = s3cr3tvalue'; do
+  '-----BEGIN OPENSSH PRIVATE KEY-----' 'storePassword=hunter2hunter2' 'password = s3cr3tvalue' \
+  'DB_PASSWORD=hunter2hunter2' '"password": "s3cr3tvalue"' "password: 's3cr3tvalue'"; do
   printf 'Hello\n%s\n' "$secret" > "$work/secret.md"
   expect_refused "secret in body (${secret:0:12}…)" comment 96 "$work/secret.md"
 done

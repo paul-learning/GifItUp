@@ -11,8 +11,8 @@
 #   bash scripts/gh-rest.sh comment <number> <body.md>
 #
 # Bodies come only from a .md file under /tmp (the session scratchpad) or the gitignored .gh-rest/ in the repo.
-# Every body gets a fixed marker as its last line: text with it is agent text, never owner consent (CLAUDE.md rule 7).
-# Exit 2 on any refusal, before gh is called. Run from anywhere; Git Bash on Windows works.
+# Every body gets a fixed marker as its first and last line: text with it is agent text, never owner consent
+# (CLAUDE.md rule 7). Exit 2 on any refusal, before any write (pr-edit reads the PR first). Run from anywhere; Git Bash on Windows works.
 set -euo pipefail
 
 readonly REPO=paul-learning/GifItUp
@@ -22,7 +22,9 @@ readonly MAX_TITLE_CHARS=256
 readonly BRANCH_RE='^(feat|fix|chore|docs|spike)/[0-9]+-[a-z0-9-]+(/[a-z0-9-]+)?$'
 readonly NUMBER_RE='^[1-9][0-9]{0,5}$'
 # Values, not mentions: a review that quotes these patterns must still post (round-0 SEC-2).
-readonly SECRET_RE='gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|[Pp]assword[[:space:]]*=[[:space:]]*[^[:space:]`'"'"'"]{6,}'
+readonly SECRET_RE='gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+# Matched case-insensitively: DB_PASSWORD=…, storePassword=…, "password": "…" (#98 CR-2).
+readonly PASSWORD_RE='password["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[^[:space:]`'"'"'"]{6,}'
 
 # No environment redirects the call or logs it (round-0 SEC-7). GH_TOKEN/GH_CONFIG_DIR stay: they carry the auth.
 unset GH_REPO GH_DEBUG GH_PAGER GH_FORCE_TTY
@@ -77,11 +79,23 @@ prepare_body() {
   case $base in
     local.properties* | .env* | *.jks* | *.keystore*) refuse "body file name matches a secret-file name" ;;
   esac
-  [ -s "$file" ] || refuse "body file is empty"
-  if grep -qE -- "$SECRET_RE" "$file"; then refuse "body contains something that looks like a token, key or password"; fi
-  { cat -- "$file"; printf '\n\n%s\n' "$MARKER"; } > "$work/body.md"
-  [ "$(wc -c < "$work/body.md")" -le "$MAX_BODY_BYTES" ] || refuse "body is larger than $MAX_BODY_BYTES bytes"
-  norm "$work/body.md"
+  # Every later check runs on the copy, which is exactly what gets sent (#98 CR-3).
+  local copy="$work/source.md" sent="$work/body.md"
+  cat -- "$resolved" > "$copy" || refuse "body file can't be read"
+  [ -s "$copy" ] || refuse "body file is empty"
+  scan "$copy" -E "$SECRET_RE"
+  scan "$copy" -Ei "$PASSWORD_RE"
+  # The marker opens the body too, so an unclosed <!-- or <details> at the end can't hide it in the web view (#98 SEC-11).
+  { printf '%s\n\n' "$MARKER"; cat -- "$copy"; printf '\n\n%s\n' "$MARKER"; } > "$sent"
+  [ "$(wc -c < "$sent")" -le "$MAX_BODY_BYTES" ] || refuse "body is larger than $MAX_BODY_BYTES bytes"
+  norm "$sent"
+}
+
+# scan <file> <grep flags> <pattern>: refuses on a match, and on a grep error too (status > 1).
+scan() {
+  local status=0
+  grep -q "$2" -- "$3" "$1" || status=$?
+  [ "$status" = 1 ] || refuse "body contains something that looks like a token, key or password (or can't be scanned)"
 }
 
 pr_create() {
