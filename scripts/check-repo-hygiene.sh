@@ -81,5 +81,14 @@ if grep -rnE --include='*.kt' --include='*.kts' --exclude-dir=build 'ApiEndpoint
   fail "the app modules must not use ApiEndpoint.loopback (#94 SEC-14)"
 fi
 
+# The dev CLI and the end-to-end test are dev/test tools (CLAUDE.md "Dev CLI"; #79 round-0 SEC-11): no build file
+# other than settings.gradle.kts may refer to them, so no module (app or library) can depend on them. The
+# DevOnlyEndpoint allowlist above relies on this. A text check of the usual spellings: type-safe accessors and
+# project paths.
+if git ls-files -z -- '*.gradle.kts' '*.gradle' | grep -zvx 'settings.gradle.kts' \
+  | xargs -0 -r grep -nE 'projects\.(cli|e2e)\b|"(:cli|:e2e)"'; then
+  fail "a build file refers to :cli or :e2e; only settings.gradle.kts may (#79 SEC-11)"
+fi
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"
