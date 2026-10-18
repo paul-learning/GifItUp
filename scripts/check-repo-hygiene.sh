@@ -90,5 +90,12 @@ if git ls-files -z -- '*.gradle.kts' '*.gradle' | grep -zvx 'settings.gradle.kts
   fail "a build file refers to :cli or :e2e; only settings.gradle.kts may (#79 SEC-11)"
 fi
 
+# The CLI's output and CI logs get no log lines (#79 plan SEC-9): its runtime classpath has no slf4j provider other
+# than slf4j-nop. Checked on the lock state, which the build must match.
+if [ -f cli/gradle.lockfile ] && grep -nE '^(ch\.qos\.logback:|org\.slf4j:slf4j-(simple|reload4j|jdk14|jdk-platform-logging|log4j12):|org\.apache\.logging\.log4j:log4j-slf4j)' cli/gradle.lockfile \
+  | grep -E '[=,]runtimeClasspath(,|$)'; then
+  fail "cli's runtime classpath has an slf4j provider other than slf4j-nop (#79 SEC-9)"
+fi
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"
