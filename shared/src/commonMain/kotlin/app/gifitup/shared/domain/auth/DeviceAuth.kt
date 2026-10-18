@@ -14,19 +14,19 @@ import app.gifitup.shared.data.storage.StoredRestoreCounter
  * the web, once per process on Android. It owns the one [DeviceLock], so every [DeviceAuth] built from it shares it
  * (#108 SEC-22).
  *
- * [snapshotKeys] builds the wrapped-key store for a canonical origin over [store] and the given identity store; it is
+ * [keyStoreFor] builds the wrapped-key store for a canonical origin over [store] and the given identity store; it is
  * the platform's `EnvelopeSnapshotKeyStore` (`:mls`), since `:shared` never sees a wrapping key.
  */
 class DeviceStorage(
     val store: LocalStore,
     val data: DeviceData,
-    private val snapshotKeys: (origin: String, identities: IdentityStore) -> SnapshotKeyStore,
+    private val keyStoreFor: (origin: String, identities: IdentityStore) -> SnapshotKeyStore,
 ) {
     val identities: IdentityStore = RecordIdentityStore(store)
     val restores = StoredRestoreCounter(store)
     internal val lock = DeviceLock()
 
-    fun snapshotKeys(origin: String): SnapshotKeyStore = snapshotKeys(origin, identities)
+    fun snapshotKeys(origin: String): SnapshotKeyStore = keyStoreFor(origin, identities)
 }
 
 /**
@@ -39,14 +39,18 @@ class DeviceAuth(
     mls: MlsClientFactory,
     random: SecureRandomSource,
 ) {
+    private val lock = storage.lock
     private val guarded = GuardedMlsFactory(mls, storage.restores)
     private val keys = storage.snapshotKeys(api.endpoint.origin)
 
-    val register = RegisterDevice(api, guarded, storage.identities, keys, random, storage.lock)
-    val logIn = LogIn(api, guarded, storage.identities, keys, storage.lock)
+    val register = RegisterDevice(api, guarded, storage.identities, keys, random, lock)
+    val logIn = LogIn(api, guarded, storage.identities, keys, lock)
     val logOut = LogOut(api)
-    val wipe = WipeLocalData(storage.data, logOut, storage.lock)
+    val wipe = WipeLocalData(storage.data, logOut, lock)
 
-    /** The user's "try again" after `RESTORE_BLOCKED`. */
-    suspend fun tryAgain() = guarded.tryAgain()
+    /**
+     * The user's "try again" after `RESTORE_BLOCKED`. Under the storage's lock like every restore, so a reset from one
+     * [DeviceAuth] can't land in the middle of another one's restore and drop its count (#111 CR-1, SEC-2).
+     */
+    suspend fun tryAgain() = lock.holding { guarded.tryAgain() }
 }

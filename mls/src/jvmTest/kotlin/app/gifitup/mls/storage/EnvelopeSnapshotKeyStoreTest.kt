@@ -4,6 +4,7 @@ import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.LocalStateException.Problem.DAMAGED
 import app.gifitup.shared.data.storage.LocalStateException.Problem.KEY_UNAVAILABLE
+import app.gifitup.shared.data.storage.LocalStateException.Problem.STORAGE
 import app.gifitup.shared.data.storage.LocalStore
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.test.runTest
@@ -215,6 +216,41 @@ class EnvelopeSnapshotKeyStoreTest {
             aead.destroy()
             assertEquals(KEY_UNAVAILABLE, assertFailsWith<LocalStateException> { keys.save(ByteArray(32) { 7 }) }.problem)
             assertEquals(1, aead.creates)
+        }
+
+    /** Also when no wrapped key is stored: a registered identity's snapshot would be orphaned (#111 CR-2). */
+    @Test
+    fun aRegisteredIdentityGetsNoKeyEvenWithoutAWrappedOne() =
+        runTest {
+            identities.identity = StoredIdentity(ORIGIN, "ann", byteArrayOf(1), deviceId = "d1")
+            assertFailsWith<IllegalStateException> { keys.save(key) }
+            assertNull(store.entries[EnvelopeSnapshotKeyStore.KEY])
+        }
+
+    /** A seal of the wrong size, or one that doesn't open to the same key, is never stored (#111 SEC-1). */
+    @Test
+    fun aSealThatWouldntLoadIsNeverStored() =
+        runTest {
+            val short =
+                object : WrappingAead by aead {
+                    override suspend fun seal(
+                        plaintext: ByteArray,
+                        aad: ByteArray,
+                    ) = aead.seal(plaintext, aad).copyOf(EnvelopeSnapshotKeyStore.WRAPPED_SIZE - 2)
+                }
+            val other = ByteArray(32) { 9 }
+            val wrongKey =
+                object : WrappingAead by aead {
+                    override suspend fun seal(
+                        plaintext: ByteArray,
+                        aad: ByteArray,
+                    ) = aead.seal(other, aad)
+                }
+            for (broken in listOf(short, wrongKey)) {
+                val brokenKeys = EnvelopeSnapshotKeyStore(broken, store, identities, ORIGIN)
+                assertEquals(STORAGE, assertFailsWith<LocalStateException> { brokenKeys.save(key) }.problem)
+                assertNull(store.entries[EnvelopeSnapshotKeyStore.KEY])
+            }
         }
 
     @Test

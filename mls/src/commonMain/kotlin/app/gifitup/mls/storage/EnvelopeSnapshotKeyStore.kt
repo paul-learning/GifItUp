@@ -4,6 +4,7 @@ import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.LocalStateException.Problem.DAMAGED
 import app.gifitup.shared.data.storage.LocalStateException.Problem.KEY_UNAVAILABLE
+import app.gifitup.shared.data.storage.LocalStateException.Problem.STORAGE
 import app.gifitup.shared.data.storage.LocalStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 
@@ -63,14 +64,36 @@ class EnvelopeSnapshotKeyStore(
 
     override suspend fun save(key: ByteArray) {
         require(key.size == KEY_SIZE) { "a snapshot key is 32 bytes" }
+        // Defence in depth: only a pending registration saves a key, also when no wrapped key is stored (#16 SEC-5,
+        // #111 CR-2).
+        check(identities.load()?.deviceId == null) { "a registered identity's key is never replaced" }
         if (store.get(KEY) != null) {
-            // Defence in depth: only a pending registration may replace its key (#16 SEC-5).
-            check(identities.load()?.deviceId == null) { "a registered identity's key is never replaced" }
             if (!aead.exists()) throw LocalStateException(KEY_UNAVAILABLE)
         } else if (!aead.exists()) {
             aead.create()
         }
-        store.putAll(mapOf(KEY to byteArrayOf(VERSION) + aead.seal(key, aad())))
+        val sealed = aead.seal(key, aad())
+        verify(sealed, key)
+        store.putAll(mapOf(KEY to byteArrayOf(VERSION) + sealed))
+    }
+
+    /**
+     * The write path checks what [load] checks: the size, and that the sealed key opens to the same key, so a broken
+     * platform key fails here, before the identity is registered, not on the next start (#111 SEC-1).
+     */
+    private suspend fun verify(
+        sealed: ByteArray,
+        key: ByteArray,
+    ) {
+        if (sealed.size != WRAPPED_SIZE - 1) throw LocalStateException(STORAGE)
+        val opened = aead.open(sealed, aad())
+        try {
+            var difference = opened.size xor key.size
+            for (i in 0 until minOf(opened.size, key.size)) difference = difference or (opened[i].toInt() xor key[i].toInt())
+            if (difference != 0) throw LocalStateException(STORAGE)
+        } finally {
+            opened.fill(0)
+        }
     }
 
     override suspend fun clear() = store.putAll(mapOf(KEY to null))

@@ -76,6 +76,22 @@ class DeviceAuthTest {
             assertTrue(server.requests.isNotEmpty())
         }
 
+    /** "Try again" waits for the storage's lock too, so it can't reset the count in the middle of a restore (#111 CR-1). */
+    @Test
+    fun tryAgainWaitsForTheStoragesLock() =
+        runTest {
+            storage.restores.set(GuardedMlsFactory.LIMIT)
+            val job =
+                storage.lock.holding {
+                    val job = launch { auth().tryAgain() }
+                    testScheduler.advanceUntilIdle()
+                    assertEquals(GuardedMlsFactory.LIMIT, storage.restores.failures(), "no reset while the lock is held")
+                    job
+                }
+            job.join()
+            assertEquals(0, storage.restores.failures())
+        }
+
     private companion object {
         val ENGINE_GRACE = 300.milliseconds
         const val INVITE = "AAAAAAAAAAAAAAAAAAAAAA"
