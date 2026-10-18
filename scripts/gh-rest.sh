@@ -95,7 +95,8 @@ prepare_body() {
 scan() {
   local status=0
   grep -q "$2" -- "$3" "$1" || status=$?
-  [ "$status" = 1 ] || refuse "body contains something that looks like a token, key or password (or can't be scanned)"
+  # Fails closed on prose like "Password: required" too (#98 CR-6): reword such a line, e.g. "the password field".
+  [ "$status" = 1 ] || refuse "body contains something that looks like a token, key or password, or can't be scanned (reword a 'password: …' line if it's prose)"
 }
 
 pr_create() {
