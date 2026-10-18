@@ -9,7 +9,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 /** An atomic in-memory [LocalStore]; [writes] records each [putAll] as one unit. Yields like real storage would. */
-class InMemoryLocalStore : LocalStore {
+open class InMemoryLocalStore : LocalStore {
     val entries = mutableMapOf<String, ByteArray>()
     val writes = mutableListOf<Map<String, ByteArray?>>()
 
