@@ -68,5 +68,12 @@ if grep -rln 'authSignContentUnchecked' server/src/main --include='*.kt' | grep 
   fail "authSignContentUnchecked is for tests only (ADR-0009)"
 fi
 
+# The dev-only loopback endpoint (#94 SEC-14): ApiEndpoint.loopback sends to another place than the origin it signs, so
+# the app modules never use it or opt in to DevOnlyEndpoint. A text check of their sources and build files; the opt-in
+# annotation (level ERROR) is the compile-time control.
+if grep -rnE --include='*.kt' --include='*.kts' --exclude-dir=build 'DevOnlyEndpoint|ApiEndpoint\.loopback|\.loopback[[:space:]]*\(' composeApp androidApp; then
+  fail "the app modules must not use ApiEndpoint.loopback or DevOnlyEndpoint (#94 SEC-14)"
+fi
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

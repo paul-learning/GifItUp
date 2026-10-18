@@ -32,7 +32,8 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The server API (ADR-0009), one function per endpoint, on a Ktor client over an injected [engine] (the platform's,
- * chosen by the composition root), so `commonMain` holds no engine.
+ * chosen by the composition root), so `commonMain` holds no engine. The caller owns the engine: [close] closes the
+ * client only, and the caller closes the engine when it is done with it.
  *
  * Every response is untrusted (#79 plan, SEC-3, SEC-8):
  * - redirects are not followed, timeouts are set, and a body over [MAX_BODY_BYTES] is refused before decoding;
@@ -40,6 +41,9 @@ import kotlin.coroutines.cancellation.CancellationException
  *   anything off is [ApiError.MALFORMED_RESPONSE], with no message and no cause, because decoder errors quote their
  *   input (a bad `SessionResponse` would quote the token);
  * - an error answer counts only through its closed code; the body's text is never kept, logged or shown.
+ *
+ * A [Session] belongs to the endpoint that issued it: using it with another one is a programming error and throws
+ * before anything is sent, so a token never travels to a different origin or port (#94 SEC-13).
  */
 class GifItUpApi(
     engine: HttpClientEngine,
@@ -79,7 +83,7 @@ class GifItUpApi(
                 signature = Base64Url.encode(signature),
             )
         val body = ProtocolJson.encodeToString(RegisterRequest.serializer(), request)
-        return exchange(Route.REGISTER, body, session = null, ::readSession)
+        return exchange(Route.REGISTER, body, session = null) { readSession(it, endpoint) }
     }
 
     /** `POST /auth/login` for [deviceId]. */
@@ -90,7 +94,7 @@ class GifItUpApi(
     ): ApiResult<Session> {
         val request = LoginRequest(deviceId, Base64Url.encode(challenge), Base64Url.encode(signature))
         val body = ProtocolJson.encodeToString(LoginRequest.serializer(), request)
-        return exchange(Route.LOGIN, body, session = null, ::readSession)
+        return exchange(Route.LOGIN, body, session = null) { readSession(it, endpoint) }
     }
 
     /** `POST /auth/logout`: ends [session] on the server. */
@@ -124,14 +128,15 @@ class GifItUpApi(
      * One request and its answer. [read] turns the body of a successful answer into a value, or null if it breaks the
      * protocol. The response is streamed (`execute`), so an oversized body is never buffered in full.
      */
-    @Suppress("TooGenericExceptionCaught") // Engines throw platform-specific I/O exceptions; all of them mean NETWORK.
+    @Suppress("TooGenericExceptionCaught") // See the catch below.
     private suspend fun <T> exchange(
         route: Route,
         body: String?,
         session: Session?,
         read: (ByteArray) -> T?,
-    ): ApiResult<T> =
-        try {
+    ): ApiResult<T> {
+        require(session == null || session.endpoint.sameAs(endpoint)) { "session belongs to another endpoint" }
+        return try {
             client
                 .prepareRequest {
                     method = route.method
@@ -142,9 +147,12 @@ class GifItUpApi(
                 }.execute { response -> answer(response, route.success, read) }
         } catch (e: CancellationException) {
             throw e
-        } catch (ignored: Exception) {
+        } catch (ignored: Throwable) {
+            // Engines fail with platform-specific types, and on the web Ktor's fetch engine reports every network
+            // failure as kotlin.Error, not Exception (#94 CR-2). All of them mean NETWORK.
             ApiResult.Failed(ApiError.NETWORK)
         }
+    }
 
     companion object {
         /** Cap on any response body; every answer of these endpoints is far smaller (#79 SEC-8). */
@@ -198,12 +206,15 @@ private fun failure(error: ErrorResponse): ApiResult.Failed =
 /** A session token is 32 random bytes (ADR-0009). */
 private const val TOKEN_BYTES = 32
 
-private fun readSession(bytes: ByteArray): Session? =
+private fun readSession(
+    bytes: ByteArray,
+    endpoint: ApiEndpoint,
+): Session? =
     decode(SessionResponse.serializer(), bytes)
         ?.takeIf {
             GifItUpApi.UUID.matches(it.deviceId) && Base64Url.decode(it.sessionToken, TOKEN_BYTES..TOKEN_BYTES) != null &&
                 it.expiresAt > 0
-        }?.let { Session(it.deviceId, it.sessionToken, it.expiresAt) }
+        }?.let { Session(it.deviceId, it.sessionToken, it.expiresAt, endpoint) }
 
 /** The body, or null if it is larger than [GifItUpApi.MAX_BODY_BYTES] (by header or by content). */
 private suspend fun HttpResponse.readCapped(): ByteArray? {

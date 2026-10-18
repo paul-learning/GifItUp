@@ -5,7 +5,8 @@ package app.gifitup.shared.data.network
  *
  * The app uses [forOrigin] only: the base URL **is** the configured origin, so what gets signed and where it goes can
  * never differ (#79 SEC-1). [loopback] is the one exception, for the dev CLI and the end-to-end test against a local
- * server: plain http to a literal loopback address that is built here, never parsed from input (#79 SEC-7).
+ * server: plain http to a literal loopback address that is built here, never parsed from input (#79 SEC-7). It needs an
+ * explicit opt-in ([DevOnlyEndpoint]), and the hygiene script fails if the app modules mention it (#94 SEC-14).
  */
 class ApiEndpoint private constructor(
     /** The origin auth signatures name, in canonical form. */
@@ -13,6 +14,8 @@ class ApiEndpoint private constructor(
     internal val baseUrl: String,
 ) {
     override fun toString(): String = "ApiEndpoint(origin=$origin, baseUrl=$baseUrl)"
+
+    internal fun sameAs(other: ApiEndpoint): Boolean = origin == other.origin && baseUrl == other.baseUrl
 
     companion object {
         /** The endpoint for a configured [origin], or null if it isn't canonical. */
@@ -22,6 +25,7 @@ class ApiEndpoint private constructor(
          * Plain http to `127.0.0.1` (or `[::1]` with [ipv6]) on [port], signing [origin]. Dev CLI and tests only: the
          * app never calls this. Null if [origin] isn't canonical or [port] is out of range.
          */
+        @DevOnlyEndpoint
         fun loopback(
             origin: String,
             port: Int,
@@ -51,3 +55,12 @@ class ApiEndpoint private constructor(
             Regex("""^https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::[1-9][0-9]{0,4})?$""")
     }
 }
+
+/**
+ * Marks the dev CLI / end-to-end test seam [ApiEndpoint.loopback]: plain http, and an origin that differs from where
+ * requests go. The app never opts in (#79 SEC-1, #94 SEC-14).
+ */
+@RequiresOptIn(message = "Dev CLI and tests only: the app always uses ApiEndpoint.forOrigin.", level = RequiresOptIn.Level.ERROR)
+@Retention(AnnotationRetention.BINARY)
+@Target(AnnotationTarget.FUNCTION)
+annotation class DevOnlyEndpoint

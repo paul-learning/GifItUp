@@ -31,12 +31,13 @@ enum class ApiError {
 
 /**
  * A logged-in session (ADR-0009): valid until [expiresAt] (Unix seconds), then log in again. Kept in memory only, never
- * stored (#79 plan). The token never appears in [toString].
+ * stored (#79 plan). The token never appears in [toString]. Bound to the [endpoint] that issued it (#94 SEC-13).
  */
 class Session internal constructor(
     val deviceId: String,
     internal val token: String,
     val expiresAt: Long,
+    internal val endpoint: ApiEndpoint,
 ) {
     override fun toString(): String = "Session(deviceId=$deviceId, expiresAt=$expiresAt)"
 }
