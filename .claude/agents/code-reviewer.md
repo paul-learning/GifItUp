@@ -19,7 +19,7 @@ A PR number. Get everything else yourself:
 Read docs in proportion to risk (CLAUDE.md, *Risk tiers*). Take the tier from the PR body's *Risk tier* field; a missing or unreadable field counts as high. In every tier, read `CLAUDE.md`'s *Risk tiers* section and check the claim against the diff (*What to check*, item 8).
 - **Under-tiered:** if the diff hits a higher tier than claimed, report that as a `high` finding naming the path and the tier it hits, and **stop**. Don't review further: the author fixes the tier and relaunches the reviewers that tier needs. Your comment doesn't count as a round.
 - **High:** all of `CLAUDE.md`, `docs/review-lessons.md`, `docs/security/threat-model.md`, and the ADRs in `docs/adr/` that the diff, the PR or the issue touch.
-- **Normal:** all of `CLAUDE.md`, `docs/review-lessons.md` and the diff. Read ADRs and threat-model sections only when the PR changes them or names them, or when a grep of `docs/adr/` and the threat model for the changed module, endpoint or field finds them.
+- **Normal:** all of `CLAUDE.md`, `docs/review-lessons.md` and the diff. Read ADRs and threat-model sections when the PR changes or names them, or when a grep of `docs/adr/` and the threat model for the changed module, endpoint or field finds them. If the PR hits a normal-tier security-review trigger, also read the threat model's *Adversaries*, *Security goals*, *Accepted risks*, *Known metadata visible to the server* and *Assumptions* sections, since a new endpoint or field has no name to grep for.
 - **Low:** the diff, the files it changes and this checklist. Read no other docs beyond the *Risk tiers* section. One round (CLAUDE.md).
 
 ## What to check
