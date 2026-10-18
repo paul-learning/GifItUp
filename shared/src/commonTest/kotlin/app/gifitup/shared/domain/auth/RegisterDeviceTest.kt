@@ -11,9 +11,12 @@ import app.gifitup.shared.data.network.FakeAuthServer.Companion.error
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.StoredIdentity
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
@@ -85,16 +88,68 @@ class RegisterDeviceTest {
         }
 
     @Test
-    fun aRefusalIsFinalOnAFirstAttemptAndAfterTheRetry() =
+    fun aDefiniteRefusalOnAFirstAttemptDiscardsThePendingIdentity() =
         runTest {
-            server.on("/accounts", error(HttpStatusCode.Forbidden, "invite_invalid"))
-            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.INVITE_INVALID)), register("ann", INVITE))
+            server.on("/accounts", error(HttpStatusCode.Conflict, "username_unavailable"))
+            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.USERNAME_UNAVAILABLE)), register("ann", INVITE))
             assertEquals(emptyList(), waits)
+            assertNull(identities.identity)
+            assertNull(keys.key)
+            // So another username can be tried right away.
+            assertIs<AuthResult.Ok<Session>>(register("bob", INVITE))
+            assertEquals("bob", registerRequests().last().username)
+        }
 
-            server.on("/accounts", error(HttpStatusCode.Forbidden, "invite_invalid"), error(HttpStatusCode.Forbidden, "invite_invalid"))
+    @Test
+    fun aRefusalOnAResumeIsFinalAfterTheRetryAndDiscardsTheIdentity() =
+        runTest {
+            val refused = error(HttpStatusCode.Forbidden, "invite_invalid")
+            server.on("/accounts", dropped, refused, refused)
+            register("ann", INVITE)
             assertEquals(AuthResult.Failed(AuthError.Api(ApiError.INVITE_INVALID)), register("ann", INVITE))
             assertEquals(1, waits.size)
             assertEquals(3, registerRequests().size)
+            assertNull(identities.identity)
+            assertNull(keys.key)
+        }
+
+    @Test
+    fun otherFailuresKeepThePendingIdentityForAResume() =
+        runTest {
+            val failures =
+                listOf(
+                    dropped,
+                    error(HttpStatusCode.Unauthorized, "unauthorized"),
+                    error(HttpStatusCode.TooManyRequests, "rate_limited"),
+                    error(HttpStatusCode.InternalServerError, "internal"),
+                )
+            failures.forEach { reply ->
+                server.on("/accounts", reply)
+                assertIs<AuthResult.Failed>(register("ann", INVITE))
+                assertEquals("ann", identities.identity?.username)
+            }
+            assertEquals(1, keys.saves)
+        }
+
+    @Test
+    fun nothingIsSentWhenTheKeyOrTheIdentityCannotBeStored() =
+        runTest {
+            keys.failSave = true
+            assertFailsWith<IllegalStateException> { register("ann", INVITE) }
+            keys.failSave = false
+            identities.failSave = true
+            assertFailsWith<IllegalStateException> { register("ann", INVITE) }
+            assertEquals(emptyList(), server.requests)
+        }
+
+    @Test
+    fun concurrentCallsRunOneAfterTheOther() =
+        runTest {
+            val results = List(2) { async { register("ann", INVITE) } }.awaitAll()
+            assertEquals(1, keys.saves)
+            assertEquals(1, results.count { it is AuthResult.Ok })
+            assertEquals(AuthResult.Failed(AuthError.Local.ALREADY_REGISTERED), results.single { it is AuthResult.Failed })
+            FakeMlsClient.Factory.restore(identities.identity!!.snapshot, keys.key!!).close()
         }
 
     @Test

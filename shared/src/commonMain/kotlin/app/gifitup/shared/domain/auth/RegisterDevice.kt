@@ -13,6 +13,8 @@ import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -25,8 +27,14 @@ import kotlin.time.Duration.Companion.seconds
  *   the server treats it as a retry instead of spending a second invite.
  * - **A resume can see transient refusals** (#73 CR-6): the first attempt may still be committing, so a `403` or `409`
  *   on a resumed attempt is retried once after [TRANSIENT_RETRY_DELAY].
+ * - **A definite refusal discards the pending identity** (#95 CR-2): after a `400`, a `403` or a `409` that is final
+ *   (on a first attempt, or after the retry on a resume) no account holds this key, so identity and key are cleared
+ *   and the user can try again, e.g. with another username. Any other failure keeps them for a resume.
  * - Every attempt fetches a new challenge; the origin signed is the configured one, never one the server sent.
  * - The invite code is used for the request only and never stored.
+ * - **One registration at a time** (#95 CR-3, SEC-1): calls on this instance run one after the other, so two calls
+ *   can't each create a key and leave a snapshot next to the wrong one. Use one instance per pair of stores; a store
+ *   shared between processes (the CLI's state dir) needs its own lock.
  */
 class RegisterDevice(
     private val api: GifItUpApi,
@@ -40,14 +48,18 @@ class RegisterDevice(
         username: String,
         inviteCode: String,
     ): AuthResult<Session> =
-        try {
-            when (val start = prepare(username, inviteCode)) {
-                is Start.Refused -> failed(start.error)
-                is Start.Ready -> start.client.use { register(it, start.resumed, inviteCode) }
+        single.withLock {
+            try {
+                when (val start = prepare(username, inviteCode)) {
+                    is Start.Refused -> failed(start.error)
+                    is Start.Ready -> start.client.use { register(it, start.resumed, inviteCode) }
+                }
+            } catch (e: MlsException) {
+                e.toAuthFailure()
             }
-        } catch (e: MlsException) {
-            e.toAuthFailure()
         }
+
+    private val single = Mutex()
 
     private sealed interface Start {
         class Ready(
@@ -94,7 +106,10 @@ class RegisterDevice(
     /** Key first, then the client, then the pending identity: nothing reaches the server before both are stored. */
     private suspend fun create(username: String): MlsClient {
         val key = random.nextBytes(SNAPSHOT_KEY_SIZE)
-        keys.save(key.copyOf())
+        val copy = key.copyOf()
+        val saved = runCatching { keys.save(copy) }
+        copy.fill(0)
+        saved.onFailure { key.fill(0) }.getOrThrow()
         val client = mls.create(username, key)
         runCatching { identities.save(StoredIdentity(api.endpoint.origin, username, client.exportState(), deviceId = null)) }
             .onFailure { client.close() }
@@ -115,6 +130,9 @@ class RegisterDevice(
         if (result is ApiResult.Ok) {
             val username = client.publicIdentity().username
             identities.save(StoredIdentity(api.endpoint.origin, username, client.exportState(), result.value.deviceId))
+        } else if (result is ApiResult.Failed && result.error in DEFINITE_REFUSALS) {
+            identities.clear()
+            keys.clear()
         }
         return result.toAuth()
     }
@@ -133,5 +151,8 @@ class RegisterDevice(
         /** "A few seconds" (ADR-0009): long enough for the first attempt's transaction to finish. */
         val TRANSIENT_RETRY_DELAY = 3.seconds
         private val TRANSIENT_ON_RESUME = setOf(ApiError.INVITE_INVALID, ApiError.USERNAME_UNAVAILABLE)
+
+        /** Answers after which the server holds no account for this key (ADR-0009's order); see the class doc. */
+        private val DEFINITE_REFUSALS = setOf(ApiError.BAD_REQUEST, ApiError.INVITE_INVALID, ApiError.USERNAME_UNAVAILABLE)
     }
 }
