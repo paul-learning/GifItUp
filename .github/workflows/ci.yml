@@ -103,6 +103,13 @@ jobs:
           [ "$rc" -eq 1 ] || { echo "::error::test-panic code in the web bundle (or scan error $rc)"; exit 1; }
           rc=0; grep -laF "$HOME" "$dist"/*.wasm || rc=$?
           [ "$rc" -eq 1 ] || { echo "::error::build-machine paths in the web bundle (or scan error $rc)"; exit 1; }
+          # No dev CLI code (CLAUDE.md "Dev CLI"; #79, #102 SEC-13): its usage text and package, as UTF-8 or UTF-16.
+          # Kotlin/Wasm keeps a package name as its own string ("app.gifitup.cli", no trailing dot; #103 SEC-17). The
+          # control is the app's own package prefix in that form, required in the .wasm files themselves (SEC-18).
+          python3 scripts/scan-artifact.py --control "app.gifitup" \
+            --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli" --forbid "app.gifitup.cli" "$dist"/*.wasm
+          python3 scripts/scan-artifact.py --control "app.gifitup" \
+            --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli" --forbid "app.gifitup.cli" "$dist"
 
       - name: Upload test and lint reports
         if: failure()
@@ -299,4 +306,11 @@ jobs:
                 [ "$rc" -eq 1 ] || { echo "::error::$apk ($abi): found '$needle' (or scan error $rc)"; exit 1; }
               done
             done
+            # No dev CLI code in the app's classes (CLAUDE.md "Dev CLI"; #79, #102 SEC-13). The control is the app's
+            # own class-name prefix in the same form as the forbidden one (#103 SEC-18; minification is off).
+            dex="$RUNNER_TEMP/dex"
+            rm -rf "$dex" && mkdir "$dex"
+            unzip -q "$apk" 'classes*.dex' -d "$dex"
+            python3 scripts/scan-artifact.py --control "Lapp/gifitup/" \
+              --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli" --forbid "app.gifitup.cli" "$dex"/classes*.dex
           done

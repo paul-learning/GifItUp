@@ -12,7 +12,7 @@ fail() { echo "::error::$1"; status=1; }
 # xargs would turn that error into the same status as "no match".
 grep_files() {
   local files=() rc=0
-  mapfile -d '' files
+  mapfile -d '' files || return 0 # bash < 4.4 has no -d: fail closed (#102 SEC-20)
   [ "${#files[@]}" -gt 0 ] || return 1
   grep -nE -- "$1" "${files[@]}" || rc=$?
   [ "$rc" -ne 1 ] || return 1
@@ -99,10 +99,23 @@ fi
 # DevOnlyEndpoint allowlist above relies on this. A text check of the usual spellings: type-safe accessors, project
 # paths and names in either quote ("cli", ':e2e', also built up as rootProject.path + "cli"), and paths into the tool
 # dirs (files("../cli/build/libs/…"), srcDir("../cli/src/…")), #102 SEC-13. Not caught: a name assembled from pieces
-# or read from a property. The shipped APK and web bundle are scanned for the CLI's classes too (Planned, #79 PR B2).
+# or read from a property. CI also scans the shipped APKs and web bundle for the CLI's code (ci.yml).
 build_refs='projects\.(cli|e2e)\b|["'"'"']:?(cli|e2e)["'"'"']|(^|[^A-Za-z0-9_.-])(\.\./)*(cli|e2e)/'
 if git ls-files -z -- '*.gradle.kts' '*.gradle' | grep -zvx 'settings.gradle.kts' | grep_files "$build_refs"; then
   fail "a build file refers to :cli or :e2e or their dirs; only settings.gradle.kts may (#79 SEC-11, #102 SEC-13)"
+fi
+
+# The CLI's output and CI logs get no log lines (#79 plan SEC-9): its runtime classpath has no slf4j provider other
+# than slf4j-nop. An allowlist of the groups and slf4j artifacts on it (#103 CR-4, SEC-15), checked on the lock state,
+# which the build must match: a new runtime dependency fails here until someone checks it brings no logging backend
+# and adds it.
+cli_runtime_allowed='^(io\.ktor|net\.java\.dev\.jna|org\.jetbrains|org\.jetbrains\.kotlin|org\.jetbrains\.kotlinx):|^org\.slf4j:slf4j-(api|nop):'
+if [ ! -f cli/gradle.lockfile ]; then
+  fail "cli/gradle.lockfile is missing (#79 SEC-9)"
+elif ! grep -qE '^org\.slf4j:slf4j-nop:.*[=,]runtimeClasspath(,|$)' cli/gradle.lockfile; then
+  fail "cli/gradle.lockfile has no slf4j-nop on runtimeClasspath, so the allowlist below checks nothing (#103 SEC-19)"
+elif grep -E '[=,]runtimeClasspath(,|$)' cli/gradle.lockfile | grep -vE "$cli_runtime_allowed"; then
+  fail "cli's runtime classpath has an artifact outside the allowlist (no slf4j provider but slf4j-nop, #79 SEC-9)"
 fi
 
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."

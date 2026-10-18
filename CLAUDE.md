@@ -13,10 +13,10 @@ Read this file and `docs/review-lessons.md` fully at the start of every session.
 | Android app shell | Thin `com.android.application` module (Activity, manifest); AGP 9 keeps the APK out of KMP modules | `androidApp/` |
 | Wire protocol | KMP module with `@Serializable` wire models only (no client logic); used by clients **and** server | `protocol/` |
 | Shared client logic | Kotlin Multiplatform (domain, data, Ktor client, `MlsClient` interface) | `shared/` |
-| MLS bindings | KMP module implementing `MlsClient` over `crypto/` (uniffi on Android/JVM, wasm-bindgen on web); only the app modules (and the planned dev CLI, #79) depend on it (ADR-0007) | `mls/` |
+| MLS bindings | KMP module implementing `MlsClient` over `crypto/` (uniffi on Android/JVM, wasm-bindgen on web); only the app modules and the dev CLI depend on it (ADR-0007) | `mls/` |
 | E2EE core | Rust crate wrapping OpenMLS; uniffi → Android, wasm-bindgen → Web | `crypto/` |
 | Backend | Ktor server (Kotlin/JVM), PostgreSQL | `server/` |
-| Dev CLI (planned, #79) | JVM command-line client over `shared` + `mls` + `protocol`; dev/test tool only, never shipped (see Architecture rules) | `cli/` |
+| Dev CLI (#79) | JVM command-line client over `shared` + `mls`; dev/test tool only, never shipped (see Architecture rules) | `cli/` |
 | Deployment | Docker Compose + Caddy (TLS) on the Hetzner VM | `deploy/` |
 | Docs | Roadmap, ADRs, threat model, review reports | `docs/` |
 
@@ -26,12 +26,12 @@ Dependency versions live only in `gradle/libs.versions.toml` / `crypto/Cargo.tom
 ## Architecture rules
 
 - **Layering (client):** `ui` → `presentation` (state holders / ViewModels) → `domain` (use cases, pure Kotlin) → `data` (repositories, network, storage, crypto). Dependencies point inward only; `domain` imports nothing platform- or framework-specific.
-- **Crypto boundary:** all MLS / key / encryption code, including GIF blob encryption and padding (ADR-0003), lives in `crypto/` (Rust) and is exposed to Kotlin only through the `MlsClient` interface in `shared`, implemented in the `:mls` module that only the app modules (and the planned dev CLI, #79) depend on (ADR-0007). No other module touches keys or ciphertext formats directly. Never hand-roll cryptographic primitives.
+- **Crypto boundary:** all MLS / key / encryption code, including GIF blob encryption and padding (ADR-0003), lives in `crypto/` (Rust) and is exposed to Kotlin only through the `MlsClient` interface in `shared`, implemented in the `:mls` module that only the app modules and the dev CLI depend on (ADR-0007). No other module touches keys or ciphertext formats directly. Never hand-roll cryptographic primitives.
 - **Server is untrusted:** the server stores and forwards opaque ciphertext, KeyPackages, and encrypted blobs. It must never receive plaintext content, GIF identities, GIF search queries, or private keys. Any new server-visible field needs a justification in the PR ("metadata it reveals").
 - **Wire models** live in `protocol/` (the server depends on `protocol`, never on `shared`), are `@Serializable` and versioned; changes must stay backward compatible or bump the protocol version, following the compatibility rules in ADR-0006. The encrypted message content schema (GIF reference, `GroupMeta`) lives in `shared` (data layer) and never in `protocol`: the server must not get it.
 - Prefer small, testable units; constructor injection (DI approach decided in #1 and recorded as an ADR); no global mutable state.
 - **ADRs are for hard-to-reverse decisions only:** a new dependency, a protocol change, data stored server-side, crypto, deployment. Write the ADR in `docs/adr/` using the template there, in the same PR. Use the **next free ADR number at the time of writing**; issue texts name ADR topics, not numbers. Any other decision (e.g. a new module, a library-internal design choice) gets a short **Decision** paragraph in the PR body instead.
-- **Dev CLI (`cli/`, planned, #79):** a dev/test tool, never shipped and never part of an app artifact. It keeps keys unprotected in a local state dir and is used with test accounts only. Reviews must not treat it as a product platform (no key-storage or UX hardening findings for it), but they do check that its code and keys never reach an app artifact, a published build output or CI logs, and that it is not used with real accounts (`TestAccountGuard` in `:shared`, keyed on the origin; threat model). A PR that changes how it stores keys or tokens is high tier (security rule 6). It stays a thin shell: no client logic of its own (logic it needs goes into a shared use case the app uses too), and no server endpoint, flag or bypass exists only for it.
+- **Dev CLI (`cli/`, #79):** a dev/test tool, never shipped and never part of an app artifact. It keeps keys unprotected in a local state dir and is used with test accounts only. Reviews must not treat it as a product platform (no key-storage or UX hardening findings for it), but they do check that its code and keys never reach an app artifact, a published build output or CI logs, and that it is not used with real accounts (`TestAccountGuard` in `:shared`, keyed on the origin; threat model). A PR that changes how it stores keys or tokens is high tier (security rule 6). It stays a thin shell: no client logic of its own (logic it needs goes into a shared use case the app uses too), and no server endpoint, flag or bypass exists only for it.
 
 ## Security rules (non-negotiable)
 
@@ -125,6 +125,7 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 | Web production bundle | `./gradlew :composeApp:wasmJsBrowserDistribution` |
 | MLS contract tests (needs Rust and `wasm-bindgen-cli` at the crate's pinned version; part of `check`; in cloud sessions only `:mls:jvmTest`, see *Environment notes*) | `./gradlew :mls:jvmTest :mls:wasmJsTest` |
 | Android `.so` files of `crypto/` (needs `cargo-ndk`) | `./gradlew :mls:cargoNdkBuild` |
+| Dev CLI (test accounts only; see *Dev CLI* above) | `./gradlew :cli:installDist`, then `cli/build/install/gifitup-cli/bin/gifitup-cli register\|login\|devices\|reset --server … --state-dir …` (invite on stdin; no arguments prints the usage) |
 | Run server locally | `./gradlew :server:run` with `DB_URL`, `DB_USER`, `DB_PASSWORD_FILE` set and a migrated Postgres (ADR-0008; easiest: the `deploy/` compose stack with a local image, `migrate` first). Port from `PORT`, default 8080; `GET /health` |
 | Turn on the repo's git hooks (once per clone; agent sessions do it automatically, check with `git rev-parse --git-path hooks` → `.githooks`) | `git config core.hooksPath .githooks` (owner; `git config` is denied for the agent) |
 | Repo hygiene (file modes, IDE artifacts, matching pins) | `bash scripts/check-repo-hygiene.sh` (Git Bash on Windows) |

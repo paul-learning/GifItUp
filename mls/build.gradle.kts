@@ -1,7 +1,7 @@
 // :mls — the platform implementations of the MlsClient interface from :shared (ADR-0007): uniffi bindings
-// on Android/JVM, wasm-bindgen on the web. Only the app modules depend on it; it needs the Rust toolchain
-// (crypto/rust-toolchain.toml), wasm-bindgen-cli (version = the crate's wasm-bindgen pin) and, for the
-// Android .so files, cargo-ndk. The task classes move to build-logic/ with #34.
+// on Android/JVM, wasm-bindgen on the web. Only the app modules and the dev CLI (#79) depend on it; it needs the
+// Rust toolchain (crypto/rust-toolchain.toml), wasm-bindgen-cli (version = the crate's wasm-bindgen pin) and, for
+// the Android .so files, cargo-ndk. The task classes move to build-logic/ with #34.
 
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -327,6 +327,16 @@ val uniffiBindgen =
         targetDir.set(hostTargetDir)
         outputDir.set(uniffiKotlinDir)
     }
+
+// The host library uniffiBindgen builds (debug, without the test-panic feature) for the dev CLI's distribution
+// (#79 PR B): the CLI consumes this module too (besides the app modules), a dev/test tool that never ships (ADR-0007).
+val hostNativeLibrary by configurations.creating {
+    isCanBeConsumed = true
+    isCanBeResolved = false
+}
+artifacts.add(hostNativeLibrary.name, uniffiBindgen.map { it.targetDir.file("debug/${hostLibraryName()}").get() }) {
+    builtBy(uniffiBindgen)
+}
 
 val wasmBindgenPackage =
     tasks.register<WasmBindgenPackage>("wasmBindgenPackage") {
