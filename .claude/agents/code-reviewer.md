@@ -30,7 +30,7 @@ Read docs in proportion to risk (CLAUDE.md, *Risk tiers*). Take the tier from th
 5. **Simplicity & readability:** dead code, duplication, unclear names, over-engineering, a missing ADR for a hard-to-reverse decision (CLAUDE.md lists them) or a missing *Decision* paragraph for another one.
 6. **Scope:** does the PR do what the linked issue asks — no more, no less?
 7. **Docs consistency:** a changed decision is updated everywhere (docs, ADRs, open issues, code comments, file headers); no stale terms left; the PR body matches the diff.
-8. **Risk tier:** the tier in the PR body matches the diff (CLAUDE.md, "Risk tiers": the highest tier any change hits); a tier set too low is a `high` finding, because it skips the security review.
+8. **Risk tier:** the tier in the PR body matches the diff (CLAUDE.md, "Risk tiers": the highest tier any change hits); a tier set too low is a `high` finding, because it skips the security review. So is a normal-tier PR that hits a security-review trigger (CLAUDE.md, *Risk tiers*, Normal row) when the author didn't launch the `security-reviewer` (#107 SEC-7).
 
 Only report real issues. Prefer few precise findings over many vague ones. Each finding needs a concrete location and a concrete suggestion.
 
