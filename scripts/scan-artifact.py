@@ -4,7 +4,8 @@
 usage: scan-artifact.py --control <text> --forbid <text> [--forbid <text> ...] <file or dir>...
 
 Directories are scanned recursively. Each text is searched as UTF-8 and as UTF-16LE, since Kotlin/Wasm may keep
-string literals in either form. The control is a string the app is known to ship (from :shared); if no file holds it, the scan can't see strings in these files
+string literals in either form. The control is a string the app is known to ship, in the same form as the forbidden ones (the app's own package
+prefix); if no file holds it, the scan can't see strings in these files
 at all and fails rather than passing on nothing. Exit 0: control found and nothing forbidden; 1: a forbidden string
 or no control; 2: usage or read error.
 """

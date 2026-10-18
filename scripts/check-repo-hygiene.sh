@@ -112,6 +112,8 @@ fi
 cli_runtime_allowed='^(io\.ktor|net\.java\.dev\.jna|org\.jetbrains|org\.jetbrains\.kotlin|org\.jetbrains\.kotlinx):|^org\.slf4j:slf4j-(api|nop):'
 if [ ! -f cli/gradle.lockfile ]; then
   fail "cli/gradle.lockfile is missing (#79 SEC-9)"
+elif ! grep -qE '^org\.slf4j:slf4j-nop:.*[=,]runtimeClasspath(,|$)' cli/gradle.lockfile; then
+  fail "cli/gradle.lockfile has no slf4j-nop on runtimeClasspath, so the allowlist below checks nothing (#103 SEC-19)"
 elif grep -E '[=,]runtimeClasspath(,|$)' cli/gradle.lockfile | grep -vE "$cli_runtime_allowed"; then
   fail "cli's runtime classpath has an artifact outside the allowlist (no slf4j provider but slf4j-nop, #79 SEC-9)"
 fi

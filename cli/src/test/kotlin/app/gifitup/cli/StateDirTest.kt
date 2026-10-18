@@ -4,6 +4,7 @@ import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermissions
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.writeText
@@ -12,6 +13,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class StateDirTest {
     private val dir = Files.createTempDirectory("cli-state-").resolve("state")
@@ -80,8 +82,13 @@ class StateDirTest {
                     .apply { environment().remove("JAVA_TOOL_OPTIONS") } // the JVM announces it on stderr
                     .start()
             process.outputStream.close()
+            // A regression that waits for the lock fails here instead of hanging the build (#103 delta). The stderr
+            // is a line or two, so it can't fill the pipe before the process exits.
+            val exited = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            if (!exited) process.destroyForcibly()
+            assertTrue(exited, "the second process didn't exit")
             val stderr = process.errorStream.bufferedReader().readText()
-            assertEquals(EXIT_REFUSED, process.waitFor(), stderr)
+            assertEquals(EXIT_REFUSED, process.exitValue(), stderr)
             assertEquals("gifitup-cli: another gifitup-cli is using this state dir\n", stderr.replace("\r\n", "\n"))
         }
     }
@@ -104,4 +111,8 @@ class StateDirTest {
                 assertEquals(31, Files.size(dir.resolve("snapshot-key")))
             }
         }
+
+    private companion object {
+        const val PROCESS_TIMEOUT_SECONDS = 60L
+    }
 }
