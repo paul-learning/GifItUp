@@ -14,13 +14,13 @@ class FakeMlsClient private constructor(
 ) : MlsClient {
     private var closed = false
 
-    override fun publicIdentity(): PublicIdentity = live { PublicIdentity(username, signatureKey(username)) }
+    override fun publicIdentity(): PublicIdentity = live { PublicIdentity(username, signatureKey(username, keyTag)) }
 
     override fun createKeyPackages(count: Int): List<CreatedKeyPackage> =
         live {
             if (count !in 1..MAX_PER_CALL || keyPackagesHeld.size + count > MAX_HELD) fail(MlsErrorCode.InvalidInput)
             List(count) {
-                val bytes = "kp:$username:${keyPackagesHeld.size}".encodeToByteArray()
+                val bytes = "kp:$username:$keyTag:${keyPackagesHeld.size}".encodeToByteArray()
                 keyPackagesHeld += bytes
                 CreatedKeyPackage(bytes, bytes.copyOf(REF_SIZE), NOT_AFTER)
             }
@@ -37,8 +37,8 @@ class FakeMlsClient private constructor(
                 fail(MlsErrorCode.InvalidInput)
             }
             val parts = keyPackage.decodeToString().split(":")
-            if (parts.size != 3 || parts[0] != "kp" || parts[1] != expectedUsername) fail(MlsErrorCode.InvalidKeyPackage)
-            PublicIdentity(expectedUsername, signatureKey(expectedUsername))
+            if (parts.size != 4 || parts[0] != "kp" || parts[1] != expectedUsername) fail(MlsErrorCode.InvalidKeyPackage)
+            PublicIdentity(expectedUsername, signatureKey(expectedUsername, parts[2]))
         }
 
     /** "Encrypted" with the key: restoring with another key fails like the real client (SnapshotAuth). */
@@ -94,7 +94,7 @@ class FakeMlsClient private constructor(
             val held = parts.takeIf { it.size == 4 && it[0] == "state" }?.get(3)?.toIntOrNull()
             if (held == null || held !in 0..MAX_HELD || !isValidUsername(parts[2])) fail(MlsErrorCode.SnapshotInvalid)
             val username = parts[2]
-            return FakeMlsClient(username, tag, MutableList(held) { "kp:$username:$it".encodeToByteArray() })
+            return FakeMlsClient(username, tag, MutableList(held) { "kp:$username:$tag:$it".encodeToByteArray() })
         }
 
         /** Checks the length, derives a tag that identifies the key, and zeroes the caller's copy. */
@@ -125,7 +125,11 @@ class FakeMlsClient private constructor(
 
         fun isValidUsername(name: String) = USERNAME.matches(name)
 
-        fun signatureKey(username: String) = "sig:$username".encodeToByteArray()
+        /** Depends on the snapshot key too, like a real key pair would: a new key means a new public key (#95 SEC-3). */
+        fun signatureKey(
+            username: String,
+            keyTag: String,
+        ) = "sig:$username:$keyTag".encodeToByteArray()
 
         fun fail(code: MlsErrorCode): Nothing = throw MlsException(code)
     }

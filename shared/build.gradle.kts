@@ -22,6 +22,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.protocol)
             implementation(libs.ktor.client.core)
+            implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
