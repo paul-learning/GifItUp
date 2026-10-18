@@ -5,8 +5,10 @@ import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.data.storage.RestoreCounter
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.auth.GuardedMlsFactory
 import app.gifitup.shared.domain.auth.ListDevices
 import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.LogOut
@@ -100,7 +102,7 @@ class Cli(
         api: GifItUpApi,
         state: StateDir,
     ): Int {
-        val register = RegisterDevice(api, mls, state.identities, state.keys, random)
+        val register = RegisterDevice(api, guarded(), state.identities, state.keys, random)
         return when (invocation.command) {
             "register" -> register(invocation, api, register)
             "reset" -> report(register.discardPending()) { out.println("pending registration discarded") }
@@ -129,7 +131,7 @@ class Cli(
     ): Int {
         val stored = state.identities.load()
         if (stored != null) guard(api, stored.username, invocation.remoteTestAccount)
-        val login = LogIn(api, mls, state.identities, state.keys)()
+        val login = LogIn(api, guarded(), state.identities, state.keys)()
         if (login !is AuthResult.Ok) return report(login) { }
         return try {
             then(login.value)
@@ -169,6 +171,9 @@ class Cli(
                 }
             }
         }
+
+    /** No restore counter: on the JVM a panic comes back as an exception, so there is no reload loop (ADR-0007). */
+    private fun guarded() = GuardedMlsFactory(mls, RestoreCounter.Unneeded)
 
     private fun guard(
         api: GifItUpApi,
@@ -238,6 +243,8 @@ private fun localMessage(error: AuthError.Local): String =
         AuthError.Local.OTHER_ORIGIN -> "this state dir belongs to another origin"
         AuthError.Local.STATE_INVALID -> "the state dir is damaged or doesn't match its key"
         AuthError.Local.CRYPTO -> "the MLS client failed"
+        AuthError.Local.KEY_UNAVAILABLE -> "the state dir's key can't be used"
+        AuthError.Local.RESTORE_BLOCKED -> "the last restores failed; this can't happen in the CLI"
     }
 
 /** After a refused resume the identity is kept on purpose (#95 CR-5): only the user knows the earlier attempt is lost. */

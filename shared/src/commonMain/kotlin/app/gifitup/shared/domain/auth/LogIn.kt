@@ -1,7 +1,6 @@
 package app.gifitup.shared.domain.auth
 
 import app.gifitup.shared.data.crypto.AuthPurpose
-import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.ApiResult
@@ -9,6 +8,7 @@ import app.gifitup.shared.data.network.Device
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.IdentityStore
+import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 
 /**
@@ -17,7 +17,7 @@ import app.gifitup.shared.data.storage.SnapshotKeyStore
  */
 class LogIn(
     private val api: GifItUpApi,
-    private val mls: MlsClientFactory,
+    private val mls: GuardedMlsFactory,
     private val identities: IdentityStore,
     private val keys: SnapshotKeyStore,
 ) {
@@ -48,6 +48,10 @@ class LogIn(
             }
         } catch (e: MlsException) {
             e.toAuthFailure()
+        } catch (e: LocalStateException) {
+            e.toAuthFailure()
+        } catch (ignored: RestoreBlockedException) {
+            failed(AuthError.Local.RESTORE_BLOCKED)
         }
 
     private suspend fun signedLogIn(

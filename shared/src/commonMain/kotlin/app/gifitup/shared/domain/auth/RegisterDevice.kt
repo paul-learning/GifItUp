@@ -2,7 +2,6 @@ package app.gifitup.shared.domain.auth
 
 import app.gifitup.shared.data.crypto.AuthPurpose
 import app.gifitup.shared.data.crypto.MlsClient
-import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.ApiError
@@ -10,6 +9,7 @@ import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.IdentityStore
+import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.delay
@@ -41,7 +41,7 @@ import kotlin.time.Duration.Companion.seconds
  */
 class RegisterDevice(
     private val api: GifItUpApi,
-    private val mls: MlsClientFactory,
+    private val mls: GuardedMlsFactory,
     private val identities: IdentityStore,
     private val keys: SnapshotKeyStore,
     private val random: SecureRandomSource,
@@ -59,6 +59,10 @@ class RegisterDevice(
                 }
             } catch (e: MlsException) {
                 e.toAuthFailure()
+            } catch (e: LocalStateException) {
+                e.toAuthFailure()
+            } catch (ignored: RestoreBlockedException) {
+                failed(AuthError.Local.RESTORE_BLOCKED)
             }
         }
 
@@ -72,12 +76,17 @@ class RegisterDevice(
      */
     suspend fun discardPending(): AuthResult<Unit> =
         single.withLock {
-            if (identities.load()?.deviceId != null) {
-                failed(AuthError.Local.ALREADY_REGISTERED)
-            } else {
-                identities.clear()
-                keys.clear()
-                AuthResult.Ok(Unit)
+            try {
+                if (identities.load()?.deviceId != null) {
+                    failed(AuthError.Local.ALREADY_REGISTERED)
+                } else {
+                    identities.clear()
+                    keys.clear()
+                    AuthResult.Ok(Unit)
+                }
+            } catch (e: LocalStateException) {
+                // A record that can't be read may be a registered one: only a wipe removes it (WipeLocalData).
+                e.toAuthFailure()
             }
         }
 

@@ -1,7 +1,10 @@
 package app.gifitup.shared.domain.auth
 
+import app.gifitup.shared.data.crypto.FakeMlsClient
+import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.storage.IdentityStore
+import app.gifitup.shared.data.storage.RestoreCounter
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.yield
@@ -49,6 +52,9 @@ class InMemoryKeyStore(
         key = null
     }
 }
+
+/** The fake factory without a restore counter, as the use cases' tests had it before the guard (#16). */
+fun unguarded(mls: MlsClientFactory = FakeMlsClient.Factory) = GuardedMlsFactory(mls, RestoreCounter.Unneeded)
 
 /** Deterministic, distinct keys: fine for tests, never for anything else. */
 class CountingRandom : SecureRandomSource {
