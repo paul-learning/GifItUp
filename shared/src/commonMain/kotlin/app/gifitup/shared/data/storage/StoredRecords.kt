@@ -90,16 +90,6 @@ interface RestoreCounter {
     suspend fun failures(): Int
 
     suspend fun set(failures: Int)
-
-    /**
-     * For a client whose restore can't trap: on the JVM a panic unwinds and comes back as an exception (ADR-0007), so
-     * the dev CLI has no reload loop to break. Never for the web app.
-     */
-    object Unneeded : RestoreCounter {
-        override suspend fun failures(): Int = 0
-
-        override suspend fun set(failures: Int) = Unit
-    }
 }
 
 /** [RestoreCounter] in the app's [LocalStore]. A damaged count reads as the limit: it never unblocks by itself. */

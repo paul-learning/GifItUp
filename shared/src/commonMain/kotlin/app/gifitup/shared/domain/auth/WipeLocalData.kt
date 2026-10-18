@@ -6,14 +6,17 @@ import app.gifitup.shared.data.network.Session
 /** The platform side of [WipeLocalData] (ADR-0011): `:mls` implements it over the Keystore or WebCrypto and the store. */
 interface DeviceData {
     /**
-     * Deletes the platform key that wraps the snapshot key. After it returns, no stored or leftover wrapped key can be
+     * Deletes the platform key that wraps the snapshot key; a missing key is no error, so a retried wipe completes
+     * (#108 SEC-18). After it returns, no stored or leftover wrapped key can be
      * opened again; on Android this is what erases the data, since copies of old files can remain on flash (#16 SEC-3).
      */
     suspend fun destroyWrappingKey()
 
     /**
-     * Deletes every record (identity, wrapped key, counters) and the store itself where the platform allows. Throws if
-     * that isn't done, for example while another connection keeps the web database open (#16 SEC-8).
+     * Deletes every record (identity, wrapped key, counters) and the store itself where the platform allows; deleting
+     * what's already gone is no error. Throws if it isn't done, for example while another connection keeps the web
+     * database open (#16 SEC-8). A wipe that stops after the key is destroyed leaves records no key opens
+     * (`KEY_UNAVAILABLE` for good), so the app offers the wipe again from there (#17).
      */
     suspend fun deleteAll()
 }
@@ -30,11 +33,12 @@ interface DeviceData {
 class WipeLocalData(
     private val data: DeviceData,
     private val logOut: LogOut,
+    private val lock: DeviceLock,
 ) {
     suspend operator fun invoke(
         session: Session?,
         openClients: Collection<MlsClient>,
-    ) {
+    ) = lock.holding {
         // Best effort: a failed logout leaves a token that expires on its own and isn't stored anywhere.
         if (session != null) runCatching { logOut(session) }
         openClients.forEach { runCatching { it.close() } }

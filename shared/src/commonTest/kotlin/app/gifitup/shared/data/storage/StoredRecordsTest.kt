@@ -1,18 +1,23 @@
 package app.gifitup.shared.data.storage
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
-/** An atomic in-memory [LocalStore]; [writes] records each [putAll] as one unit. */
+/** An atomic in-memory [LocalStore]; [writes] records each [putAll] as one unit. Yields like real storage would. */
 class InMemoryLocalStore : LocalStore {
     val entries = mutableMapOf<String, ByteArray>()
     val writes = mutableListOf<Map<String, ByteArray?>>()
 
-    override suspend fun get(key: String): ByteArray? = entries[key]?.copyOf()
+    override suspend fun get(key: String): ByteArray? {
+        val value = entries[key]?.copyOf()
+        yield() // after the read, so an unlocked read-then-write by two callers interleaves
+        return value
+    }
 
     override suspend fun putAll(entries: Map<String, ByteArray?>) {
         writes += entries

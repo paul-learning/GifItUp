@@ -20,8 +20,11 @@ class LogIn(
     private val mls: GuardedMlsFactory,
     private val identities: IdentityStore,
     private val keys: SnapshotKeyStore,
+    private val lock: DeviceLock,
 ) {
-    suspend operator fun invoke(): AuthResult<Session> =
+    suspend operator fun invoke(): AuthResult<Session> = lock.holding { attempt() }
+
+    private suspend fun attempt(): AuthResult<Session> =
         try {
             val origin = api.endpoint.origin
             val stored = identities.load()

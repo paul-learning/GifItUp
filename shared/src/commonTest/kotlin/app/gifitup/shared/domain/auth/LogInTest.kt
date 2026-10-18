@@ -22,13 +22,13 @@ class LogInTest {
     private val server = FakeAuthServer()
     private val identities = InMemoryIdentityStore()
     private val keys = InMemoryKeyStore()
-    private val logIn = LogIn(server.api(), unguarded(), identities, keys)
+    private val logIn = LogIn(server.api(), unguarded(), identities, keys, DeviceLock())
 
     /** A registered identity, made the way [RegisterDevice] makes one. */
     private suspend fun registered(deviceId: String? = DEVICE_ID) {
         identities.identity = null
         keys.key = null
-        RegisterDevice(server.api(), unguarded(), identities, keys, CountingRandom())("ann", "AAAAAAAAAAAAAAAAAAAAAA")
+        RegisterDevice(server.api(), unguarded(), identities, keys, CountingRandom(), DeviceLock())("ann", "AAAAAAAAAAAAAAAAAAAAAA")
         identities.identity = identities.identity!!.let { StoredIdentity(it.origin, it.username, it.snapshot, deviceId) }
         server.requests.clear()
     }

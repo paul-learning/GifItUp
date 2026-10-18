@@ -7,7 +7,9 @@ package app.gifitup.shared.data.storage
  *
  * [putAll] is atomic and durable when it returns: after a crash all of its entries are old or all are new. It takes
  * several entries so a later caller can write the snapshot together with other state in one transaction (#24, #92
- * SEC-11). One instance per device: the platform makes sure only one app instance uses the store (ADR-0011).
+ * SEC-11). One instance per device: the platform makes sure only one app instance uses the store (ADR-0011). A
+ * platform failure (I/O, a quota, a closed database) is thrown as [LocalStateException] with
+ * [LocalStateException.Problem.STORAGE], never as a raw platform exception (#108 SEC-13).
  */
 interface LocalStore {
     suspend fun get(key: String): ByteArray?
@@ -32,6 +34,9 @@ class LocalStateException(
          * SEC-5). Never a reason to make a new key or to count a failed restore (#16 SEC-4): it can be transient.
          */
         KEY_UNAVAILABLE,
+
+        /** The platform storage failed to read or write (I/O, quota, a closed database). Can be transient. */
+        STORAGE,
     }
 
     override fun toString(): String = "LocalStateException(problem=$problem)"

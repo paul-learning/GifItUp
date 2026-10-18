@@ -55,6 +55,9 @@ sealed interface AuthError {
 
         /** The last restores never returned ([GuardedMlsFactory]); the user chooses "try again" or a reset. */
         RESTORE_BLOCKED,
+
+        /** The device's storage failed to read or write; can be transient (#108 SEC-13). */
+        STORAGE_FAILED,
     }
 }
 
@@ -91,6 +94,7 @@ internal fun LocalStateException.toAuthFailure(): AuthResult.Failed =
     when (problem) {
         LocalStateException.Problem.DAMAGED -> failed(AuthError.Local.STATE_INVALID)
         LocalStateException.Problem.KEY_UNAVAILABLE -> failed(AuthError.Local.KEY_UNAVAILABLE)
+        LocalStateException.Problem.STORAGE -> failed(AuthError.Local.STORAGE_FAILED)
     }
 
 /** Snapshot problems mean the stored state is unusable; anything else is a crypto failure. */

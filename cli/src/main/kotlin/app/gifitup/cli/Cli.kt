@@ -8,6 +8,7 @@ import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.RestoreCounter
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.auth.DeviceLock
 import app.gifitup.shared.domain.auth.GuardedMlsFactory
 import app.gifitup.shared.domain.auth.ListDevices
 import app.gifitup.shared.domain.auth.LogIn
@@ -102,7 +103,7 @@ class Cli(
         api: GifItUpApi,
         state: StateDir,
     ): Int {
-        val register = RegisterDevice(api, guarded(), state.identities, state.keys, random)
+        val register = RegisterDevice(api, guarded(), state.identities, state.keys, random, lock)
         return when (invocation.command) {
             "register" -> register(invocation, api, register)
             "reset" -> report(register.discardPending()) { out.println("pending registration discarded") }
@@ -131,7 +132,7 @@ class Cli(
     ): Int {
         val stored = state.identities.load()
         if (stored != null) guard(api, stored.username, invocation.remoteTestAccount)
-        val login = LogIn(api, guarded(), state.identities, state.keys)()
+        val login = LogIn(api, guarded(), state.identities, state.keys, lock)()
         if (login !is AuthResult.Ok) return report(login) { }
         return try {
             then(login.value)
@@ -172,8 +173,11 @@ class Cli(
             }
         }
 
-    /** No restore counter: on the JVM a panic comes back as an exception, so there is no reload loop (ADR-0007). */
-    private fun guarded() = GuardedMlsFactory(mls, RestoreCounter.Unneeded)
+    /** One per command: the state dir's file lock already keeps other processes out. */
+    private val lock = DeviceLock()
+
+    /** No stored restore counter: on the JVM a panic comes back as an exception, so there is no reload loop (ADR-0007). */
+    private fun guarded() = GuardedMlsFactory(mls, NoRestoreCounter)
 
     private fun guard(
         api: GifItUpApi,
@@ -207,6 +211,16 @@ class Cli(
                 throw CliError(message(result.error), if (result.error is AuthError.Api) EXIT_SERVER else EXIT_REFUSED)
             }
         }
+}
+
+/**
+ * A restore counter that counts nothing, for the dev CLI only (#108 CR-4): on the JVM a restore can't trap, so there is
+ * no reload loop to break. It lives here, not in `:shared`, so no app composition root can pick it up.
+ */
+private object NoRestoreCounter : RestoreCounter {
+    override suspend fun failures(): Int = 0
+
+    override suspend fun set(failures: Int) = Unit
 }
 
 /** The invite code from what the user pasted: the code itself or the invite link, whose fragment is the code. */
@@ -245,6 +259,7 @@ private fun localMessage(error: AuthError.Local): String =
         AuthError.Local.CRYPTO -> "the MLS client failed"
         AuthError.Local.KEY_UNAVAILABLE -> "the state dir's key can't be used"
         AuthError.Local.RESTORE_BLOCKED -> "the last restores failed; this can't happen in the CLI"
+        AuthError.Local.STORAGE_FAILED -> "the state dir couldn't be read or written"
     }
 
 /** After a refused resume the identity is kept on purpose (#95 CR-5): only the user knows the earlier attempt is lost. */
