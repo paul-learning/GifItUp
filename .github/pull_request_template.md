@@ -24,12 +24,8 @@ Closes #
 - [ ] ADR added/updated for a hard-to-reverse decision, or a *Decision* paragraph above for any other decision
 
 ## Review log
-<!-- Filled by the authoring agent after the independent review agent(s) post their comments.
-     Max 2 rounds (round 0 doesn't count); delta security checks get their own row ("delta after <k>") and don't count as rounds. Design-heavy work (crypto/, auth, keys/secrets, protocol/, new endpoints) starts with round 0 (plan) by security-reviewer. -->
-| Round | Reviewer | Verdict | Comment |
-|---|---|---|---|
-| 1 | code-reviewer | | |
-
-| Finding | Severity | Status | Resolution |
-|---|---|---|---|
-| CR-1 | | fixed / won't fix / later / escalated | commit SHA, justification or `later` issue |
+<!-- One line, set once when the reviews are done (CLAUDE.md, Risk tiers, step 4). Each review round and delta check is
+     its own reviewer comment, and the author answers every finding in a reply comment (fix SHA, reason for declining,
+     or `later` issue); neither is copied here. Max 2 rounds (round 0, the plan review, doesn't count); delta security
+     checks are their own comments and don't count as rounds. -->
+Final review: <link to the last reviewer comment> · author reply: <link> · status: <all fixed | fixed except CR-n declined (reason in reply), SEC-n → #later>

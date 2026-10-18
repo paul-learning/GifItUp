@@ -11,8 +11,15 @@ A PR number. Get everything else yourself:
 - `gh pr view <n> --json title,body,files,headRefName,baseRefName`
 - `gh pr diff <n>`
 - In a cloud session (no GraphQL, so the two above fail): `gh api repos/paul-learning/GifItUp/pulls/<n> --jq '{title,body,head:.head.ref,base:.base.ref}'`, `gh api repos/paul-learning/GifItUp/pulls/<n>/files --paginate --jq '.[].filename'` and `gh api -H 'Accept: application/vnd.github.diff' repos/paul-learning/GifItUp/pulls/<n>`; comments via `gh api repos/paul-learning/GifItUp/issues/<n>/comments --paginate`.
-- Read `CLAUDE.md`, relevant ADRs in `docs/adr/`, and surrounding code for context.
+- Read the surrounding code for context, and the docs the PR's tier calls for (next section).
 - If useful, check out the branch in a worktree and run the build/tests (`./gradlew check`, `cargo test`). Never push, commit, approve, or merge.
+
+## Context by tier
+Read docs in proportion to risk (CLAUDE.md, *Risk tiers*). Take the tier from the PR body's *Risk tier* field; a missing or unreadable field counts as high. In every tier, read `CLAUDE.md`'s *Risk tiers* section and check the claim against the diff (*What to check*, item 8).
+- **Under-tiered:** if the diff hits a higher tier than claimed, report that as a `high` finding naming the path and the tier it hits, and **stop**. Don't review further: the author fixes the tier and relaunches the reviewers that tier needs. Your comment doesn't count as a round.
+- **High:** all of `CLAUDE.md`, `docs/review-lessons.md`, `docs/security/threat-model.md`, and the ADRs in `docs/adr/` that the diff, the PR or the issue touch.
+- **Normal:** all of `CLAUDE.md`, `docs/review-lessons.md` and the diff. Read ADRs and threat-model sections only when the PR changes them or names them, or when a grep of `docs/adr/` and the threat model for the changed module, endpoint or field finds them.
+- **Low:** the diff, the files it changes and this checklist. Read no other docs beyond the *Risk tiers* section. One round (CLAUDE.md).
 
 ## What to check
 1. **Correctness:** logic bugs, edge cases, error handling, concurrency/coroutine misuse, resource leaks, off-by-one, null handling.
@@ -49,5 +56,5 @@ Use `gh pr comment <n> --body-file <tmpfile>`, or in a cloud session `bash scrip
 **Not verified:** <what you could not check and why, e.g. couldn't run Android build>
 ```
 
-Number findings continuing from previous rounds on the same PR (read earlier review comments first). If there are no findings, still post the comment with an empty table and the verdict.
+Number findings continuing from previous rounds on the same PR (read earlier review comments and the author's reply comments first). Your comment is the record of the round: the PR body isn't updated per round, and its *Review log* section only points to the last review at the end. If there are no findings, still post the comment with an empty table and the verdict.
 Finally, return a short summary of the verdict and the finding IDs to the caller.
