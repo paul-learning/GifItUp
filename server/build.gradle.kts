@@ -2,6 +2,9 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     application
+    // TestPostgres for the end-to-end test (#79 PR C, owner decision on #79). Never on the runtime classpath, so
+    // never in installDist or the image; the e2e test checks that.
+    `java-test-fixtures`
 }
 
 kotlin {
@@ -38,7 +41,13 @@ dependencies {
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
     testImplementation(libs.testcontainers.postgresql)
+
+    testFixturesImplementation(libs.testcontainers.postgresql)
 }
+
+// The fixtures run against main's classes, so they resolve the same versions as the tests do (slf4j 2, not the 1.7
+// that Testcontainers asks for on its own).
+configurations.testFixturesImplementation { extendsFrom(configurations.implementation.get()) }
 
 tasks.test {
     // Ryuk (Testcontainers' reaper) runs as a privileged container with the Docker socket and is pulled by tag

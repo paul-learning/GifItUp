@@ -17,6 +17,7 @@ Read this file and `docs/review-lessons.md` fully at the start of every session.
 | E2EE core | Rust crate wrapping OpenMLS; uniffi → Android, wasm-bindgen → Web | `crypto/` |
 | Backend | Ktor server (Kotlin/JVM), PostgreSQL | `server/` |
 | Dev CLI (#79) | JVM command-line client over `shared` + `mls`; dev/test tool only, never shipped (see Architecture rules) | `cli/` |
+| End-to-end test (#79) | Test-only JVM module: Postgres (Testcontainers) plus the real Migrate, Admin, server and CLI entry points as processes; part of `check` | `e2e/` |
 | Deployment | Docker Compose + Caddy (TLS) on the Hetzner VM | `deploy/` |
 | Docs | Roadmap, ADRs, threat model, review reports | `docs/` |
 
@@ -106,7 +107,7 @@ After opening a PR (new commits afterwards: see steps 5 and 6):
 
 - Dev machine: Windows 11 (PowerShell + Git Bash). Scripts must work on Windows *and* Linux CI — prefer Gradle tasks / Kotlin scripts, or provide both `.sh` and `.ps1`.
 - CI: GitHub Actions on `ubuntu-latest` is the source of truth for builds.
-- Cloud agent sessions (Claude Code on the web): don't run `wasmJs` or Android tests locally. The sandbox's GitHub proxy blocks the tarball download Kotlin's Wasm test tooling needs (`Kotlin/karma`), there is no Android SDK, and no Docker for the server's database tests. Instead of `./gradlew check` / `allTests`, run `./gradlew jvmTest :cli:test ktlintCheck detekt` (plus the `cargo` checks when `crypto/` changes), rely on CI for wasmJs, Android and `:server:test`, and name the suites left to CI (and why) in the PR's *How it was tested*.
+- Cloud agent sessions (Claude Code on the web): don't run `wasmJs` or Android tests locally. The sandbox's GitHub proxy blocks the tarball download Kotlin's Wasm test tooling needs (`Kotlin/karma`), there is no Android SDK, and no Docker for the server's database tests. Instead of `./gradlew check` / `allTests`, run `./gradlew jvmTest :cli:test ktlintCheck detekt` (plus the `cargo` checks when `crypto/` changes), rely on CI for wasmJs, Android, `:server:test` and the end-to-end test `:e2e:test` (Docker), and name the suites left to CI (and why) in the PR's *How it was tested*.
 - Backend host: Hetzner VM (Linux). Deployment happens via GitHub Actions or documented scripts, never ad hoc from an agent session unless the owner asks.
 
 ## Commands
@@ -115,8 +116,9 @@ Use `./gradlew` (Git Bash / Linux) or `.\gradlew.bat` (PowerShell). Android buil
 
 | Task | Command |
 |---|---|
-| Full check (build, all tests, ktlint, detekt; needs the Rust toolchain and `wasm-bindgen-cli`, see ADR-0007, and a running Docker daemon for the server's database tests, ADR-0008; not in cloud sessions, see *Environment notes*) | `./gradlew check` |
-| Tests only (not in cloud sessions, see *Environment notes*) | `./gradlew allTests :server:test` |
+| Full check (build, all tests, ktlint, detekt; needs the Rust toolchain and `wasm-bindgen-cli`, see ADR-0007, and a running Docker daemon for the server's database tests and the end-to-end test, ADR-0008; not in cloud sessions, see *Environment notes*) | `./gradlew check` |
+| Tests only (not in cloud sessions, see *Environment notes*) | `./gradlew allTests :server:test :e2e:test` |
+| End-to-end test (needs Docker; part of `check`; in cloud sessions only in CI, where a failure shows the redacted process output in the test report) | `./gradlew :e2e:test` |
 | Lint only | `./gradlew ktlintCheck detekt` |
 | Auto-format Kotlin | `./gradlew ktlintFormat` |
 | Android debug APK (needs `cargo-ndk` for the crypto `.so` files) | `./gradlew :androidApp:assembleDebug` (APK in `androidApp/build/outputs/apk/debug/`) |

@@ -11,31 +11,37 @@ import java.util.UUID
 /**
  * One PostgreSQL container for the whole test JVM, with the exact image (tag and digest) that production runs: it is
  * read from `deploy/docker-compose.yml`, so the two can't drift. Ryuk is disabled (SEC-13), so a shutdown hook stops
- * the container.
+ * the container. The fixture refuses to start a container unless the test task disabled Ryuk, so every consumer (the
+ * server's tests and the end-to-end test, #79 round-0 SEC-4) inherits that.
  *
  * Each test gets its own fresh database ([freshDatabase]), so migrations and role checks start from zero. Roles are
  * cluster-wide in PostgreSQL, so every database shares [OWNER_ROLE] and [APP_ROLE]; the migration re-pins their
  * attributes each run, exactly as it does on the VM.
  */
 internal object TestPostgres {
-    private const val ADMIN_USER = "gifitup"
-    private val adminPassword = "admin-" + UUID.randomUUID()
+    const val ADMIN_USER = "gifitup"
+    val adminPassword = "admin-" + UUID.randomUUID()
 
     val appPassword: String = "app-pw-with-'quotes\"-and-\\backslash-" + UUID.randomUUID()
 
     private val container: PostgreSQLContainer by lazy {
+        @Suppress("SpreadOperator") // once per test JVM
         productionContainer()
-            .withCommand(*productionCommand().toTypedArray())
+            .withCommand(*ProductionCompose.postgresCommand().toTypedArray())
             .also { it.start() }
             .also { started -> Runtime.getRuntime().addShutdownHook(Thread { started.stop() }) }
     }
 
     /** A container on the production image with the test admin credentials, not started. */
-    fun productionContainer(): PostgreSQLContainer =
-        PostgreSQLContainer(DockerImageName.parse(productionImage()).asCompatibleSubstituteFor("postgres"))
+    fun productionContainer(): PostgreSQLContainer {
+        check(System.getenv("TESTCONTAINERS_RYUK_DISABLED") == "true") {
+            "set TESTCONTAINERS_RYUK_DISABLED=true on the test task: Ryuk gets the Docker socket and is pulled by tag (#12 SEC-13)"
+        }
+        return PostgreSQLContainer(DockerImageName.parse(ProductionCompose.postgresImage()).asCompatibleSubstituteFor("postgres"))
             .withUsername(ADMIN_USER)
             .withPassword(adminPassword)
             .withDatabaseName("postgres")
+    }
 
     /** Everything PostgreSQL has logged so far. */
     fun serverLog(): String = container.logs
@@ -74,23 +80,4 @@ internal object TestPostgres {
 
     /** Writes [appPassword] to a temporary secret file, as Docker would mount it. */
     fun appPasswordFile(): Path = Files.createTempFile("app-password", "").also { Files.writeString(it, appPassword + "\n") }
-
-    private val composeLines: List<String> by lazy {
-        Files.readAllLines(Path.of("..", "deploy", "docker-compose.yml")).map { it.trim() }
-    }
-
-    private fun productionImage(): String {
-        val image = composeLines.single { it.startsWith("image: postgres:") }.removePrefix("image: ")
-        check(image.matches(Regex("^postgres:[0-9a-z.-]+@sha256:[0-9a-f]{64}$"))) { "compose pins postgres by digest" }
-        return image
-    }
-
-    /** The postgres service's `command:` (the only one in the compose file), e.g. `postgres -c log_error_verbosity=terse`. */
-    private fun productionCommand(): List<String> =
-        composeLines
-            .single { it.startsWith("command: [") }
-            .removePrefix("command: [")
-            .removeSuffix("]")
-            .split(",")
-            .map { it.trim().removeSurrounding("\"") }
 }

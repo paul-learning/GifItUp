@@ -62,13 +62,13 @@ fun main() {
     server.start(wait = true)
 }
 
-/** Netty settings from [config]: the listening port and the limits peers that bypass Caddy can't lift (SEC-8). */
+/** Netty settings from [config]: the listening address and port, and the limits peers that bypass Caddy can't lift (SEC-8). */
 internal fun applyTo(
     engine: NettyApplicationEngine.Configuration,
     config: ServerConfig,
 ) {
     engine.connector {
-        host = "0.0.0.0"
+        host = config.host
         port = config.port
     }
     with(config.limits) {

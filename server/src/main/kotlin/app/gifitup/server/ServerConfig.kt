@@ -13,14 +13,22 @@ data class ServerConfig(
      */
     val publicOrigin: CanonicalOrigin,
     val port: Int = DEFAULT_PORT,
+    /**
+     * The address Netty listens on: all interfaces in the container (Caddy reaches it over the Docker network), only
+     * loopback for the end-to-end test on a dev machine (#79 round-0 SEC-11). A literal from [HOSTS], never resolved.
+     */
+    val host: String = DEFAULT_HOST,
     val limits: HttpLimits = HttpLimits(),
 ) {
     init {
         require(port in 1..MAX_PORT) { "port out of range" }
+        require(host in HOSTS) { "host must be one of $HOSTS" }
     }
 
     companion object {
         const val DEFAULT_PORT = 8080
+        const val DEFAULT_HOST = "0.0.0.0"
+        val HOSTS = setOf(DEFAULT_HOST, "127.0.0.1", "::", "::1")
         private const val MAX_PORT = 65_535
 
         /**
@@ -33,12 +41,13 @@ data class ServerConfig(
                     require(raw.matches(PORT_PATTERN)) { "PORT must be a decimal port number" }
                     raw.toInt()
                 } ?: DEFAULT_PORT
+            val host = env["HOST"]?.also { require(it in HOSTS) { "HOST must be one of $HOSTS" } } ?: DEFAULT_HOST
             val origin =
                 CanonicalOrigin.of(requireNotNull(env["GIFITUP_PUBLIC_URL"]) { "GIFITUP_PUBLIC_URL is not set" })
             requireNotNull(origin) {
                 "GIFITUP_PUBLIC_URL must be canonical: https://, lowercase host, optional port other than 443, nothing after it"
             }
-            return ServerConfig(port = port, publicOrigin = origin)
+            return ServerConfig(port = port, host = host, publicOrigin = origin)
         }
 
         private val PORT_PATTERN = Regex("^[1-9][0-9]{0,4}$")

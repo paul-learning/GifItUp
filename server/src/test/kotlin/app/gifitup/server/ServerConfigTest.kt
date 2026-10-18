@@ -35,6 +35,17 @@ class ServerConfigTest {
     }
 
     @Test
+    fun hostIsAllInterfacesUnlessSetToAnAllowedLiteral() {
+        assertEquals("0.0.0.0", ServerConfig.fromEnv(origin).host)
+        listOf("127.0.0.1", "::1", "::").forEach { assertEquals(it, ServerConfig.fromEnv(origin + ("HOST" to it)).host) }
+        // Literals only: no names to resolve, no other interface by accident (#79 round-0 SEC-11).
+        listOf("", "localhost", "127.0.0.2", "0.0.0.0 ", "[::1]", "10.0.0.1", "gifitup.example.org").forEach { raw ->
+            val error = assertFailsWith<IllegalArgumentException>(raw) { ServerConfig.fromEnv(origin + ("HOST" to raw)) }
+            assertFalse(raw.isNotEmpty() && error.message.orEmpty().contains(raw), "the message must not echo the value")
+        }
+    }
+
+    @Test
     fun invalidPortFailsStartupInsteadOfFallingBack() {
         listOf("", "0", "080", "65536", "99999", "8080 ", "-1", "abc", "8_080").forEach { raw ->
             assertFailsWith<IllegalArgumentException>(raw) { ServerConfig.fromEnv(origin + ("PORT" to raw)) }
