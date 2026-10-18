@@ -28,7 +28,7 @@ class RestoreGuardTest {
     private val store = InMemoryLocalStore()
     private val counter = StoredRestoreCounter(store)
 
-    /** Restores like the fake, or "traps": throws something that isn't an MlsException, as a reload would end the call. */
+    /** Restores like the fake, or "traps": the real wrapper reports a trap as `MlsException(Poisoned)` (#108 SEC-21). */
     private class Trapping : MlsClientFactory by FakeMlsClient.Factory {
         var trap = false
         var restores = 0
@@ -38,7 +38,7 @@ class RestoreGuardTest {
             snapshotKey: ByteArray,
         ): MlsClient {
             restores++
-            check(!trap) { "trap" }
+            if (trap) throw MlsException(MlsErrorCode.Poisoned)
             return FakeMlsClient.Factory.restore(state, snapshotKey)
         }
     }
@@ -57,7 +57,9 @@ class RestoreGuardTest {
         runTest {
             val (snapshot, key) = state()
             mls.trap = true
-            repeat(GuardedMlsFactory.LIMIT) { assertFailsWith<IllegalStateException> { guarded.restore(snapshot, key.copyOf()) } }
+            repeat(GuardedMlsFactory.LIMIT) {
+                assertEquals(MlsErrorCode.Poisoned, assertFailsWith<MlsException> { guarded.restore(snapshot, key.copyOf()) }.code)
+            }
             assertEquals(3, counter.failures())
             mls.trap = false
             val blockedKey = key.copyOf()
@@ -67,6 +69,20 @@ class RestoreGuardTest {
             guarded.tryAgain()
             guarded.restore(snapshot, key.copyOf()).close()
             assertEquals(0, counter.failures())
+        }
+
+    /** A snapshot that traps on every restore ends in RESTORE_BLOCKED at the use case, so the reload loop stops (#108 SEC-21). */
+    @Test
+    fun aSnapshotThatAlwaysTrapsEndsBlocked() =
+        runTest {
+            val (snapshot, key) = state()
+            val identities = InMemoryIdentityStore(StoredIdentity(server.api().endpoint.origin, "ann", snapshot, DEVICE_ID))
+            val keys = InMemoryKeyStore(key)
+            val logIn = LogIn(server.api(), guarded, identities, keys, DeviceLock())
+            mls.trap = true
+            repeat(GuardedMlsFactory.LIMIT) { assertEquals(AuthError.Local.CRYPTO, assertIs<AuthResult.Failed>(logIn()).error) }
+            assertEquals(AuthError.Local.RESTORE_BLOCKED, assertIs<AuthResult.Failed>(logIn()).error)
+            assertEquals(GuardedMlsFactory.LIMIT, mls.restores)
         }
 
     /** A clean failure comes back to Kotlin, so it's no loop and never pushes the user towards a reset (#108 CR-1). */

@@ -2,6 +2,7 @@ package app.gifitup.shared.domain.auth
 
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsClientFactory
+import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.storage.RestoreCounter
 import kotlinx.coroutines.sync.Mutex
@@ -10,11 +11,16 @@ import kotlinx.coroutines.sync.withLock
 /**
  * The one way the use cases restore a client (#16 SEC-4), so no restore path can loop. On the web a malformed
  * decrypted snapshot traps in Rust, the page reloads, and the app would restore the same snapshot again, forever
- * (ADR-0007). So every restore is counted before it starts, outside the snapshot, and the count is cleared as soon as it
- * comes back to Kotlin, with a client or with an [MlsException] (a clean failure, such as a snapshot that doesn't
- * decrypt, is reported as such and isn't a loop; #108 CR-1). Only a restore that never comes back (a trap) stays counted.
- * After [LIMIT] of those, [restore] refuses with [RestoreBlockedException] until the user chooses [tryAgain] or wipes
- * the device. Restores run one at a time, so overlapping ones can't undercount (#108 CR-3).
+ * (ADR-0007). So every restore is counted before it starts, outside the snapshot. The count is cleared when the restore
+ * returns a client, or fails with a typed error other than `Poisoned` (a clean failure, such as a snapshot that doesn't
+ * decrypt, is no loop; #108 CR-1). A trap stays counted: on the web it comes back as `MlsException(Poisoned)` on the call
+ * that trapped, or not at all if the page dies first, and on Android the known panic inside restore is `Poisoned` too
+ * (#108 SEC-21). After [LIMIT] counted restores, [restore] refuses with [RestoreBlockedException] until the user chooses
+ * [tryAgain] or wipes the device. Restores run one at a time, so overlapping ones can't undercount (#108 CR-3).
+ *
+ * A module that was already dead before the call also answers `Poisoned` and counts. So after any `Poisoned` the app
+ * reloads the web page (or drops the client on Android) before it restores again (#17, ADR-0011): a dead module must
+ * not spend a good snapshot's attempts.
  *
  * Only the restore itself counts. The caller unwraps the key first (`SnapshotKeyStore.load`), and a failed unwrap is a
  * `KEY_UNAVAILABLE` error, which never counts (#16 SEC-4): it can be transient, and counting it would push the user
@@ -49,7 +55,7 @@ class GuardedMlsFactory(
                 try {
                     mls.restore(state, snapshotKey)
                 } catch (e: MlsException) {
-                    counter.set(0)
+                    if (e.code != MlsErrorCode.Poisoned) counter.set(0)
                     throw e
                 }
             // A failed reset leaves the count up; the client must not leak with it.
