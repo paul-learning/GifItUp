@@ -43,6 +43,33 @@ On the VM, as `deploy`, from `/opt/gifitup/deploy`. Always with `--rm`: the `adm
   ```
   Both print how many accounts were removed and exit 1 if the username doesn't exist. If a command fails with a database error and printed no result (e.g. a registration was in flight at the same moment and the database aborted the delete), nothing was changed: run it again (#74 SEC-60). If a link or a "deleted" line was printed before the error, that result stands: a printed invite link stays valid, so don't create a second one (#74 SEC-62).
 
+## Smoke test with the dev CLI (#79)
+Checks that a client can register against the deployed server, with a **test account** that is deleted at the end. Until then it is a full member: it can create invites, and later it can be found as a contact (threat model, "Dev CLI test keys"). The CLI only talks to a real origin with `--remote-test-account` and a `cli_` username.
+
+1. On the VM, create an invite as above.
+2. On your machine (Linux, or Git Bash on Windows), from the repo root, in **one shell session** (step 3 needs `$state`; `echo "$state"` and note it if the window might close). The state dir holds the test account's unprotected key, so keep it under your user profile (`mktemp -d` does, also in Git Bash):
+   ```bash
+   ./gradlew :cli:installDist
+   cli=cli/build/install/gifitup-cli/bin/gifitup-cli
+   server=https://gifitup.<domain>   # exactly GIFITUP_PUBLIC_URL
+   state=$(mktemp -d)
+   read -rs invite                   # paste the link: not echoed, not in the shell history
+   printf '%s\n' "$invite" | "$cli" register --server "$server" --state-dir "$state" --username cli_smoke --remote-test-account
+   unset invite
+   "$cli" login --server "$server" --state-dir "$state" --remote-test-account
+   "$cli" devices --server "$server" --state-dir "$state" --remote-test-account
+   ```
+   Expect `registered cli_smoke as device …`, `logged in as device …` and one device line. Every command logs in and out again; the server allows 10 logins per device per hour.
+
+   If `register` fails, the invite usually stays valid until it expires (24 h; there is no revoke command), so retry with the **same** invite instead of creating another one. A failed `register` that may have reached the server is resumed from the same state dir, as its message says.
+3. **Always**, also after a failure: on the VM delete the account (exit 1 just means it was never created), then delete the state dir on your machine:
+   ```bash
+   docker compose --profile admin run --rm admin delete-account cli_smoke
+   ```
+   ```bash
+   rm -rf "$state"
+   ```
+
 ## Rollback or redeploy
 - **Automatic:** a failed health check restores the previous commit and image.
 - **By hand:** *Actions → Deploy → Run workflow* on `main`, with `commit` set to the full SHA of an earlier deployed commit. Each deploy run's summary lists its commit and digest. The run skips the build, looks up that commit's image, verifies its provenance, and deploys it after your approval.

@@ -95,14 +95,15 @@ if grep -rnE --include='*.kt' --include='*.kts' --exclude-dir=build 'ApiEndpoint
 fi
 
 # The dev CLI and the end-to-end test are dev/test tools (CLAUDE.md "Dev CLI"; #79 round-0 SEC-11): no build file
-# other than settings.gradle.kts may refer to them, so no module (app or library) can depend on them. The
+# other than settings.gradle.kts and the end-to-end test's own (it runs the installed CLI; #79 PR C) may refer to
+# them, so no module (app or library) can depend on them, and nothing can depend on :e2e. The
 # DevOnlyEndpoint allowlist above relies on this. A text check of the usual spellings: type-safe accessors, project
 # paths and names in either quote ("cli", ':e2e', also built up as rootProject.path + "cli"), and paths into the tool
 # dirs (files("../cli/build/libs/…"), srcDir("../cli/src/…")), #102 SEC-13. Not caught: a name assembled from pieces
 # or read from a property. CI also scans the shipped APKs and web bundle for the CLI's code (ci.yml).
 build_refs='projects\.(cli|e2e)\b|["'"'"']:?(cli|e2e)["'"'"']|(^|[^A-Za-z0-9_.-])(\.\./)*(cli|e2e)/'
-if git ls-files -z -- '*.gradle.kts' '*.gradle' | grep -zvx 'settings.gradle.kts' | grep_files "$build_refs"; then
-  fail "a build file refers to :cli or :e2e or their dirs; only settings.gradle.kts may (#79 SEC-11, #102 SEC-13)"
+if git ls-files -z -- '*.gradle.kts' '*.gradle' | grep -zvxE 'settings\.gradle\.kts|e2e/build\.gradle\.kts' | grep_files "$build_refs"; then
+  fail "a build file refers to :cli or :e2e or their dirs; only settings.gradle.kts and e2e/ may (#79 SEC-11, #102 SEC-13)"
 fi
 
 # The CLI's output and CI logs get no log lines (#79 plan SEC-9): its runtime classpath has no slf4j provider other

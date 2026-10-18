@@ -24,7 +24,7 @@ _Users can join through an invite, devices register keys, and the server can rel
 
 **Next: walking skeleton.** After #13 and #76, M1 continues with one thin end-to-end slice, in this order:
 1. ✅ Content-format amendments to ADR-0006 (one docs-only PR, #92): optional GIF caption (#80) and the content-format decision from the owner's comment on #24 (message reference/ID, "annotation" types that old clients ignore).
-2. Dev CLI client + end-to-end test in CI (#79).
+2. ✅ Dev CLI client + end-to-end test in CI (#79; PRs #94, #95, #102, #103, #104).
 3. Minimal onboarding screen (#17), on the same use cases as the CLI.
 
 Everything else in M1 below that this slice doesn't need comes after it.
