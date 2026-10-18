@@ -24,9 +24,11 @@ import kotlin.test.fail
  * server on loopback with the origin `https://e2e.invalid`, `Admin create-invite`, then the dev CLI's commands, all as
  * processes from their installDist outputs.
  *
- * No raw process output goes into an assertion message. The known invite codes and passwords must appear in none of
- * the captured output (CLI, server, Migrate, Admin's stderr, Postgres); on a failure the test prints that output with
- * them and anything shaped like a code or token redacted, which is what CI's log shows (#79 round-0 SEC-9).
+ * No raw process output goes into an assertion message. The known invite codes and passwords (and their random parts,
+ * in case a log escapes the quotes around them) must appear in none of the captured output (CLI, server, Migrate,
+ * Admin without its link line, Postgres), and the processes' output holds nothing shaped like a session token, which
+ * the test never sees. On a failure the test prints that output with all of it redacted, which is what CI's log shows
+ * (#79 round-0 SEC-9, #104 SEC-1..SEC-3).
  */
 class EndToEndTest {
     private val cliHome = Path.of(System.getProperty("e2e.cli"))
@@ -38,11 +40,13 @@ class EndToEndTest {
     @Test
     fun registerLoginAndDevicesAgainstTheRealServer() {
         val db = EndToEndDatabase.fresh()
-        secrets += listOf(db.adminPassword, db.appPassword)
+        // Both passwords end in a random UUID; that part alone also counts, so an escaped copy is caught (#104 SEC-1).
+        secrets += listOf(db.adminPassword, db.appPassword).flatMap { listOf(it, it.takeLast(UUID_LENGTH)) }
         val appPasswordFile = processes.secretFile("app-password", db.appPassword)
         val dbEnv = mapOf("DB_URL" to db.jdbcUrl, "DB_USER" to db.appUser, "DB_PASSWORD_FILE" to "$appPasswordFile")
         val port = freePort()
         var server: Process? = null
+        var failed = false
         try {
             migrate(db, appPasswordFile)
             server = startServer(dbEnv, port)
@@ -53,12 +57,16 @@ class EndToEndTest {
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
+            failed = true
             server?.stopAndWait()
             dumpRedactedOutput()
             throw failure
         } finally {
-            // Raw output, the secret files and the test accounts' keys: only the redacted dump outlives the test.
-            work.toFile().deleteRecursively()
+            // Raw output, the secret files and the test accounts' keys: only the redacted dump outlives the test. A
+            // leftover is never silent: it fails a passing test, and is reported next to an earlier failure (#104 CR-3).
+            if (!work.toFile().deleteRecursively()) {
+                if (failed) println("couldn't delete the work dir $work") else fail("couldn't delete the work dir $work")
+            }
         }
     }
 
@@ -90,20 +98,21 @@ class EndToEndTest {
     ): Process {
         val env = dbEnv + mapOf("GIFITUP_PUBLIC_URL" to ORIGIN, "HOST" to "127.0.0.1", "PORT" to "$port")
         val server = processes.start("server", serverEntryPoint("ApplicationKt"), env)
-        val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
         val health = HttpRequest.newBuilder(URI("http://127.0.0.1:$port/health")).timeout(Duration.ofSeconds(2)).build()
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(Processes.TIMEOUT_SECONDS)
-        while (System.nanoTime() < deadline) {
-            if (!server.isAlive) fail("the server exited with ${server.exitValue()} before it was ready")
-            val status = runCatching { http.send(health, HttpResponse.BodyHandlers.discarding()).statusCode() }.getOrNull()
-            if (status == HTTP_OK) return server
-            Thread.sleep(POLL_MILLIS)
+        HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build().use { http ->
+            while (System.nanoTime() < deadline) {
+                if (!server.isAlive) fail("the server exited with ${server.exitValue()} before it was ready")
+                val status = runCatching { http.send(health, HttpResponse.BodyHandlers.discarding()).statusCode() }.getOrNull()
+                if (status == HTTP_OK) return server
+                Thread.sleep(POLL_MILLIS)
+            }
         }
         server.stopAndWait()
         fail("the server wasn't ready within ${Processes.TIMEOUT_SECONDS} s")
     }
 
-    /** An admin invite; returns the link, which Admin prints once to stdout (kept out of the output checks). */
+    /** An admin invite; returns the link, which Admin prints once to stdout. The rest of its stdout is checked too. */
     private fun createInvite(dbEnv: Map<String, String>): String {
         val env = dbEnv + ("GIFITUP_PUBLIC_URL" to ORIGIN)
         val admin = processes.run("admin", serverEntryPoint("AdminKt") + "create-invite", env, excludeStdout = true)
@@ -111,6 +120,13 @@ class EndToEndTest {
         // Logback writes the pool's startup lines to stdout too, so the link is the one line that starts with the origin.
         val link = admin.stdout.lines().singleOrNull { it.startsWith("$ORIGIN/") } ?: fail("Admin printed no invite link for $ORIGIN")
         secrets += link.substringAfterLast('#')
+        processes.record(
+            "admin stdout without the link",
+            admin.stdout
+                .lines()
+                .filterNot { it == link }
+                .joinToString("\n"),
+        )
         return link
     }
 
@@ -159,9 +175,13 @@ class EndToEndTest {
     }
 
     private fun assertNoSecretInOutput() {
-        val outputs = processes.capturedOutput() + ("postgres" to EndToEndDatabase.serverLog())
-        outputs.forEach { (name, text) ->
+        val processOutput = processes.capturedOutput()
+        (processOutput + ("postgres" to EndToEndDatabase.serverLog())).forEach { (name, text) ->
             secrets.forEachIndexed { i, secret -> assertFalse(secret in text, "secret #$i appears in the $name output") }
+        }
+        // Session tokens are never known to the test, so their shape is what's checked (#104 SEC-3).
+        processOutput.forEach { (name, text) ->
+            assertFalse(TOKEN_SHAPED.containsMatchIn(text), "a token-shaped string in the $name output")
         }
     }
 
@@ -203,6 +223,7 @@ class EndToEndTest {
         const val HTTP_OK = 200
         const val POLL_MILLIS = 200L
         const val EXIT_SERVER = 1
+        const val UUID_LENGTH = 36
         val DEVICE_LINE = Regex("^registered e2e_ann as device ([0-9a-f-]{36})$")
     }
 }

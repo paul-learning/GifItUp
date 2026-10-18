@@ -47,7 +47,7 @@ On the VM, as `deploy`, from `/opt/gifitup/deploy`. Always with `--rm`: the `adm
 Checks that a client can register against the deployed server, with a **test account** that is deleted at the end. Until then it is a full member: it can create invites, and later it can be found as a contact (threat model, "Dev CLI test keys"). The CLI only talks to a real origin with `--remote-test-account` and a `cli_` username.
 
 1. On the VM, create an invite as above.
-2. On your machine (Linux, or Git Bash on Windows), from the repo root. The state dir holds the test account's unprotected key, so keep it under your user profile (`mktemp -d` does, also in Git Bash):
+2. On your machine (Linux, or Git Bash on Windows), from the repo root, in **one shell session** (step 3 needs `$state`; `echo "$state"` and note it if the window might close). The state dir holds the test account's unprotected key, so keep it under your user profile (`mktemp -d` does, also in Git Bash):
    ```bash
    ./gradlew :cli:installDist
    cli=cli/build/install/gifitup-cli/bin/gifitup-cli
@@ -60,7 +60,9 @@ Checks that a client can register against the deployed server, with a **test acc
    "$cli" devices --server "$server" --state-dir "$state" --remote-test-account
    ```
    Expect `registered cli_smoke as device …`, `logged in as device …` and one device line. Every command logs in and out again; the server allows 10 logins per device per hour.
-3. On the VM, delete the account, then delete the state dir on your machine:
+
+   If `register` fails, the invite usually stays valid until it expires (24 h; there is no revoke command), so retry with the **same** invite instead of creating another one. A failed `register` that may have reached the server is resumed from the same state dir, as its message says.
+3. **Always**, also after a failure: on the VM delete the account (exit 1 just means it was never created), then delete the state dir on your machine:
    ```bash
    docker compose --profile admin run --rm admin delete-account cli_smoke
    ```

@@ -23,11 +23,19 @@ class Finished(
 class Processes(
     private val work: Path,
 ) {
-    private val captured = mutableListOf<Pair<String, Path>>()
+    private val captured = mutableListOf<Pair<String, () -> String>>()
     private var count = 0
 
-    /** Output that must never hold a secret: everything except what [excludeStdout] named on purpose. */
-    fun capturedOutput(): List<Pair<String, String>> = captured.map { (name, file) -> name to file.readText() }
+    /** Output that must never hold a secret: everything except what [run]'s `excludeStdout` left out on purpose. */
+    fun capturedOutput(): List<Pair<String, String>> = captured.map { (name, read) -> name to read() }
+
+    /** Adds output the test filtered itself (Admin's stdout without the link line, #104 SEC-2) to the checks. */
+    fun record(
+        name: String,
+        text: String,
+    ) {
+        captured += name to { text }
+    }
 
     fun start(
         name: String,
@@ -35,7 +43,7 @@ class Processes(
         env: Map<String, String>,
     ): Process {
         val out = work.resolve("${++count}-$name.out")
-        captured += name to out
+        captured += name to { out.readText() }
         return ProcessBuilder(command)
             .apply {
                 environment().clear()
@@ -48,7 +56,8 @@ class Processes(
 
     /**
      * Runs [command] to the end. [stdin] is written and closed first. With [excludeStdout] the stdout is returned but
-     * left out of the output checks: only for Admin's `create-invite`, whose stdout is the invite link by design.
+     * left out of the output checks: only for Admin's `create-invite`, whose stdout holds the invite link by design (the
+     * test then [record]s the rest).
      */
     fun run(
         name: String,
@@ -60,8 +69,8 @@ class Processes(
         val n = ++count
         val out = work.resolve("$n-$name.stdout")
         val err = work.resolve("$n-$name.stderr")
-        if (!excludeStdout) captured += "$name stdout" to out
-        captured += "$name stderr" to err
+        if (!excludeStdout) captured += "$name stdout" to { out.readText() }
+        captured += "$name stderr" to { err.readText() }
         val process =
             ProcessBuilder(command)
                 .apply {
@@ -119,3 +128,6 @@ fun redact(
         .replace(SECRET_SHAPED, "<redacted>")
 
 private val SECRET_SHAPED = Regex("(?<![A-Za-z0-9_-])([A-Za-z0-9_-]{43}|[A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])")
+
+/** A session token's shape: 43 base64url characters (32 bytes) on their own (ADR-0009). */
+val TOKEN_SHAPED = Regex("(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])")
