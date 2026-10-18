@@ -113,11 +113,11 @@ class RegisterDeviceTest {
             assertEquals("ann", identities.identity?.username)
             assertEquals(1, keys.saves)
 
-            assertIs<AuthResult.Ok<Unit>>(DiscardPendingRegistration(identities, keys)())
+            assertIs<AuthResult.Ok<Unit>>(register.discardPending())
             assertNull(identities.identity)
             assertNull(keys.key)
             assertIs<AuthResult.Ok<Session>>(register("bob", INVITE))
-            assertEquals(AuthResult.Failed(AuthError.Local.ALREADY_REGISTERED), DiscardPendingRegistration(identities, keys)())
+            assertEquals(AuthResult.Failed(AuthError.Local.ALREADY_REGISTERED), register.discardPending())
             assertEquals("bob", identities.identity?.username)
         }
 
@@ -158,6 +158,18 @@ class RegisterDeviceTest {
             identities.failSave = true
             assertFailsWith<IllegalStateException> { register("ann", INVITE) }
             assertEquals(emptyList(), server.requests)
+        }
+
+    @Test
+    fun aDiscardNeverInterleavesWithARegistration() =
+        runTest {
+            val (registered, discarded) =
+                listOf(async { register("ann", INVITE) }, async { register.discardPending() }).awaitAll()
+            assertIs<AuthResult.Ok<*>>(registered)
+            assertEquals(AuthResult.Failed(AuthError.Local.ALREADY_REGISTERED), discarded)
+            // The registered identity and its key survive, and still belong together.
+            assertEquals(DEVICE_ID, identities.identity?.deviceId)
+            FakeMlsClient.Factory.restore(identities.identity!!.snapshot, keys.key!!).close()
         }
 
     @Test

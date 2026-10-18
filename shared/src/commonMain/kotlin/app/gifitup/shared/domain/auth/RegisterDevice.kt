@@ -31,10 +31,11 @@ import kotlin.time.Duration.Companion.seconds
  *   `400`, `403` or `409` no account can hold it, and identity and key are cleared so the user can try again (e.g. with
  *   another username). **A refused resume keeps them** (#95 CR-5, SEC-6): the lost attempt it resumes may still be
  *   committing on the server, and discarding its key would orphan that account. The user decides, through
- *   [DiscardPendingRegistration]. Any other failure keeps them for a resume.
+ *   [discardPending]. Any other failure keeps them for a resume.
  * - Every attempt fetches a new challenge; the origin signed is the configured one, never one the server sent.
  * - The invite code is used for the request only and never stored.
- * - **One registration at a time** (#95 CR-3, SEC-1): calls on this instance run one after the other, so two calls
+ * - **One call at a time** (#95 CR-3, SEC-1, SEC-7): registrations and [discardPending] on this instance run one after
+ * the other, so two calls
  *   can't each create a key and leave a snapshot next to the wrong one. Use one instance per pair of stores; a store
  *   shared between processes (the CLI's state dir) needs its own lock.
  */
@@ -62,6 +63,23 @@ class RegisterDevice(
         }
 
     private val single = Mutex()
+
+    /**
+     * Discards a pending registration on the user's explicit request (#95 CR-5, SEC-6): after a refused resume, the user
+     * decides whether the earlier attempt is lost. If that attempt did create the account, it is orphaned (the owner can
+     * delete it). A registered identity is never discarded: [AuthError.Local.ALREADY_REGISTERED]. Runs under the same
+     * lock as registration, so it can't interleave with one (#95 SEC-7).
+     */
+    suspend fun discardPending(): AuthResult<Unit> =
+        single.withLock {
+            if (identities.load()?.deviceId != null) {
+                failed(AuthError.Local.ALREADY_REGISTERED)
+            } else {
+                identities.clear()
+                keys.clear()
+                AuthResult.Ok(Unit)
+            }
+        }
 
     private sealed interface Start {
         class Ready(
