@@ -115,20 +115,21 @@ pr_create() {
     -F "body=@$body" "${draft[@]}" --jq .html_url
 }
 
-# Only open PRs from a branch of this repo whose body already ends with the marker: never an owner-written body.
+# Only open PRs from a branch of this repo whose body starts with the marker: never an owner-written body. The first
+# line, not the last: the cloud environment appends its own footer to PRs a session opens (#98 smoke test, PR #99).
 pr_edit() {
   [ $# -eq 3 ] || refuse "usage: pr-edit <number> <title> <body.md>"
-  local number=$1 title=$2 body state repo ref marked
+  local number=$1 title=$2 body state repo ref first
   check_number "$number"
   check_title "$title"
   body=$(prepare_body "$3")
   # A failed read leaves the fields empty, so the checks below refuse.
-  IFS=$'\t' read -r state repo ref marked < <(gh api "repos/$REPO/pulls/$number" --jq \
-    '[.state, (.head.repo.full_name // ""), .head.ref, ((.body // "") | sub("\\s+$"; "") | endswith("'"$MARKER"'"))] | @tsv') || true
+  IFS=$'\t' read -r state repo ref first < <(gh api "repos/$REPO/pulls/$number" --jq \
+    '[.state, (.head.repo.full_name // ""), .head.ref, ((.body // "") | split("\n") | .[0] | rtrimstr("\r"))] | @tsv') || true
   [ "$state" = open ] || refuse "PR #$number is not open"
   [ "$repo" = "$REPO" ] || refuse "PR #$number comes from another repository"
   [[ $ref =~ $BRANCH_RE ]] || refuse "PR #$number has a head branch outside the naming scheme"
-  [ "$marked" = true ] || refuse "PR #$number has a body without the marker (owner-written); edit it by hand"
+  [ "$first" = "$MARKER" ] || refuse "PR #$number has a body without the marker (owner-written); edit it by hand"
   gh api --method PATCH "repos/$REPO/pulls/$number" -f "title=$title" -F "body=@$body" --jq .html_url
 }
 
