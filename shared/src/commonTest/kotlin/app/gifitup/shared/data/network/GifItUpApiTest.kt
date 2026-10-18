@@ -1,5 +1,8 @@
 package app.gifitup.shared.data.network
 
+import app.gifitup.protocol.LoginRequest
+import app.gifitup.protocol.ProtocolJson
+import app.gifitup.protocol.RegisterRequest
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.DEVICE_ID
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.dropped
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.error
@@ -13,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -53,6 +57,7 @@ class GifItUpApiTest {
             )
         }
 
+    @OptIn(DevOnlyEndpoint::class)
     @Test
     fun loopbackEndpointSendsToTheLiteralAddressButKeepsTheOrigin() =
         runTest {
@@ -69,6 +74,7 @@ class GifItUpApiTest {
             assertEquals("http://[::1]:9", ApiEndpoint.loopback("https://e2e.invalid", 9, ipv6 = true)?.baseUrl)
         }
 
+    @OptIn(DevOnlyEndpoint::class)
     @Test
     fun onlyCanonicalOriginsAreAccepted() {
         val good = listOf("https://gifitup.app", "https://a.b-c.d:8443", "https://x:1", "https://x:65535")
@@ -110,6 +116,8 @@ class GifItUpApiTest {
                     error(HttpStatusCode.Forbidden, "a_code_from_the_future") to ApiError.SERVER_ERROR,
                     json("<html>proxy error</html>", HttpStatusCode.BadGateway) to ApiError.MALFORMED_RESPONSE,
                     dropped to ApiError.NETWORK,
+                    // Ktor's web fetch engine fails with kotlin.Error, not an Exception (#94 CR-2).
+                    FakeAuthServer.fetchFailed to ApiError.NETWORK,
                 )
             cases.forEach { (reply, expected) ->
                 server.on("/auth/challenge", reply)
@@ -169,7 +177,7 @@ class GifItUpApiTest {
                 "/devices",
                 { _ -> respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, "https://elsewhere.test/devices")) },
             )
-            val session = Session(DEVICE_ID, FakeAuthServer.TOKEN, 1)
+            val session = Session(DEVICE_ID, FakeAuthServer.TOKEN, 1, FakeAuthServer.ENDPOINT)
             assertEquals(ApiResult.Failed(ApiError.MALFORMED_RESPONSE), api.devices(session))
             assertEquals(1, server.requests.size)
         }
@@ -187,8 +195,72 @@ class GifItUpApiTest {
 
     @Test
     fun theTokenStaysOutOfToString() {
-        val session = Session(DEVICE_ID, FakeAuthServer.TOKEN, 1)
+        val session = Session(DEVICE_ID, FakeAuthServer.TOKEN, 1, FakeAuthServer.ENDPOINT)
         assertFalse(FakeAuthServer.TOKEN in session.toString())
         assertTrue(DEVICE_ID in session.toString())
     }
+
+    @Test
+    fun registerAndLoginSendTheProtocolFieldsAsBase64Url() =
+        runTest {
+            val key = ByteArray(32) { 1 }
+            val challenge = ByteArray(56) { 2 }
+            val signature = ByteArray(64) { 3 }
+            val registered = assertIs<ApiResult.Ok<Session>>(api.register("ann", "AAAAAAAAAAAAAAAAAAAAAA", key, challenge, signature))
+            assertEquals(DEVICE_ID, registered.value.deviceId)
+            assertIs<ApiResult.Ok<Session>>(api.login(DEVICE_ID, challenge, signature))
+
+            val register = ProtocolJson.decodeFromString(RegisterRequest.serializer(), server.bodiesFor("/accounts").single())
+            assertEquals(
+                RegisterRequest(
+                    "ann",
+                    "AAAAAAAAAAAAAAAAAAAAAA",
+                    Base64Url.encode(key),
+                    Base64Url.encode(challenge),
+                    Base64Url.encode(signature),
+                ),
+                register,
+            )
+            val login = ProtocolJson.decodeFromString(LoginRequest.serializer(), server.bodiesFor("/auth/login").single())
+            assertEquals(LoginRequest(DEVICE_ID, Base64Url.encode(challenge), Base64Url.encode(signature)), login)
+            assertContentEquals(signature, Base64Url.decode(login.signature, 64..64))
+        }
+
+    @Test
+    fun devicesAreMappedAndCheckedAndLogoutSucceeds() =
+        runTest {
+            val session = Session(DEVICE_ID, FakeAuthServer.TOKEN, 1, FakeAuthServer.ENDPOINT)
+            assertEquals(listOf(Device(DEVICE_ID, 1, 2)), assertIs<ApiResult.Ok<List<Device>>>(api.devices(session)).value)
+            val bad =
+                listOf(
+                    """{"devices":[{"deviceId":"${DEVICE_ID.uppercase()}","createdAt":1,"lastSeenAt":2}]}""",
+                    """{"devices":[{"deviceId":"$DEVICE_ID","createdAt":-1,"lastSeenAt":2}]}""",
+                    """{"devices":[{"deviceId":"$DEVICE_ID","createdAt":1,"lastSeenAt":-2}]}""",
+                    """{"devices":[{"deviceId":"$DEVICE_ID","createdAt":1}]}""",
+                )
+            bad.forEach {
+                server.on("/devices", json(it))
+                assertEquals(ApiResult.Failed(ApiError.MALFORMED_RESPONSE), api.devices(session), it)
+            }
+            assertIs<ApiResult.Ok<Unit>>(api.logout(session))
+        }
+
+    @OptIn(DevOnlyEndpoint::class)
+    @Test
+    fun aSessionIsNeverSentToAnotherEndpoint() =
+        runTest {
+            val session = assertIs<ApiResult.Ok<Session>>(api.login(DEVICE_ID, ByteArray(56), ByteArray(64))).value
+            server.requests.clear()
+            val others =
+                listOf(
+                    server.api(assertNotNull(ApiEndpoint.forOrigin("https://other.test"))),
+                    server.api(assertNotNull(ApiEndpoint.loopback(FakeAuthServer.ORIGIN, 8080))),
+                )
+            others.forEach { other ->
+                assertFailsWith<IllegalArgumentException> { other.devices(session) }
+                assertFailsWith<IllegalArgumentException> { other.logout(session) }
+            }
+            assertEquals(emptyList(), server.requests)
+            assertIs<ApiResult.Ok<List<Device>>>(server.api(ApiEndpoint.forOrigin(FakeAuthServer.ORIGIN)!!).devices(session))
+        }
 }

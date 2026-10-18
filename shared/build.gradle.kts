@@ -31,3 +31,8 @@ kotlin {
         }
     }
 }
+
+// The canonical-origin cases shared with the crate and the server (#94 CR-4): a change to the file reruns the test.
+tasks.named<Test>("jvmTest") {
+    inputs.file(rootProject.file("server/src/test/resources/origin-rule-cases.txt"))
+}

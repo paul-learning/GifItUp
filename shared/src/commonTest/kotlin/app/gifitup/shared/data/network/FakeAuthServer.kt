@@ -77,5 +77,9 @@ class FakeAuthServer {
 
         /** A reply that never arrives: the engine fails like a dropped connection. */
         val dropped: Reply = { _ -> throw IllegalStateException("connection reset") }
+
+        /** How Ktor's web (fetch) engine reports a network failure: `kotlin.Error`, not an `Exception`. */
+        @Suppress("TooGenericExceptionThrown")
+        val fetchFailed: Reply = { _ -> throw Error("Fail to fetch") }
     }
 }
