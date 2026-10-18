@@ -21,9 +21,17 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.protocol)
+            implementation(libs.ktor.client.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
+}
+
+// The canonical-origin cases shared with the crate and the server (#94 CR-4): a change to the file reruns the test.
+tasks.named<Test>("jvmTest") {
+    inputs.file(rootProject.file("server/src/test/resources/origin-rule-cases.txt"))
 }

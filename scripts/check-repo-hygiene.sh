@@ -68,5 +68,18 @@ if grep -rln 'authSignContentUnchecked' server/src/main --include='*.kt' | grep 
   fail "authSignContentUnchecked is for tests only (ADR-0009)"
 fi
 
+# The dev-only loopback endpoint (#94 SEC-14, SEC-17): ApiEndpoint.loopback sends to another place than the origin it
+# signs. (1) Its opt-in marker may appear only in its own file, the shared module's tests, the dev CLI and the
+# end-to-end test, so neither a module-wide opt-in (build files, gradle.properties) nor a wrapper in another module can
+# hand it to the app. (2) The app modules don't call loopback at all. Text checks of tracked files; the opt-in
+# annotation (level ERROR) is the compile-time control.
+devonly_allowed='^(shared/src/commonMain/kotlin/app/gifitup/shared/data/network/ApiEndpoint\.kt|shared/src/[A-Za-z]*Test/|cli/|e2e/)'
+if git ls-files -z -- '*.kt' '*.kts' '*.properties' | grep -zvE "$devonly_allowed" | xargs -0 -r grep -nE 'DevOnlyEndpoint'; then
+  fail "DevOnlyEndpoint is mentioned outside ApiEndpoint.kt, shared's tests, cli/ and e2e/ (#94 SEC-17)"
+fi
+if grep -rnE --include='*.kt' --include='*.kts' --exclude-dir=build 'ApiEndpoint\.loopback|\.loopback[[:space:]]*\(' composeApp androidApp; then
+  fail "the app modules must not use ApiEndpoint.loopback (#94 SEC-14)"
+fi
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

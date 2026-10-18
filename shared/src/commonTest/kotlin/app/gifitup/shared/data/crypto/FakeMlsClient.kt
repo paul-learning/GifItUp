@@ -1,5 +1,7 @@
 package app.gifitup.shared.data.crypto
 
+import app.gifitup.shared.data.network.ApiEndpoint
+
 /**
  * Test double for [MlsClient]: no cryptography, but the same username rule, limits, size caps, close
  * behaviour, key handling and error codes as the real client (ADR-0007), so tests built on it fail the same
@@ -116,18 +118,9 @@ class FakeMlsClient private constructor(
         const val MIN_CHALLENGE = 16
         const val MAX_CHALLENGE = 64
 
-        val ORIGIN = Regex("""^https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::[1-9][0-9]{0,4})?$""")
-        const val MAX_PORT = 65_535
+        /** The crate's canonical-origin rule, through the client's copy (tested against the shared cases, #94 CR-4). */
+        fun isCanonicalOrigin(origin: String): Boolean = ApiEndpoint.isCanonicalOrigin(origin)
 
-        /** The crate's canonical-origin rule (crypto/src/auth.rs): [ORIGIN], plus the port is at most 65535 and never 443. */
-        fun isCanonicalOrigin(origin: String): Boolean {
-            val port = origin.removePrefix("https://").substringAfter(':', "").toIntOrNull()
-            val portOk = port == null || (port <= MAX_PORT && port != DEFAULT_HTTPS_PORT)
-            return origin.length <= MAX_ORIGIN && ORIGIN.matches(origin) && portOk
-        }
-
-        const val MAX_ORIGIN = 256
-        const val DEFAULT_HTTPS_PORT = 443
         val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
         fun isValidUsername(name: String) = USERNAME.matches(name)
