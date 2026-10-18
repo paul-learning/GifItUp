@@ -34,10 +34,10 @@ import kotlin.time.Duration.Companion.seconds
  *   [discardPending]. Any other failure keeps them for a resume.
  * - Every attempt fetches a new challenge; the origin signed is the configured one, never one the server sent.
  * - The invite code is used for the request only and never stored.
- * - **One call at a time** (#95 CR-3, SEC-1, SEC-7): registrations and [discardPending] on this instance run one after
- * the other, so two calls
- *   can't each create a key and leave a snapshot next to the wrong one. Use one instance per pair of stores; a store
- *   shared between processes (the CLI's state dir) needs its own lock.
+ * - **One call at a time** (#95 CR-3, SEC-1, SEC-7): registrations and [discardPending] on this instance run one
+ *   after the other, so two calls can't each create a key and leave a snapshot next to the wrong one, and a discard
+ *   can't clear what a registration is saving. Use one instance per pair of stores; a store shared between processes
+ *   (the CLI's state dir) needs its own lock, which also covers its discard.
  */
 class RegisterDevice(
     private val api: GifItUpApi,
