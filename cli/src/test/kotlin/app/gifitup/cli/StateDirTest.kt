@@ -77,6 +77,8 @@ class StateDirTest {
                 }
                 Files.write(dir.resolve("snapshot-key"), ByteArray(31))
                 assertEquals(EXIT_REFUSED, assertFailsWith<CliError> { state.keys.load() }.exit)
+                assertEquals(EXIT_REFUSED, assertFailsWith<CliError> { state.keys.save(ByteArray(33)) }.exit)
+                assertEquals(31, Files.size(dir.resolve("snapshot-key")))
             }
         }
 }

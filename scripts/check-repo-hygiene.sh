@@ -7,6 +7,19 @@ set -euo pipefail
 status=0
 fail() { echo "::error::$1"; status=1; }
 
+# Greps the NUL-separated file names on stdin for an extended regex and prints the matching lines. Succeeds on a match
+# and also when grep itself fails (an unreadable file: status 2), so a check that uses it fails closed (#102 SEC-13);
+# xargs would turn that error into the same status as "no match".
+grep_files() {
+  local files=() rc=0
+  mapfile -d '' files
+  [ "${#files[@]}" -gt 0 ] || return 1
+  grep -nE -- "$1" "${files[@]}" || rc=$?
+  [ "$rc" -ne 1 ] || return 1
+  [ "$rc" -eq 0 ] || echo "grep failed with status $rc"
+  return 0
+}
+
 # IDE/Windows artifacts (#35 CR-1): scripts must stay executable; Windows checkouts drop the bit.
 while read -r mode path; do
   [ "$mode" = 100755 ] || fail "$path has mode $mode, expected 100755 (git update-index --chmod=+x $path)"
@@ -74,7 +87,7 @@ fi
 # hand it to the app. (2) The app modules don't call loopback at all. Text checks of tracked files; the opt-in
 # annotation (level ERROR) is the compile-time control.
 devonly_allowed='^(shared/src/commonMain/kotlin/app/gifitup/shared/data/network/ApiEndpoint\.kt|shared/src/[A-Za-z]*Test/|cli/|e2e/)'
-if git ls-files -z -- '*.kt' '*.kts' '*.properties' | grep -zvE "$devonly_allowed" | xargs -0 -r grep -nE 'DevOnlyEndpoint'; then
+if git ls-files -z -- '*.kt' '*.kts' '*.properties' | grep -zvE "$devonly_allowed" | grep_files 'DevOnlyEndpoint'; then
   fail "DevOnlyEndpoint is mentioned outside ApiEndpoint.kt, shared's tests, cli/ and e2e/ (#94 SEC-17)"
 fi
 if grep -rnE --include='*.kt' --include='*.kts' --exclude-dir=build 'ApiEndpoint\.loopback|\.loopback[[:space:]]*\(' composeApp androidApp; then
@@ -83,11 +96,13 @@ fi
 
 # The dev CLI and the end-to-end test are dev/test tools (CLAUDE.md "Dev CLI"; #79 round-0 SEC-11): no build file
 # other than settings.gradle.kts may refer to them, so no module (app or library) can depend on them. The
-# DevOnlyEndpoint allowlist above relies on this. A text check of the usual spellings: type-safe accessors and
-# project paths.
-if git ls-files -z -- '*.gradle.kts' '*.gradle' | grep -zvx 'settings.gradle.kts' \
-  | xargs -0 -r grep -nE 'projects\.(cli|e2e)\b|"(:cli|:e2e)"'; then
-  fail "a build file refers to :cli or :e2e; only settings.gradle.kts may (#79 SEC-11)"
+# DevOnlyEndpoint allowlist above relies on this. A text check of the usual spellings: type-safe accessors, project
+# paths and names in either quote ("cli", ':e2e', also built up as rootProject.path + "cli"), and paths into the tool
+# dirs (files("../cli/build/libs/…"), srcDir("../cli/src/…")), #102 SEC-13. Not caught: a name assembled from pieces
+# or read from a property. The shipped APK and web bundle are scanned for the CLI's classes too (Planned, #79 PR B2).
+build_refs='projects\.(cli|e2e)\b|["'"'"']:?(cli|e2e)["'"'"']|(^|[^A-Za-z0-9_.-])(\.\./)*(cli|e2e)/'
+if git ls-files -z -- '*.gradle.kts' '*.gradle' | grep -zvx 'settings.gradle.kts' | grep_files "$build_refs"; then
+  fail "a build file refers to :cli or :e2e or their dirs; only settings.gradle.kts may (#79 SEC-11, #102 SEC-13)"
 fi
 
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."

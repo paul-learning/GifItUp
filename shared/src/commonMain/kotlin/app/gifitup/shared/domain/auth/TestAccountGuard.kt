@@ -1,5 +1,7 @@
 package app.gifitup.shared.domain.auth
 
+import app.gifitup.shared.data.network.ApiEndpoint
+
 /**
  * Keeps the dev CLI away from real accounts (#79 plan, round-0 SEC-2; the owner's decision on #79). Keyed on the
  * **origin** the signatures name, never on where requests go, so a tunnel to the real server from a loopback port
@@ -33,9 +35,14 @@ object TestAccountGuard {
             else -> null
         }
 
-    /** `https://` origins whose host is `localhost` or ends in the reserved `.invalid` / `.test` TLDs (RFC 6761). */
+    /**
+     * Canonical origins ([ApiEndpoint.isCanonicalOrigin]) whose host is `localhost` or ends in the reserved `.invalid` /
+     * `.test` TLDs (RFC 6761). Anything else, including a non-canonical spelling of a test origin, is not one: the rule
+     * fails closed on input nobody validated (#102 SEC-14).
+     */
     fun isTestOrigin(origin: String): Boolean {
+        if (!ApiEndpoint.isCanonicalOrigin(origin)) return false
         val host = origin.removePrefix("https://").substringBefore(':')
-        return origin.startsWith("https://") && (host == "localhost" || host.endsWith(".invalid") || host.endsWith(".test"))
+        return host == "localhost" || host.endsWith(".invalid") || host.endsWith(".test")
     }
 }

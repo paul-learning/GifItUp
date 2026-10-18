@@ -15,7 +15,6 @@ import java.net.URISyntaxException
  * No userinfo, path, query or fragment, and no option to skip TLS checks.
  */
 object Connection {
-    @OptIn(DevOnlyEndpoint::class)
     fun endpoint(
         server: String,
         origin: String?,

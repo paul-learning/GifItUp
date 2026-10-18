@@ -18,9 +18,12 @@ import java.util.Base64
  * The CLI's state dir: one identity, its snapshot key and a lock file. **Unprotected by design** (CLAUDE.md "Dev CLI"):
  * the key sits in a plain file next to the snapshot, so a copy of the dir is the account. Test accounts only.
  *
- * - Files and the dir are owner-only where the file system supports POSIX permissions; best effort elsewhere (Windows).
+ * - Files are created owner-only (`rw-------`) where the file system supports POSIX permissions, and so is the dir
+ *   if the CLI creates it; an existing dir keeps its permissions. On Windows nothing is set: the files inherit the
+ *   folder's ACL, so the dir belongs under the user's profile (#102 SEC-17).
  * - Writes are atomic: a temp file in the same dir, flushed, then moved over the target, so a crash leaves the old or
- *   the new file, never a torn one ([IdentityStore.save]'s contract).
+ *   the new file, never a torn one; on POSIX the dir is synced after every move and delete, so a returned save or
+ *   clear is durable ([IdentityStore.save]'s contract).
  * - [lock] is held for a whole command, so two CLI processes can't use one dir at once (#95 SEC-1, SEC-7): the use
  *   cases serialize calls within one process only.
  */
@@ -63,27 +66,16 @@ class StateDir(
 
             override suspend fun save(identity: StoredIdentity) = writeAtomically(identityFile, formatIdentity(identity))
 
-            override suspend fun clear() {
-                Files.deleteIfExists(identityFile)
-            }
+            override suspend fun clear() = delete(identityFile)
         }
 
     val keys: SnapshotKeyStore =
         object : SnapshotKeyStore {
-            override suspend fun load(): ByteArray? =
-                readOrNull(keyFile)?.also {
-                    if (it.size !=
-                        KEY_BYTES
-                    ) {
-                        throw CliError("the state dir's snapshot key is damaged", EXIT_REFUSED)
-                    }
-                }
+            override suspend fun load(): ByteArray? = readOrNull(keyFile)?.also(::checkKey)
 
-            override suspend fun save(key: ByteArray) = writeAtomically(keyFile, key)
+            override suspend fun save(key: ByteArray) = writeAtomically(keyFile, checkKey(key))
 
-            override suspend fun clear() {
-                Files.deleteIfExists(keyFile)
-            }
+            override suspend fun clear() = delete(keyFile)
         }
 
     private fun readOrNull(file: Path): ByteArray? = if (Files.exists(file)) Files.readAllBytes(file) else null
@@ -114,9 +106,22 @@ class StateDir(
                 channel.force(true)
             }
             Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            syncDir()
         } finally {
             Files.deleteIfExists(temp)
         }
+    }
+
+    private fun delete(file: Path) {
+        if (Files.deleteIfExists(file)) syncDir()
+    }
+
+    /**
+     * Makes a rename or delete in the dir durable, which the stores promise when they return (#102 SEC-15). POSIX only:
+     * on Windows a directory can't be opened as a channel, and the move/delete is all there is.
+     */
+    private fun syncDir() {
+        if (posix) FileChannel.open(dir, StandardOpenOption.READ).use { it.force(true) }
     }
 
     private val posix: Boolean get() = "posix" in dir.fileSystem.supportedFileAttributeViews()
@@ -134,6 +139,12 @@ class StateDir(
                 appendLine("deviceId=${identity.deviceId.orEmpty()}")
                 appendLine("snapshot=${base64.encodeToString(identity.snapshot)}")
             }.encodeToByteArray()
+
+        /** [key] if it has [KEY_BYTES] bytes, so a damaged key is refused on load and never written (#102 CR-3). */
+        fun checkKey(key: ByteArray): ByteArray {
+            if (key.size != KEY_BYTES) throw CliError("the state dir's snapshot key is damaged", EXIT_REFUSED)
+            return key
+        }
 
         private fun damaged(): Nothing = throw CliError("the state dir's identity file is damaged", EXIT_REFUSED)
 
