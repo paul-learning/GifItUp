@@ -67,13 +67,22 @@ class EnvelopeSnapshotKeyStore(
         // Defence in depth: only a pending registration saves a key, also when no wrapped key is stored (#16 SEC-5,
         // #111 CR-2).
         check(identities.load()?.deviceId == null) { "a registered identity's key is never replaced" }
+        var created = false
         if (store.get(KEY) != null) {
             if (!aead.exists()) throw LocalStateException(KEY_UNAVAILABLE)
         } else if (!aead.exists()) {
             aead.create()
+            created = true
         }
         val sealed = aead.seal(key, aad())
-        verify(sealed, key)
+        try {
+            verify(sealed, key)
+        } catch (e: LocalStateException) {
+            // A wrapping key this call made and that doesn't round-trip is dropped, so the next registration makes a
+            // fresh one instead of failing on it until a wipe (#111 SEC-5). Nothing is wrapped with it yet.
+            if (created) runCatching { aead.destroy() }
+            throw e
+        }
         store.putAll(mapOf(KEY to byteArrayOf(VERSION) + sealed))
     }
 
