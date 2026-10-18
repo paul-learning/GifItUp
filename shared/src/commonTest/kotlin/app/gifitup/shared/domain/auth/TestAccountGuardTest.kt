@@ -31,6 +31,15 @@ class TestAccountGuardTest {
             "https://mytest",
             "http://e2e.invalid",
             "https://xlocalhost",
+            // Not canonical, so not an origin at all (#102 CR-1, SEC-14).
+            "https://gifitup.app/.test",
+            "https://gifitup.app/x.test",
+            "https://gifitup.app?.invalid",
+            "https://gifitup.app#.invalid",
+            "https://u@gifitup.app?.test",
+            "https://localhost:443",
+            "https://E2E.invalid",
+            "https://e2e.invalid/",
         ).forEach { assertEquals(Refusal.NOT_A_TEST_ORIGIN, TestAccountGuard.check(it, "cli_x", remoteTestAccount = false), it) }
     }
 }
