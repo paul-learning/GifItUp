@@ -160,6 +160,13 @@ jobs:
           actionlint -version
           actionlint -shellcheck "$(command -v shellcheck)" -pyflakes=
 
+      # The REST write path for cloud sessions (#96), against a fake gh; it never reaches GitHub. Linux has
+      # symlinks, so the symlink cases must run here (they're skipped on Git Bash for Windows).
+      - name: gh-rest.sh tests
+        env:
+          GH_REST_TEST_REQUIRE_SYMLINKS: '1'
+        run: bash scripts/test-gh-rest.sh
+
   crypto:
     name: Rust crypto crate
     runs-on: ubuntu-latest

@@ -26,6 +26,8 @@ deploy/secrets/
 
 # Claude Code local settings
 .claude/settings.local.json
+# Body files for scripts/gh-rest.sh (#96)
+.gh-rest/
 
 # OS
 .DS_Store
