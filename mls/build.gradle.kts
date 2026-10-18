@@ -329,7 +329,7 @@ val uniffiBindgen =
     }
 
 // The host library uniffiBindgen builds (debug, without the test-panic feature) for the dev CLI's distribution
-// (#79 PR B): the CLI is the second consumer of this module, a dev/test tool that never ships (ADR-0007).
+// (#79 PR B): the CLI consumes this module too (besides the app modules), a dev/test tool that never ships (ADR-0007).
 val hostNativeLibrary by configurations.creating {
     isCanBeConsumed = true
     isCanBeResolved = false

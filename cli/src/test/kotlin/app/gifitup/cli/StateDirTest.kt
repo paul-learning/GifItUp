@@ -63,6 +63,29 @@ class StateDirTest {
         state.lock().close()
     }
 
+    /** The lock is an OS lock, so a second process is refused too, not just a second caller in this JVM (#102 SEC-18). */
+    @Test
+    fun anotherProcessIsRefusedWhileTheLockIsHeld() {
+        val javaBin =
+            ProcessHandle
+                .current()
+                .info()
+                .command()
+                .orElseThrow()
+        val classpath = System.getProperty("java.class.path")
+        val args = listOf("reset", "--server", "http://127.0.0.1:9", "--origin", "https://e2e.invalid", "--state-dir", "$dir")
+        state.lock().use {
+            val process =
+                ProcessBuilder(listOf(javaBin, "-cp", classpath, "app.gifitup.cli.MainKt") + args)
+                    .apply { environment().remove("JAVA_TOOL_OPTIONS") } // the JVM announces it on stderr
+                    .start()
+            process.outputStream.close()
+            val stderr = process.errorStream.bufferedReader().readText()
+            assertEquals(EXIT_REFUSED, process.waitFor(), stderr)
+            assertEquals("gifitup-cli: another gifitup-cli is using this state dir\n", stderr.replace("\r\n", "\n"))
+        }
+    }
+
     @Test
     fun damagedFilesAreRefusedNotGuessed() =
         runBlocking {

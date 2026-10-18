@@ -22,6 +22,7 @@ fun main(args: Array<String>) {
                     random = { size -> ByteArray(size).also(random::nextBytes) },
                     readInvite = ::readInvite,
                     out = System.out,
+                    err = System.err,
                 )
             runBlocking { cli.run(Invocation.parse(args.toList())) }
         }.getOrElse { error ->
@@ -33,10 +34,12 @@ fun main(args: Array<String>) {
 
 /**
  * The invite comes from stdin only, never argv or the environment (#79 plan SEC-6): argv shows up in process lists, shell
- * history and CI logs. On a terminal it is read without echo.
+ * history and CI logs. Always a plain line from stdin, echoed if typed: `System.console()` can't tell a terminal from a
+ * pipe on JDK 22+, and on 21 it is null when stdout is redirected, so a no-echo read would depend on the JDK and on
+ * redirects (#103 CR-3, SEC-14). The prompt goes to stderr, never into piped output.
  */
 private fun readInvite(): String {
-    val console = System.console()
-    val input = if (console != null) console.readPassword("invite code or link: ")?.let(::String) else readlnOrNull()
-    return input ?: throw CliError("no invite on stdin", EXIT_USAGE)
+    System.err.print("invite code or link: ")
+    System.err.flush()
+    return readlnOrNull() ?: throw CliError("no invite on stdin", EXIT_USAGE)
 }

@@ -36,6 +36,7 @@ dependencies {
     nativeLibrary(project(path = ":mls", configuration = "hostNativeLibrary"))
 
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.ktor.client.mock)
 }
 
 distributions {

@@ -103,6 +103,9 @@ jobs:
           [ "$rc" -eq 1 ] || { echo "::error::test-panic code in the web bundle (or scan error $rc)"; exit 1; }
           rc=0; grep -laF "$HOME" "$dist"/*.wasm || rc=$?
           [ "$rc" -eq 1 ] || { echo "::error::build-machine paths in the web bundle (or scan error $rc)"; exit 1; }
+          # No dev CLI code (CLAUDE.md "Dev CLI"; #79, #102 SEC-13): its usage text and package, as UTF-8 or UTF-16.
+          python3 scripts/scan-artifact.py --control "Welcome to " \
+            --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli/" --forbid "app.gifitup.cli." "$dist"
 
       - name: Upload test and lint reports
         if: failure()
@@ -299,4 +302,10 @@ jobs:
                 [ "$rc" -eq 1 ] || { echo "::error::$apk ($abi): found '$needle' (or scan error $rc)"; exit 1; }
               done
             done
+            # No dev CLI code in the app's classes (CLAUDE.md "Dev CLI"; #79, #102 SEC-13).
+            dex="$RUNNER_TEMP/dex"
+            rm -rf "$dex" && mkdir "$dex"
+            unzip -q "$apk" 'classes*.dex' -d "$dex"
+            python3 scripts/scan-artifact.py --control "Welcome to " \
+              --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli/" --forbid "app.gifitup.cli." "$dex"/classes*.dex
           done

@@ -12,7 +12,7 @@ fail() { echo "::error::$1"; status=1; }
 # xargs would turn that error into the same status as "no match".
 grep_files() {
   local files=() rc=0
-  mapfile -d '' files
+  mapfile -d '' files || return 0 # bash < 4.4 has no -d: fail closed (#102 SEC-20)
   [ "${#files[@]}" -gt 0 ] || return 1
   grep -nE -- "$1" "${files[@]}" || rc=$?
   [ "$rc" -ne 1 ] || return 1
@@ -106,10 +106,14 @@ if git ls-files -z -- '*.gradle.kts' '*.gradle' | grep -zvx 'settings.gradle.kts
 fi
 
 # The CLI's output and CI logs get no log lines (#79 plan SEC-9): its runtime classpath has no slf4j provider other
-# than slf4j-nop. Checked on the lock state, which the build must match.
-if [ -f cli/gradle.lockfile ] && grep -nE '^(ch\.qos\.logback:|org\.slf4j:slf4j-(simple|reload4j|jdk14|jdk-platform-logging|log4j12):|org\.apache\.logging\.log4j:log4j-slf4j)' cli/gradle.lockfile \
-  | grep -E '[=,]runtimeClasspath(,|$)'; then
-  fail "cli's runtime classpath has an slf4j provider other than slf4j-nop (#79 SEC-9)"
+# than slf4j-nop. An allowlist of the groups and slf4j artifacts on it (#103 CR-4, SEC-15), checked on the lock state,
+# which the build must match: a new runtime dependency fails here until someone checks it brings no logging backend
+# and adds it.
+cli_runtime_allowed='^(io\.ktor|net\.java\.dev\.jna|org\.jetbrains|org\.jetbrains\.kotlin|org\.jetbrains\.kotlinx):|^org\.slf4j:slf4j-(api|nop):'
+if [ ! -f cli/gradle.lockfile ]; then
+  fail "cli/gradle.lockfile is missing (#79 SEC-9)"
+elif grep -E '[=,]runtimeClasspath(,|$)' cli/gradle.lockfile | grep -vE "$cli_runtime_allowed"; then
+  fail "cli's runtime classpath has an artifact outside the allowlist (no slf4j provider but slf4j-nop, #79 SEC-9)"
 fi
 
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."

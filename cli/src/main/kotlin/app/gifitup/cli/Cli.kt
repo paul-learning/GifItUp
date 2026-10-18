@@ -60,7 +60,8 @@ data class Invocation(
 
         const val USAGE =
             """usage: gifitup-cli <command> --server <url> --state-dir <dir> [--origin <https origin>] [--remote-test-account]
-  register --username <name>   register this state dir's device with an invite (the code or link is read from stdin)
+  register --username <name>   register this state dir's device with an invite (the code or link, one line on stdin;
+                               typed input is echoed, so pipe it in where others can see the screen)
   login                        log in and out again (checks the device still works)
   devices                      list the account's devices
   reset                        discard a pending registration (never a registered one)
@@ -81,6 +82,7 @@ class Cli(
     private val random: SecureRandomSource,
     private val readInvite: () -> String,
     private val out: PrintStream,
+    private val err: PrintStream,
 ) {
     suspend fun run(invocation: Invocation): Int {
         val endpoint = Connection.endpoint(invocation.server, invocation.origin)
@@ -115,7 +117,7 @@ class Cli(
         guard(api, username, invocation.remoteTestAccount)
         return report(register(username, inviteCodeFrom(readInvite()))) { session ->
             out.println("registered $username as device ${session.deviceId}")
-            LogOut(api)(session)
+            logOut(api, session)
         }
     }
 
@@ -132,7 +134,17 @@ class Cli(
         return try {
             then(login.value)
         } finally {
-            LogOut(api)(login.value)
+            logOut(api, login.value)
+        }
+    }
+
+    /** A failed logout doesn't change the result: the token is dropped with the process and expires on its own (#103 CR-2). */
+    private suspend fun logOut(
+        api: GifItUpApi,
+        session: Session,
+    ) {
+        if (LogOut(api)(session) !is AuthResult.Ok) {
+            err.println("gifitup-cli: warning: logout failed; the session expires at ${Instant.ofEpochSecond(session.expiresAt)}")
         }
     }
 
@@ -150,11 +162,9 @@ class Cli(
             else -> {
                 report(ListDevices(api)(session)) { devices ->
                     devices.forEach {
-                        out.println(
-                            "${it.deviceId}  created ${Instant.ofEpochSecond(
-                                it.createdAt,
-                            )}  last seen ${Instant.ofEpochSecond(it.lastSeenAt)}",
-                        )
+                        val created = Instant.ofEpochSecond(it.createdAt)
+                        val lastSeen = Instant.ofEpochSecond(it.lastSeenAt)
+                        out.println("${it.deviceId}  created $created  last seen $lastSeen")
                     }
                 }
             }
@@ -212,7 +222,7 @@ private fun apiMessage(error: ApiError): String =
         ApiError.UNAUTHORIZED -> "not authorized (wrong origin, unknown device, or the challenge expired)"
         ApiError.INVITE_INVALID -> "invite not accepted (unknown, used, revoked or expired)$RESUME_HINT"
         ApiError.USERNAME_UNAVAILABLE -> "username taken or reserved$RESUME_HINT"
-        ApiError.RATE_LIMITED -> "rate limited; the server allows 10 logins per device per hour"
+        ApiError.RATE_LIMITED -> "rate limited by the server; try again later"
         ApiError.SERVER_ERROR -> "the server failed"
         ApiError.MALFORMED_RESPONSE -> "the server's answer broke the protocol"
         ApiError.NETWORK -> "no answer from the server (network error or timeout)"
