@@ -6,8 +6,10 @@ import java.time.Instant
 
 /**
  * Token buckets per key (ADR-0009). Keys are accounts, devices, usernames or invites, never IP addresses or headers
- * (SEC-M0-5). Two operations, so a caller can spend only on success (#68 round 0, SEC-2): [allows] looks without
- * spending, [spend] takes a token.
+ * (SEC-M0-5). Three operations: [allows] looks without spending (#68 round 0, SEC-2), [spend] takes a token, [refund]
+ * gives one back. [spend] is the atomic check-and-take: where a burst limit must hold under parallel requests (the
+ * KeyPackage claim, ADR-0012), take the token with [spend] **before** the work and [refund] only if the work took
+ * nothing; [allows] followed by [spend] lets N parallel requests all pass the check.
  *
  * Bounded: at most [maxKeys] buckets. A key's bucket is dropped only once it has refilled completely (it holds no
  * information then). If every bucket is still draining when a new key arrives, the new key is refused rather than an
@@ -51,6 +53,17 @@ class KeyedRateLimiter(
         val ok = bucket.tokens >= 1.0
         if (ok) bucket.tokens -= 1.0
         return ok
+    }
+
+    /**
+     * Gives back one token to [key] after a [spend] whose work took nothing (never beyond the capacity). A key whose bucket
+     * is gone (pruned because it was full) needs nothing.
+     */
+    @Synchronized
+    fun refund(key: String) {
+        val bucket = buckets[key] ?: return
+        refill(bucket)
+        bucket.tokens = minOf(capacity.toDouble(), bucket.tokens + 1.0)
     }
 
     /** A full bucket for [key], or null if the map is full of buckets that are still draining. */

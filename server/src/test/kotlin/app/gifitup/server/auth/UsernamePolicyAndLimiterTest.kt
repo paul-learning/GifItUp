@@ -79,4 +79,48 @@ class KeyedRateLimiterTest {
         clock.advance(Duration.ofSeconds(1))
         assertTrue(limiter.spend("c"), "a and b refilled completely, so their buckets were dropped")
     }
+
+    /** ADR-0012: the burst of a claim limit holds under parallel requests, because the token is taken before the work. */
+    @Test
+    fun parallelSpendsNeverTakeMoreThanTheBurst() {
+        val limiter = KeyedRateLimiter(clock, capacity = 2, refillEvery = Duration.ofDays(1))
+        val granted =
+            java.util.concurrent.atomic
+                .AtomicInteger()
+        val start = java.util.concurrent.CountDownLatch(1)
+        val threads =
+            List(100) {
+                Thread {
+                    start.await()
+                    if (limiter.spend("claimer")) granted.incrementAndGet()
+                }.apply { start() }
+            }
+        start.countDown()
+        threads.forEach { it.join() }
+        assertEquals(2, granted.get())
+    }
+
+    @Test
+    fun aRefundGivesBackOneTokenButNeverBeyondTheCapacity() {
+        val limiter = KeyedRateLimiter(clock, capacity = 2, refillEvery = Duration.ofDays(1))
+        assertTrue(limiter.spend("a"))
+        assertTrue(limiter.spend("a"))
+        assertFalse(limiter.spend("a"))
+        limiter.refund("a")
+        assertTrue(limiter.spend("a"), "the refunded token is usable")
+        assertFalse(limiter.spend("a"))
+        limiter.refund("a")
+        limiter.refund("a")
+        limiter.refund("a")
+        assertTrue(limiter.spend("a"))
+        assertTrue(limiter.spend("a"))
+        assertFalse(limiter.spend("a"), "capacity is 2, however many refunds")
+    }
+
+    @Test
+    fun refundingAKeyWithoutABucketDoesNothing() {
+        val limiter = KeyedRateLimiter(clock, capacity = 1, refillEvery = Duration.ofDays(1), maxKeys = 1)
+        limiter.refund("unknown")
+        assertTrue(limiter.spend("a"), "no bucket was created for the unknown key")
+    }
 }
