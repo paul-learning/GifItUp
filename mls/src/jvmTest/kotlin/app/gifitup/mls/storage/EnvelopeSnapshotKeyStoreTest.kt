@@ -259,6 +259,23 @@ class EnvelopeSnapshotKeyStoreTest {
             assertEquals(existing, aead.key)
         }
 
+    /** A seal that throws leaves no wrapping key behind either (#112 CR-3). */
+    @Test
+    fun aSealThatThrowsDropsTheWrappingKeyItCreated() =
+        runTest {
+            val throwing =
+                object : WrappingAead by aead {
+                    override suspend fun seal(
+                        plaintext: ByteArray,
+                        aad: ByteArray,
+                    ): ByteArray = throw LocalStateException(STORAGE)
+                }
+            val brokenKeys = EnvelopeSnapshotKeyStore(throwing, store, identities, ORIGIN)
+            assertEquals(STORAGE, assertFailsWith<LocalStateException> { brokenKeys.save(key) }.problem)
+            assertNull(aead.key)
+            assertNull(store.entries[EnvelopeSnapshotKeyStore.KEY])
+        }
+
     @Test
     fun saveRefusesAKeyThatIsNot32Bytes() =
         runTest {

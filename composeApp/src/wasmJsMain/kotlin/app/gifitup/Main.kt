@@ -17,12 +17,10 @@ import kotlinx.coroutines.launch
 fun main() {
     MainScope().launch {
         val storage = claimWebDeviceStorage()
+        // Built once, outside composition: a recomposition must never make a second graph with a second lock.
+        val graph = storage?.let { AppGraph(mlsClientFactory = { loadWasmMlsClientFactory() }, deviceStorage = it) }
         ComposeViewport {
-            if (storage == null) {
-                OpenInAnotherTab()
-            } else {
-                App(AppGraph(mlsClientFactory = { loadWasmMlsClientFactory() }, deviceStorage = storage))
-            }
+            if (graph == null) OpenInAnotherTab() else App(graph)
         }
     }
 }

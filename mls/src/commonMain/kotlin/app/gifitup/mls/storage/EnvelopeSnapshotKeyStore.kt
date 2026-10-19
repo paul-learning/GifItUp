@@ -7,6 +7,7 @@ import app.gifitup.shared.data.storage.LocalStateException.Problem.KEY_UNAVAILAB
 import app.gifitup.shared.data.storage.LocalStateException.Problem.STORAGE
 import app.gifitup.shared.data.storage.LocalStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * A platform AES-256-GCM key that never leaves the platform (Android Keystore, WebCrypto; ADR-0011). Implementations
@@ -62,6 +63,7 @@ class EnvelopeSnapshotKeyStore(
         return key
     }
 
+    @Suppress("TooGenericExceptionCaught") // Any failure drops a wrapping key this call made, then is rethrown unchanged.
     override suspend fun save(key: ByteArray) {
         require(key.size == KEY_SIZE) { "a snapshot key is 32 bytes" }
         // Defence in depth: only a pending registration saves a key, also when no wrapped key is stored (#16 SEC-5,
@@ -74,15 +76,26 @@ class EnvelopeSnapshotKeyStore(
             aead.create()
             created = true
         }
-        val sealed = aead.seal(key, aad())
-        try {
-            verify(sealed, key)
-        } catch (e: LocalStateException) {
-            // A wrapping key this call made and that doesn't round-trip is dropped, so the next registration makes a
-            // fresh one instead of failing on it until a wipe (#111 SEC-5). Nothing is wrapped with it yet.
-            if (created) runCatching { aead.destroy() }
-            throw e
-        }
+        val sealed =
+            try {
+                aead.seal(key, aad()).also { verify(it, key) }
+            } catch (e: CancellationException) {
+                // A cancelled save leaves a wrapping key it made: the next save reuses one that works, and a cleanup
+                // here would be cancelled itself.
+                throw e
+            } catch (e: Throwable) {
+                // A wrapping key this call made and that fails to seal or doesn't round-trip is dropped, so the next
+                // registration makes a fresh one instead of failing on it until a wipe (#111 SEC-5, #112 CR-3). Nothing
+                // is wrapped with it yet.
+                if (created) {
+                    try {
+                        aead.destroy()
+                    } catch (ignored: Exception) {
+                        // The original failure is the one to report.
+                    }
+                }
+                throw e
+            }
         store.putAll(mapOf(KEY to byteArrayOf(VERSION) + sealed))
     }
 
