@@ -103,6 +103,19 @@ class FileLocalStoreTest {
             assertEquals(DAMAGED, assertFailsWith<LocalStateException> { store.get("a") }.problem)
         }
 
+    /** The read side refuses a file over the limit, so a write that big must fail instead (#113 SEC-1). */
+    @Test
+    fun aWriteThatTheReadSideWouldRefuseFailsAndKeepsTheOldFile() =
+        runTest {
+            store.putAll(mapOf("a" to byteArrayOf(1)))
+            val before = file.readBytes()
+            val tooBig = ByteArray(17 * 1024 * 1024)
+            assertEquals(STORAGE, assertFailsWith<LocalStateException> { store.putAll(mapOf("b" to tooBig)) }.problem)
+            assertContentEquals(before, file.readBytes())
+            assertEquals(listOf(FileLocalStore.FILE_NAME), names())
+            assertContentEquals(byteArrayOf(1), store.get("a"))
+        }
+
     @Test
     fun deleteAllRemovesTheFileAndACrashedTempFileAndIsIdempotent() =
         runTest {

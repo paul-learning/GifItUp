@@ -3,8 +3,8 @@ package app.gifitup.mls.storage
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.security.keystore.StrongBoxUnavailableException
 import java.security.KeyStore
+import java.security.ProviderException
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
@@ -22,8 +22,8 @@ class KeystoreKeySupplier(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 return generate(strongBox = true)
-            } catch (ignored: StrongBoxUnavailableException) {
-                // No StrongBox on this device: the TEE below.
+            } catch (ignored: ProviderException) {
+                // No StrongBox on this device (StrongBoxUnavailableException), or it failed to make the key: the TEE below.
             }
         }
         return generate(strongBox = false)

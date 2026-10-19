@@ -41,7 +41,10 @@ class FileLocalStore internal constructor(
         synchronized(lock) {
             val merged = read().toMutableMap()
             entries.forEach { (key, value) -> if (value == null) merged.remove(key) else merged[key] = value.copyOf() }
-            write(encode(merged))
+            val content = encode(merged)
+            // The read side refuses a larger file as DAMAGED, so a write that big would destroy the identity (#113 SEC-1).
+            if (content.size > MAX_FILE_BYTES) throw LocalStateException(STORAGE)
+            write(content)
         }
 
     /** Deletes the file and any temp file left by a crash; for the wipe. Missing files are no error. */

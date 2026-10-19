@@ -7,7 +7,7 @@ import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.InvalidKeyException
 import java.security.UnrecoverableKeyException
-import javax.crypto.AEADBadTagException
+import javax.crypto.BadPaddingException
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -38,7 +38,12 @@ class JcaWrappingAead(
 ) : WrappingAead {
     override suspend fun exists(): Boolean = mapped { keys.get() != null }
 
-    override suspend fun create() = mapped { keys.create() }.let { }
+    /** Never replaces a key: the wrapped key of an existing identity would be lost with it (#113 SEC-2). */
+    override suspend fun create() =
+        mapped {
+            if (keys.get() != null) throw LocalStateException(STORAGE)
+            keys.create()
+        }.let { }
 
     override suspend fun seal(
         plaintext: ByteArray,
@@ -76,7 +81,8 @@ class JcaWrappingAead(
             block()
         } catch (e: LocalStateException) {
             throw e
-        } catch (ignored: AEADBadTagException) {
+        } catch (ignored: BadPaddingException) {
+            // A tag that doesn't verify (AEADBadTagException) or any other padding failure on open.
             throw LocalStateException(KEY_UNAVAILABLE)
         } catch (ignored: UnrecoverableKeyException) {
             throw LocalStateException(KEY_UNAVAILABLE)

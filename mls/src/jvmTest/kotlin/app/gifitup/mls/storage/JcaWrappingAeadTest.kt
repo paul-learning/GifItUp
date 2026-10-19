@@ -54,6 +54,17 @@ class JcaWrappingAeadTest {
         }
 
     @Test
+    fun createNeverReplacesAnExistingKey() =
+        runTest {
+            aead.create()
+            val sealed = aead.seal(plain, aad)
+            val first = keys.key
+            assertEquals(STORAGE, assertFailsWith<LocalStateException> { aead.create() }.problem)
+            assertEquals(first, keys.key)
+            assertContentEquals(plain, aead.open(sealed, aad))
+        }
+
+    @Test
     fun aWrongAadOrChangedBytesAreKeyUnavailable() =
         runTest {
             aead.create()
