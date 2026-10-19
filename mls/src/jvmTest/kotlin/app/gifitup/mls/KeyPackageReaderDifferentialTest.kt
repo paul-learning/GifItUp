@@ -17,7 +17,8 @@ import kotlin.test.assertTrue
  * The server's KeyPackage reader against KeyPackages made by the real crate (ADR-0012, #14 plan SEC-7). The aim is that
  * the server accepts nothing the claimers' `inspect_key_package` would refuse, apart from the clock and the contents of the
  * capabilities, which the reader does not read. Two checks: (1) on mutations of real KeyPackages, and (2) on validly
- * signed variants, whenever the reader accepts, the crate accepts with the same fields. (The reverse need not hold:
+ * signed variants, whenever the reader accepts, the crate accepts it, with the same signature key and, through `expected_username`, the same identity (the crate does not
+ * return the lifetime, so that is not compared). (The reverse need not hold:
  * the reader may be stricter.) They cover the cases listed, not every input. A change in OpenMLS's wire layout fails
  * here, not in production.
  */
@@ -143,6 +144,10 @@ class KeyPackageReaderDifferentialTest {
         variant("proposals") { capabilityProposals = listOf(1, 2) }
         variant("key package extension, empty data") { keyPackageExtensions = listOf(0x1234 to ByteArray(0)) }
         variant("lifetime: 84 days") { notAfter = now + 84 * DAY - HOUR }
+        variant("lifetime: exactly the limit") {
+            notBefore = now - HOUR
+            notAfter = now - HOUR + MAX_RANGE
+        }
         variant("lifetime: just over the limit") {
             notBefore = now - HOUR
             notAfter = now - HOUR + MAX_RANGE + 1
