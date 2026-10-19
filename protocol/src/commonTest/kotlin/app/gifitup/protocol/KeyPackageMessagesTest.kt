@@ -1,6 +1,8 @@
 package app.gifitup.protocol
 
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -56,17 +58,15 @@ class KeyPackageMessagesTest {
     @Test
     fun claimResponseHasNoSuiteAndNoCount() {
         val json = ProtocolJson.encodeToString(ClaimKeyPackagesResponse(listOf(ClaimedDevice("d", "AAEC"))))
-        assertEquals(setOf("devices"), ProtocolJson.parseToJsonElement(json).let { (it as kotlinx.serialization.json.JsonObject).keys })
+        val top = ProtocolJson.parseToJsonElement(json).jsonObject
+        assertEquals(setOf("devices"), top.keys)
         assertEquals(
             setOf("deviceId", "keyPackage"),
-            (
-                (
-                    ProtocolJson.parseToJsonElement(
-                        json,
-                    ) as kotlinx.serialization.json.JsonObject
-                )["devices"] as kotlinx.serialization.json.JsonArray
-            ).map { (it as kotlinx.serialization.json.JsonObject).keys }
-                .single(),
+            top
+                .getValue("devices")
+                .jsonArray
+                .single()
+                .jsonObject.keys,
         )
     }
 
