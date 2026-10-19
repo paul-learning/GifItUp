@@ -23,7 +23,9 @@ import java.nio.file.StandardOpenOption
  *
  * One instance per device: the app builds it once per process, and the calls are serialized here. The calls block, so
  * callers keep them off the main thread. A file that isn't ours (wrong version, short, duplicate keys, trailing bytes,
- * too large) is `DAMAGED`; I/O failures are `STORAGE`.
+ * too large) is `DAMAGED`; I/O failures are `STORAGE`. A write whose content would be too large to read back fails with
+ * `STORAGE` before anything is written. A `STORAGE` from [putAll] can also come from the directory sync after the
+ * rename, so the new content may already be in place: callers read again instead of assuming the old state.
  */
 class FileLocalStore internal constructor(
     private val dir: File,
