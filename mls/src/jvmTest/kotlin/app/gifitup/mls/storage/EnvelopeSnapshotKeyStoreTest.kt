@@ -250,7 +250,30 @@ class EnvelopeSnapshotKeyStoreTest {
                 val brokenKeys = EnvelopeSnapshotKeyStore(broken, store, identities, ORIGIN)
                 assertEquals(STORAGE, assertFailsWith<LocalStateException> { brokenKeys.save(key) }.problem)
                 assertNull(store.entries[EnvelopeSnapshotKeyStore.KEY])
+                assertNull(aead.key, "a wrapping key made by the failed save is dropped (#111 SEC-5)")
             }
+            // One that already existed stays: a wrapped key may still need it.
+            aead.create()
+            val existing = aead.key
+            assertFailsWith<LocalStateException> { EnvelopeSnapshotKeyStore(short, store, identities, ORIGIN).save(key) }
+            assertEquals(existing, aead.key)
+        }
+
+    /** A seal that throws leaves no wrapping key behind either (#112 CR-3). */
+    @Test
+    fun aSealThatThrowsDropsTheWrappingKeyItCreated() =
+        runTest {
+            val throwing =
+                object : WrappingAead by aead {
+                    override suspend fun seal(
+                        plaintext: ByteArray,
+                        aad: ByteArray,
+                    ): ByteArray = throw LocalStateException(STORAGE)
+                }
+            val brokenKeys = EnvelopeSnapshotKeyStore(throwing, store, identities, ORIGIN)
+            assertEquals(STORAGE, assertFailsWith<LocalStateException> { brokenKeys.save(key) }.problem)
+            assertNull(aead.key)
+            assertNull(store.entries[EnvelopeSnapshotKeyStore.KEY])
         }
 
     @Test

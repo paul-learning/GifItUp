@@ -10,7 +10,7 @@ import app.gifitup.ui.App
 
 /** Android composition root (ADR-0004). */
 class MainActivity : ComponentActivity() {
-    private val graph = AppGraph(mlsClientFactory = { UniffiMlsClientFactory })
+    private val graph = AppGraph(mlsClientFactory = { UniffiMlsClientFactory }, deviceStorage = null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
