@@ -18,6 +18,8 @@ application {
 dependencies {
     // The server depends on the wire models only, never on client code in :shared.
     implementation(projects.protocol)
+    // Ed25519 verification (login, ADR-0009) and the KeyPackage reader (ADR-0012): pure Kotlin, no Rust.
+    implementation(projects.keypackage)
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
     implementation(libs.ktor.server.content.negotiation)

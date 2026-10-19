@@ -3,7 +3,7 @@
 
 package app.gifitup.server.db
 
-import app.gifitup.server.auth.SignatureVerifier
+import app.gifitup.keypackage.SignatureVerifier
 import app.gifitup.server.auth.UsernamePolicy
 import java.sql.Connection
 import java.sql.PreparedStatement

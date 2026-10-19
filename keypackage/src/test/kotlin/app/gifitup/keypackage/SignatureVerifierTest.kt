@@ -1,4 +1,4 @@
-package app.gifitup.server.auth
+package app.gifitup.keypackage
 
 import java.math.BigInteger
 import kotlin.test.Test

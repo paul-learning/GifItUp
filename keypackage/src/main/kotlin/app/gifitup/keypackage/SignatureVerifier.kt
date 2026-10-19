@@ -1,4 +1,4 @@
-package app.gifitup.server.auth
+package app.gifitup.keypackage
 
 import java.math.BigInteger
 import java.security.GeneralSecurityException
@@ -15,7 +15,7 @@ import java.security.spec.X509EncodedKeySpec
  * Nothing here throws: every failure is `null` (key) or `false` (signature), so callers map it to a closed 400 or 401,
  * never a 500 with details.
  */
-internal object SignatureVerifier {
+object SignatureVerifier {
     const val PUBLIC_KEY_SIZE = 32
     const val SIGNATURE_SIZE = 64
 
@@ -95,7 +95,7 @@ internal object SignatureVerifier {
 }
 
 /** Decodes lowercase hex. For constants and test vectors only: never for request input. */
-internal fun hex(s: String): ByteArray {
+fun hex(s: String): ByteArray {
     require(s.length % 2 == 0 && s.all { it in '0'..'9' || it in 'a'..'f' }) { "not lowercase hex" }
     return ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(HEX_RADIX).toByte() }
 }
