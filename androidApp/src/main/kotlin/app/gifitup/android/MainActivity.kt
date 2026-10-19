@@ -49,7 +49,14 @@ class MainActivity : Activity() {
         }
         button("2. Load key") {
             val key = storage.snapshotKeys(ORIGIN).load()
-            val verdict = if (key == null) "NOTHING STORED" else if (key.contentEquals(KEY)) "SAME KEY: OK" else "DIFFERENT KEY: BAD"
+            val verdict =
+                if (key == null) {
+                    "NOTHING STORED"
+                } else if (key.contentEquals(KEY)) {
+                    "SAME KEY: OK"
+                } else {
+                    "DIFFERENT KEY: BAD"
+                }
             "$verdict\nfiles: ${files()}"
         }
         button("3. Wipe") {
@@ -62,6 +69,7 @@ class MainActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(column) })
     }
 
+    @Suppress("TooGenericExceptionCaught") // Throwaway harness: show any failure as text.
     private fun run(
         name: String,
         action: suspend () -> String,
@@ -98,7 +106,12 @@ class MainActivity : Activity() {
 
     private fun files(): String {
         val dir = noBackupFilesDir.resolve("gifitup")
-        return dir.list().orEmpty().sorted().joinToString { "$it (${dir.resolve(it).length()} bytes)" }.ifEmpty { "(no files)" }
+        return dir
+            .list()
+            .orEmpty()
+            .sorted()
+            .joinToString { "$it (${dir.resolve(it).length()} bytes)" }
+            .ifEmpty { "(no files)" }
     }
 
     private fun hardware(): String {
