@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions") // One small js() helper per IndexedDB call; they belong together.
+
 package app.gifitup.mls.storage
 
 import app.gifitup.mls.toByteArray
@@ -55,7 +57,7 @@ private fun idbOpen(name: String): Promise<JsAny?> =
             };
             request.onsuccess = () => {
                 const db = request.result;
-                db.onversionchange = () => db.close();
+                db.onversionchange = () => { db.gifitupClosed = true; db.close(); };
                 resolve(db);
             };
             request.onerror = () => reject(request.error);
@@ -108,6 +110,9 @@ internal fun idbPutAll(
     )
 
 @Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun isClosed(db: JsAny): Boolean = js("db.gifitupClosed === true")
+
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
 private fun idbClose(db: JsAny): JsAny? = js("db.close()")
 
 @Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
@@ -143,7 +148,8 @@ internal class WebDatabase(
     private val opening = Mutex()
     private var db: JsAny? = null
 
-    private suspend fun connection(): JsAny = opening.withLock { db ?: settled(idbOpen(name))!!.also { db = it } }
+    /** A connection that closed itself on `versionchange` (the database was deleted or upgraded) is opened again (#112 SEC-1). */
+    private suspend fun connection(): JsAny = opening.withLock { db?.takeUnless(::isClosed) ?: settled(idbOpen(name))!!.also { db = it } }
 
     suspend fun get(
         store: String,

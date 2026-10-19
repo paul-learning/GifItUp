@@ -3,6 +3,7 @@ package app.gifitup.mls.storage
 import app.gifitup.shared.data.storage.LocalStore
 import app.gifitup.shared.domain.auth.DeviceStorage
 import kotlinx.coroutines.await
+import kotlinx.coroutines.delay
 import kotlin.js.Promise
 
 /**
@@ -10,7 +11,7 @@ import kotlin.js.Promise
  * page closes. Resolves to whether this page got it; no Web Locks support, or any error, is "no" (fail closed).
  */
 @Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
-private fun requestPageLock(name: String): Promise<JsBoolean> =
+internal fun requestPageLock(name: String): Promise<JsBoolean> =
     js(
         """new Promise((resolve) => {
             try {
@@ -39,13 +40,25 @@ private fun requestPersist(): Promise<JsBoolean> =
  * `gifitup-device` lock opens the database; any other tab gets `null`, opens no storage and tells the user the app is
  * open elsewhere. Call it once, before building anything that touches storage.
  */
-suspend fun claimWebDeviceStorage(): DeviceStorage? = claimWebDeviceStorage(LOCK_NAME, DATABASE_NAME)
+suspend fun claimWebDeviceStorage(): DeviceStorage? =
+    claimWebDeviceStorage(DATABASE_NAME, CLAIM_ATTEMPTS) { requestPageLock(LOCK_NAME).await<JsBoolean>().toBoolean() }
 
+/**
+ * Asks [tryLock] up to [attempts] times, [RETRY_DELAY_MS] apart. A page that reloads quickly can ask before the
+ * browser has released the old page's lock, so the first "no" isn't final (#112 SEC-2).
+ */
 internal suspend fun claimWebDeviceStorage(
-    lockName: String,
     databaseName: String,
+    attempts: Int,
+    tryLock: suspend () -> Boolean,
 ): DeviceStorage? {
-    if (!requestPageLock(lockName).await<JsBoolean>().toBoolean()) return null
+    var held = false
+    for (attempt in 1..attempts) {
+        held = tryLock()
+        if (held) break
+        if (attempt < attempts) delay(RETRY_DELAY_MS)
+    }
+    if (!held) return null
     val db = WebDatabase(databaseName)
     val aead = WebCryptoWrappingAead(db)
     val store = IndexedDbLocalStore(db)
@@ -67,4 +80,6 @@ suspend fun requestPersistentStorage(store: LocalStore): Boolean {
 
 const val PERSISTED_KEY = "storage-persisted"
 private const val LOCK_NAME = "gifitup-device"
+private const val CLAIM_ATTEMPTS = 10
+internal const val RETRY_DELAY_MS = 200L
 private const val DATABASE_NAME = "gifitup"

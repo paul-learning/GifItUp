@@ -7,6 +7,7 @@ import app.gifitup.shared.data.storage.LocalStateException.Problem.KEY_UNAVAILAB
 import app.gifitup.shared.data.storage.LocalStateException.Problem.STORAGE
 import app.gifitup.shared.data.storage.StoredIdentity
 import app.gifitup.shared.domain.auth.DeviceStorage
+import kotlinx.coroutines.await
 import kotlinx.coroutines.test.runTest
 import kotlin.js.Promise
 import kotlin.random.Random
@@ -27,6 +28,12 @@ private fun extractableKey(): Promise<JsAny?> =
 
 private fun notCloneable(): JsAny = js("(() => () => 0)()")
 
+/** One real lock request on [name] per attempt (the app retries; most tests want a plain yes or no). */
+private suspend fun claimForTest(
+    name: String,
+    attempts: Int = 1,
+) = claimWebDeviceStorage(name, attempts) { requestPageLock(name).await<JsBoolean>().toBoolean() }
+
 private fun jsText(): JsAny = js("'not bytes'")
 
 /** The real IndexedDB, WebCrypto and Web Locks in headless Chrome (ADR-0011). Each test uses its own lock and database. */
@@ -35,7 +42,7 @@ class WebStorageTest {
     private val key = ByteArray(EnvelopeSnapshotKeyStore.KEY_SIZE) { (it + 1).toByte() }
 
     private suspend fun withStorage(block: suspend (DeviceStorage) -> Unit) {
-        val storage = assertNotNull(claimWebDeviceStorage(name, name))
+        val storage = assertNotNull(claimForTest(name))
         try {
             block(storage)
         } finally {
@@ -141,7 +148,7 @@ class WebStorageTest {
     @Test
     fun theWipeDeletesTheKeyAndTheDatabase() =
         runTest {
-            val storage = assertNotNull(claimWebDeviceStorage(name, name))
+            val storage = assertNotNull(claimForTest(name))
             storage.snapshotKeys(ORIGIN).save(key)
             storage.store.putAll(mapOf("a" to byteArrayOf(1)))
             storage.data.destroyWrappingKey()
@@ -160,14 +167,18 @@ class WebStorageTest {
 
 /** The device claim (Web Locks), a second connection during the wipe, and `persist()`. */
 class WebDeviceTest {
+    private companion object {
+        const val ATTEMPTS = 3
+    }
+
     private val name = "gifitup-test-${Random.nextLong().toULong()}"
 
     @Test
     fun aSecondClaimOfTheSameDeviceIsRefused() =
         runTest {
-            val storage = assertNotNull(claimWebDeviceStorage(name, name))
+            val storage = assertNotNull(claimForTest(name))
             try {
-                assertNull(claimWebDeviceStorage(name, name), "the lock is held for the page's lifetime")
+                assertNull(claimForTest(name), "the lock is held for the page's lifetime")
             } finally {
                 storage.data.deleteAll()
             }
@@ -177,19 +188,36 @@ class WebDeviceTest {
     @Test
     fun anotherOpenConnectionDoesntBlockTheWipe() =
         runTest {
-            val storage = assertNotNull(claimWebDeviceStorage(name, name))
+            val storage = assertNotNull(claimForTest(name))
             storage.store.putAll(mapOf("a" to byteArrayOf(1)))
             val other = WebDatabase(name)
             assertNotNull(other.get(WebDatabase.DATA, "a"))
             storage.data.deleteAll()
-            assertEquals(STORAGE, assertFailsWith<LocalStateException> { other.get(WebDatabase.DATA, "a") }.problem)
+            // The closed connection is opened again, onto the empty database: no stale "storage failed" until a reload.
+            assertNull(other.get(WebDatabase.DATA, "a"))
+            other.delete()
         }
 
-    /** Headless Chrome may grant or refuse it, so the test checks that the answer was recorded. */
+    /** A page that reloads quickly may ask before the browser released the old page's lock (#112 SEC-2). */
+    @Test
+    fun theClaimAsksAgainBeforeGivingUp() =
+        runTest {
+            var asked = 0
+            val storage = claimWebDeviceStorage(name, attempts = ATTEMPTS) { ++asked == ATTEMPTS }
+            assertNotNull(storage)
+            assertEquals(ATTEMPTS, asked)
+            assertEquals((ATTEMPTS - 1) * RETRY_DELAY_MS, testScheduler.currentTime, "it waits between the asks, not after the last")
+            storage.data.deleteAll()
+            var refused = 0
+            assertNull(claimWebDeviceStorage(name, attempts = ATTEMPTS) { ++refused < 0 })
+            assertEquals(ATTEMPTS, refused)
+            assertEquals(2 * (ATTEMPTS - 1) * RETRY_DELAY_MS, testScheduler.currentTime, "a refusal doesn't wait after the last ask")
+        }
+
     @Test
     fun thePersistAnswerIsRecorded() =
         runTest {
-            val storage = assertNotNull(claimWebDeviceStorage(name, name))
+            val storage = assertNotNull(claimForTest(name))
             try {
                 val granted = requestPersistentStorage(storage.store)
                 assertContentEquals(byteArrayOf(if (granted) 1 else 0), storage.store.get(PERSISTED_KEY))
