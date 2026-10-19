@@ -21,7 +21,7 @@ enum class KeyPackageRejection {
     /** Not a well-formed KeyPackage MLSMessage: truncated, trailing bytes, non-canonical length, a wrong field. */
     MALFORMED,
 
-    /** Well formed, but a suite, a credential type or a version the reader doesn't support. */
+    /** Well formed, but a suite, a credential type, a version or an extension the reader doesn't support. */
     UNSUPPORTED,
 
     /** Carries the `last_resort` extension: not accepted in v1 (ADR-0012). */
@@ -32,6 +32,9 @@ enum class KeyPackageRejection {
 
     /** The KeyPackage signature or the leaf node signature does not verify. */
     BAD_SIGNATURE,
+
+    /** `not_before` is after `not_after`, or the span is longer than OpenMLS accepts (84 days + 1 hour). */
+    BAD_LIFETIME,
 }
 
 sealed interface KeyPackageReading {
@@ -46,17 +49,23 @@ sealed interface KeyPackageReading {
 
 /**
  * A strict reader of one KeyPackage (RFC 9420 §10, §7.2, §2.1.2) in an MLSMessage, for the server (ADR-0012). It
- * extracts the fields the server needs and verifies the two Ed25519 signatures; it does not validate the contents of
- * capabilities and extensions (they are skipped by length), because every claimer runs the full check
- * (`inspect_key_package`, ADR-0002).
+ * extracts the fields the server needs and verifies the two Ed25519 signatures; it skips the capabilities by length and
+ * refuses every extension (our clients send none, and the crate refuses extension types it doesn't know). Every claimer
+ * runs the full check (`inspect_key_package`, ADR-0002); the reader only keeps junk out of the directory. It checks the
+ * lifetime's shape (ordered, at most [MAX_LIFETIME_SECONDS]) but not the clock: expiry is the upload service's rule.
  *
  * Strict means: at most [MAX_BYTES], every length in its shortest encoding, the whole input consumed, no duplicate
  * extension types, only what suite 1 uses. Nothing here recurses or allocates more than the input, and nothing throws:
- * every problem is a [KeyPackageRejection]. The set it accepts must stay inside what the crate accepts; the `:mls` tests
- * check that on a mutation corpus of real KeyPackages.
+ * every problem is a [KeyPackageRejection]. The aim is that it accepts nothing the crate refuses, apart from the clock
+ * (expiry is the upload service's rule) and the contents of the capabilities, which it does not read. The `:mls` tests
+ * check that on mutations of real KeyPackages and on validly signed variants; they cover the cases listed there, they
+ * do not prove it in general.
  */
 object KeyPackageReader {
     const val MAX_BYTES = 2048
+
+    /** OpenMLS's longest acceptable lifetime: 84 days plus a 1-hour margin (ADR-0007). */
+    const val MAX_LIFETIME_SECONDS = 84L * 24 * 3600 + 3600
 
     /** The suites this reader (and so the server) accepts: `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (ADR-0002). */
     val SUPPORTED_SUITES: Set<Int> = setOf(SUITE_X25519_AES128_ED25519)
@@ -90,16 +99,18 @@ object KeyPackageReader {
         if (c.u8() != LEAF_NODE_SOURCE_KEY_PACKAGE) reject(KeyPackageRejection.MALFORMED)
         val notBefore = c.u64()
         val notAfter = c.u64()
-        c.extensions()
+        val leafExtensions = c.extensions()
         val leafTbsEnd = c.pos
         val leafSignature = c.vec()
 
-        val lastResort = c.extensions().contains(EXTENSION_LAST_RESORT)
+        val keyPackageExtensions = c.extensions()
         val keyPackageTbsEnd = c.pos
         val keyPackageSignature = c.vec()
         if (c.pos != bytes.size) reject(KeyPackageRejection.MALFORMED)
 
-        if (lastResort) reject(KeyPackageRejection.LAST_RESORT)
+        if (EXTENSION_LAST_RESORT in keyPackageExtensions) reject(KeyPackageRejection.LAST_RESORT)
+        if (leafExtensions.isNotEmpty() || keyPackageExtensions.isNotEmpty()) reject(KeyPackageRejection.UNSUPPORTED)
+        if (notBefore > notAfter || notAfter - notBefore > MAX_LIFETIME_SECONDS) reject(KeyPackageRejection.BAD_LIFETIME)
         if (initKey.size != KEY_BYTES || encryptionKey.size != KEY_BYTES || signatureKey.size != KEY_BYTES) {
             reject(KeyPackageRejection.BAD_KEYS)
         }

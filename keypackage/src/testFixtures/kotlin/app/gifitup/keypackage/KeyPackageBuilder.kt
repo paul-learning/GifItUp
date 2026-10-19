@@ -33,6 +33,11 @@ class KeyPackageSpec(
     var leafSigner: KeyPair = SIGNER,
     var keyPackageSigner: KeyPair = SIGNER,
     var keyPackageSignatureBytes: Int = 64,
+    var capabilityVersions: List<Int> = listOf(1),
+    var capabilitySuites: List<Int> = listOf(1, 2, 3),
+    var capabilityExtensions: List<Int> = emptyList(),
+    var capabilityProposals: List<Int> = emptyList(),
+    var capabilityCredentials: List<Int> = listOf(1),
 ) {
     val signatureKey: ByteArray get() = advertisedSignatureKey ?: rawPublicKey(SIGNER)
 
@@ -50,7 +55,7 @@ class KeyPackageSpec(
     }
 }
 
-fun build(spec: KeyPackageSpec = KeyPackageSpec()): ByteArray {
+fun buildKeyPackage(spec: KeyPackageSpec = KeyPackageSpec()): ByteArray {
     fun varint(n: Int): ByteArray =
         when {
             spec.fourByteVarints -> byteArrayOf((0x80 or (n shr 24)).toByte(), (n shr 16).toByte(), (n shr 8).toByte(), n.toByte())
@@ -91,8 +96,11 @@ fun build(spec: KeyPackageSpec = KeyPackageSpec()): ByteArray {
         return signed.copyOf(length)
     }
 
+    fun u16s(list: List<Int>) = vec(list.fold(ByteArray(0)) { acc, v -> acc + u16(v) })
+
     val capabilities =
-        vec(u16(1)) + vec(u16(1) + u16(2) + u16(3)) + vec(ByteArray(0)) + vec(ByteArray(0)) + vec(u16(1))
+        u16s(spec.capabilityVersions) + u16s(spec.capabilitySuites) + u16s(spec.capabilityExtensions) +
+            u16s(spec.capabilityProposals) + u16s(spec.capabilityCredentials)
     val leafTbs =
         vec(spec.encryptionKey) + vec(spec.signatureKey) + u16(spec.credentialType) + vec(spec.identity) + capabilities +
             byteArrayOf(spec.source.toByte()) + u64(spec.notBefore) + u64(spec.notAfter) + extensions(spec.leafExtensions)
