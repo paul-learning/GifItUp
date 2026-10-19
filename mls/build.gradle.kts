@@ -407,6 +407,10 @@ kotlin {
         wasmJsTest.dependencies {
             implementation(npm("gifitup-crypto-test", wasmTestPkgDir.get().asFile))
         }
+        // The server's KeyPackage reader (ADR-0012), checked against the real crate on the JVM only; never shipped from here.
+        jvmTest.dependencies {
+            implementation(projects.keypackage)
+        }
         // uniffi's Kotlin output is plain JVM Kotlin: the same generated files and wrapper compile for both
         // JVM targets (a shared intermediate source set would need JNA in its metadata compilation).
         jvmMain {

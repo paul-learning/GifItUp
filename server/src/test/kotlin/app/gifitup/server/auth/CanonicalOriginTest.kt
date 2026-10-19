@@ -1,5 +1,6 @@
 package app.gifitup.server.auth
 
+import app.gifitup.keypackage.hex
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

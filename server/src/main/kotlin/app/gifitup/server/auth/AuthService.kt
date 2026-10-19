@@ -1,5 +1,6 @@
 package app.gifitup.server.auth
 
+import app.gifitup.keypackage.SignatureVerifier
 import app.gifitup.server.db.AccountRepository
 import app.gifitup.server.db.DeviceRecord
 import app.gifitup.server.db.DeviceRepository

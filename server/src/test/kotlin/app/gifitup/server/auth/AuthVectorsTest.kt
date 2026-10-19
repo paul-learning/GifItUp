@@ -1,5 +1,7 @@
 package app.gifitup.server.auth
 
+import app.gifitup.keypackage.SignatureVerifier
+import app.gifitup.keypackage.hex
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.UUID
