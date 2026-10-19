@@ -1,0 +1,63 @@
+# ADR-0012: KeyPackage directory
+
+- **Status:** accepted (the claim-drain residual risk in the threat model still needs the owner's sign-off)
+- **Date:** 2026-10-19
+- **Issue/PR:** #14 (PR A: this ADR, the protocol messages and the threat model; PR B1/B2: server; PR C: client, CLI, end-to-end). Round-0 plan review on the first #14 PR (SEC-1 to SEC-14). Owner decisions in chat, 2026-10-19: "One community (Recommended)"; "No, not in v1 (Recommended)" (last-resort KeyPackages); "Parse and verify signatures (Recommended)"; "Include in #14 (Recommended)"; plan approved: "go ahead". Also 2026-10-19: keep the MLS cipher suite swappable ("go with this included").
+
+## Context
+A device can only be added to a group if the adder holds one of its KeyPackages: a single-use public key bundle that the device made earlier, signed by its MLS signature key (RFC 9420 §10). The server is the Delivery Service (ADR-0002) and distributes them. The crate makes at most 100 per call and holds at most 200 (ADR-0007), 84 days of life each, never last-resort. Devices authenticate with the same Ed25519 key their KeyPackages are signed with (ADR-0009), so the server can bind a KeyPackage to the device that uploaded it (#12 SEC-11).
+
+Constraints: the server is untrusted for content and stays Rust-free (ADR-0007); the claiming client verifies everything (`inspect_key_package`); the cipher suite must stay replaceable; a new server-visible field needs a justification (CLAUDE.md).
+
+## Options considered
+1. **Opaque store, client-supplied metadata.** The server keeps bytes and trusts what the client says about expiry and suite. Rejected: violates #12 SEC-11, and a client could lie about expiry or suite.
+2. **The Rust crate on the server (JNI).** Rejected: breaks the Rust-free server (ADR-0007).
+3. **A strict reader in Kotlin** that extracts the fields and verifies the two signatures. **Chosen.**
+4. **Last-resort KeyPackages** so a claim always finds one. Rejected for v1 (owner decision): the reused KeyPackage weakens forward secrecy for the first message, and the crate has no support.
+5. **Authorization by invite tree.** Rejected (owner decision, SEC-3): deleting an inviter would silently split a community.
+
+## Decision
+
+### Reader (`:keypackage`, pure Kotlin/JVM)
+- Reads an MLSMessage holding a KeyPackage: wire format, protocol version 1, cipher suite, init key, leaf node (encryption key, **signature key**, BasicCredential **identity**, leaf source = key_package, **lifetime**), KeyPackage extensions, signature. Capabilities and extension contents are skipped by length. QUIC-style variable-length integers must be canonical, the whole input must be consumed, the input is at most 2 KiB, and nothing recurses.
+- Verifies both Ed25519 signatures (KeyPackageTBS and LeafNodeTBS, `SignWithLabel` with the `"MLS 1.0 "` prefix, ADR-0009's domain separation) with the JDK's EdDSA, the same primitive `SignatureVerifier` uses for login.
+- An upload is accepted only if: the suite is on the server's allow-list (`{1}`, a constant in code); the identity equals the session account's username; the signature key equals the **session's device's** registered key (the device comes from the session, so nobody can upload for another device or account); both signatures verify; `not_after` is at least 7 days away; `not_after − not_before ≤ 84 days + 1 hour`; `not_before ≤ now + 1 hour`; no `last_resort` extension (0x000a).
+- **Scope and adversary.** The reader does not validate the deeper capabilities and extension contents, so a member can still upload bound, correctly signed KeyPackages with hostile inner bytes. That harms only the claimers of that member's packages, and every claimer runs `inspect_key_package` (ADR-0002), which must survive such input (#64 fuzzing; on the web a trap reloads the page, ADR-0007). The reader exists to enforce the binding, to derive suite and expiry instead of trusting the client, and to keep garbage out of other members' claim budgets.
+- It lives in its own module so `:mls` tests can run it against real crate-made KeyPackages: a mutation corpus asserts that whenever the Kotlin reader accepts, `inspect_key_package` accepts with identical fields, and the end-to-end test uploads real ones. The server module depends on it; `:mls` and `:e2e` only in tests.
+- **ADR-0002 amendment:** "the server does not parse MLS" now has one narrow exception: it reads KeyPackages at upload. Never Welcomes, Commits or application data.
+
+### Storage (V3, expand-only)
+- `key_packages(id, device_id → devices ON DELETE CASCADE, ciphersuite integer 1..65535, key_package bytea UNIQUE ≤ 2048, not_after, created_at)`. The suite is read from the bytes. **A claim deletes the row**: there is no tombstone, no hash and no claim history at rest. ("Deleted" is logical until vacuum; the data is public keys.) A device re-uploading a consumed KeyPackage only harms itself, since it owns the keys and could mint a fresh one anyway.
+- Caps per device: 200 unexpired (the crate's held cap) and 400 rows in total, counting expired ones not yet cleaned. A batch over either is rejected whole with `409 key_package_limit`. Cleanup runs hourly, deletes `not_after < now` in batches of 1000 and pauses between them.
+- **No delete-by-ref in v1.** The server drops expired rows itself and the client prunes its own private keys. `key_package_ref` stays on the client. A "revoke all my KeyPackages" endpoint is a `later` item.
+
+### Endpoints (additive, no `PROTOCOL_VERSION` bump, ADR-0006 A7)
+- `POST /key-packages` (1..50 items, route-scoped body limit of 160 KiB, per item at most 2732 base64url characters checked before decoding), `GET /key-packages/status`, `POST /key-packages/claim` (`{"username", "ciphersuites":[…]}`), with the closed errors `key_package_invalid` (400, no detail) and `key_package_limit` (409). Messages: `protocol/…/KeyPackageMessages.kt`.
+- **Upload.** The session interceptor runs before the body limit, so an unauthenticated oversize request is a 401 without buffering. The whole batch is validated, then stored in one transaction; a duplicate or a concurrent identical batch is a closed 400 (`ON CONFLICT DO NOTHING` and a row count, never a 500). The device row is locked `FOR NO KEY UPDATE`, then the count runs as a separate statement. Failed uploads spend the upload bucket.
+- **Low-water mark.** The server advises `lowWaterMark = 20`; the client clamps any advice to 1..200 and refills when `available` is below it.
+- **Claim.** In one transaction, for each device of the target (oldest first, at most 10): delete and return the oldest KeyPackage whose suite is in the claimer's preference order and whose `not_after` is more than one day away (`FOR UPDATE SKIP LOCKED … LIMIT 1`). A device with none is listed with `keyPackage: null`. The response carries no suite and no remaining count. A claim is consume-on-read: a lost response loses that KeyPackage, and the client never repeats a claim automatically.
+- **Lock order:** upload takes the device row, then `key_packages` rows; claim and cleanup take only `key_packages` rows; no transaction takes a device lock after a `key_packages` lock. The session's `last_seen_at` update runs in the auth interceptor, outside these transactions.
+
+### Authorization and limits
+- **One community (owner decision).** Any authenticated member may claim any other existing member. A claim for oneself and for an unknown username get the same `404 not_found` (identical body). If separate circles on one server are ever wanted, an immutable community id stored at registration is the fix; nothing in the invite tree (ADR-0010) is used for authorization.
+- **Rate limits** (all keyed by account id, never an IP; one atomic `tryAcquire` before the claim, so parallel requests cannot bypass a burst; buckets are only created after the 404 checks; fully refilled keys are evicted; a full map refuses new keys):
+  - per claimer and target: burst 2, refill 1 per 24 h;
+  - per target, all claimers: burst 10, refill 1 per hour;
+  - per claimer, all targets: burst 20, refill 1 per 3 minutes;
+  - upload, per device: burst 5, refill 1 per 10 minutes.
+  Plus the existing per-account request budget (ADR-0009).
+- **Residual risk (threat model, owner sign-off pending).** A hostile or compromised member, or sockpuppets (any member can create 20 invites a day, ADR-0010), can keep a target's pool low while the target is offline: the per-target limit allows 10 claims at once and then 24 a day, so a full pool of 200 lasts about a week for an offline user, and the user refills it as soon as they are online below the low-water mark. While the pool is empty others cannot add that user. The per-target bucket also tells a member, as a 429, that someone claimed from that user recently. The fix path is last-resort KeyPackages.
+
+### Cipher suite stays replaceable
+- Every KeyPackage records its suite, read from its bytes. Upload accepts the allow-list; claim takes an ordered preference list, so a second suite can be added later without a schema or API change and without burning KeyPackages on a miss.
+- The response has no suite field and the client derives the suite from the bytes, so a malicious server cannot make the client believe a different suite. The group creator enforces its own minimum suite. A follow-up (`later`) gives `inspect_key_package` an `expected_ciphersuite` argument once a second suite exists.
+- **Migration note.** A group's suite is fixed when it is created. Moving to another suite means creating a new group (MLS ReInit or a new group) and moving the members; devices publish KeyPackages for both suites during the transition. Nothing in this ADR designs that; it only keeps it possible. A device that publishes only the old suite can hold a group at the old suite (inherent to MLS), so the suite is the creator's policy.
+
+### Client (PR C)
+- Refill: restore through `GuardedMlsFactory` under `DeviceLock`, prune expired, create, **persist the exported state first**, then upload. A KeyPackage is never public without its private key.
+- Claim: claim, then `inspect_key_package(bytes, username)` for each; one that fails is dropped and reported as unusable; the signature key goes to the TOFU record (#18).
+
+## Consequences
+- **Metadata (CLAUDE.md "new server-visible field").** Stored: KeyPackage bytes (public keys, the username in the credential, the lifetime), suite, upload time and per-device counts. Nothing at rest says who claimed what. In memory and as `event=` log lines without ids: which account claimed from which account and when (the threat model already lists "who is about to add whom"). New: every member can see another member's device ids and, as `null`, whether a device has KeyPackages left; the aggregate 429 above.
+- **Attack surface.** A Kotlin reader of untrusted bytes: bounded (2 KiB, 50 per request, flat), canonical, signature-checked, and differentially tested against the crate.
+- **Open items.** Last-resort KeyPackages; `expected_ciphersuite` in `inspect_key_package`; a revoke-all endpoint; a community id; per-device pools for linking a second device (#72); fingerprints (#31).
