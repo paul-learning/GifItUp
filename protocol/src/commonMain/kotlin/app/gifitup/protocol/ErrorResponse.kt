@@ -39,6 +39,12 @@ enum class ApiErrorCode(
     /** The caller already has the maximum number of open invites (ADR-0010); one must be used, revoked or expire. */
     INVITE_LIMIT("invite_limit"),
 
+    /** A KeyPackage in an upload is not acceptable (ADR-0012). One code for every reason; the server logs the reason. */
+    KEY_PACKAGE_INVALID("key_package_invalid"),
+
+    /** The device would hold more KeyPackages than the directory allows (ADR-0012); nothing was stored. */
+    KEY_PACKAGE_LIMIT("key_package_limit"),
+
     /** A code this build doesn't know. Never sent. */
     UNKNOWN("unknown"),
 }

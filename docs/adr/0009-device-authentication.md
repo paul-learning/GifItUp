@@ -95,5 +95,5 @@ Verification and sessions:
 - **Key compromise:** auth key = MLS key, so a stolen, unlocked device gives both, and MLS post-compromise security does not cover a stolen signature key.
   - **Rotation:** there is no key-rotation endpoint yet. Rotating the MLS signature key would break login and #14's KeyPackage check, so it needs its own "key change" step later.
   - **Revocation:** there is no self-service device removal before the device-linking issue (`DELETE /devices/{id}`). Until then, the owner deletes a device by hand (`docs/ops/deploy.md`, runbook).
-- **#14 must check both:** the KeyPackage's BasicCredential identity equals the account's username **and** its signature key equals the registered key (#14's body).
+- **#14 must check both:** the KeyPackage's BasicCredential identity equals the account's username **and** its signature key equals the registered key (#14's body). Done at upload by the server's KeyPackage reader (ADR-0012), against the session's device.
 - **Metadata:** the server sees which device logs in when, and how often, which it already does through every request.
