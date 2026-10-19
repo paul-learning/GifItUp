@@ -53,7 +53,7 @@ sealed interface AuthError {
          */
         KEY_UNAVAILABLE,
 
-        /** The last restores never returned ([GuardedMlsFactory]); the user chooses "try again" or a reset. */
+        /** The last restores trapped or never returned ([GuardedMlsFactory]); the user chooses "try again" or a reset. */
         RESTORE_BLOCKED,
 
         /** The device's storage failed to read or write; can be transient (#108 SEC-13). */

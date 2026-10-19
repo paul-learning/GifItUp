@@ -53,7 +53,7 @@ class RestoreGuardTest {
     }
 
     @Test
-    fun blocksAfterThreeRestoresThatNeverReturnedUntilTryAgain() =
+    fun blocksAfterThreeTrappedRestoresUntilTryAgain() =
         runTest {
             val (snapshot, key) = state()
             mls.trap = true
@@ -97,6 +97,23 @@ class RestoreGuardTest {
                 )
             }
             assertEquals(0, counter.failures())
+        }
+
+    /** Anything but a typed `MlsException` (an `Error` from the wasm glue, say) is no clean failure: it stays counted (#108 SEC-24). */
+    @Test
+    fun aFailureThatIsNoMlsExceptionStaysCounted() =
+        runTest {
+            val (snapshot, key) = state()
+            val throwing =
+                object : MlsClientFactory by FakeMlsClient.Factory {
+                    override fun restore(
+                        state: ByteArray,
+                        snapshotKey: ByteArray,
+                    ): MlsClient = error("glue")
+                }
+            val guard = GuardedMlsFactory(throwing, counter)
+            assertFailsWith<IllegalStateException> { guard.restore(snapshot, key.copyOf()) }
+            assertEquals(1, counter.failures())
         }
 
     /** Overlapping restores run one at a time, so each is counted and none undercounts (#108 CR-3). */

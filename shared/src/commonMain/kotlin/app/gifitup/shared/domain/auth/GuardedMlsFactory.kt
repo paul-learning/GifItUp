@@ -74,7 +74,7 @@ class GuardedMlsFactory(
     }
 }
 
-/** [GuardedMlsFactory] refused a restore: the last [GuardedMlsFactory.LIMIT] never returned. */
+/** [GuardedMlsFactory] refused a restore: the last [GuardedMlsFactory.LIMIT] trapped or never returned (#108 SEC-24). */
 class RestoreBlockedException : Exception() {
     override fun toString(): String = "RestoreBlockedException"
 }
