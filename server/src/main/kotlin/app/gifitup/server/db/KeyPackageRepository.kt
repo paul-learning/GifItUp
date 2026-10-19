@@ -31,8 +31,13 @@ class NewKeyPackage(
  * in one transaction. Prepared statements only; values are checked before they are bound, so PostgreSQL never has a bad
  * value to quote back in an error.
  *
+ * Transactions run at READ COMMITTED (pinned in [Database.connect]); "never a false empty" holds for committed claims.
+ *
  * Lock order (ADR-0012): an upload takes the device row ([lockDevice]) and then key_packages rows; a claim and the cleanup
- * take key_packages rows only, never the device row, so no transaction takes a device lock after a key_packages lock.
+ * take key_packages rows only, never the device row, and never wait for a row another transaction holds (`SKIP LOCKED`),
+ * so no transaction takes a device lock after a key_packages lock and neither can deadlock with the other or with the
+ * `ON DELETE CASCADE` of a device or account delete. An upload inserts its items in a fixed order (by bytes), so two
+ * uploads that share KeyPackages wait on each other's unique-index entries in the same order and cannot deadlock.
  */
 class KeyPackageRepository {
     /**
@@ -77,7 +82,7 @@ class KeyPackageRepository {
                 "INSERT INTO key_packages (id, device_id, ciphersuite, key_package, not_after, created_at) " +
                     "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (key_package) DO NOTHING",
             ).use { statement ->
-                items.sumOf { item ->
+                items.sortedWith { a, b -> java.util.Arrays.compareUnsigned(a.bytes, b.bytes) }.sumOf { item ->
                     statement.setObject(1, UUID.randomUUID())
                     statement.setObject(2, deviceId)
                     statement.setInt(3, item.ciphersuite)
@@ -92,7 +97,8 @@ class KeyPackageRepository {
      * Takes one KeyPackage of the device and deletes its row: the best-ranked suite in [suites] (most wanted first), then
      * the oldest, among those that expire after [notAfterAfter]. `FOR UPDATE SKIP LOCKED` under `LIMIT 1` skips rows another
      * claim holds and takes the next, so two concurrent claims never get the same row and never see a false "empty" while
-     * rows remain. Null if the device has none.
+     * rows remain. Null if the device has none. [notAfterAfter] must not be before the cleanup's `now`, so the rows a claim
+     * may take and the rows the cleanup deletes stay disjoint.
      */
     fun claimOne(
         connection: Connection,
@@ -144,7 +150,10 @@ class KeyPackageRepository {
         }
     }
 
-    /** Deletes up to [limit] rows that expired before [now]; returns how many. Called in bounded batches (ADR-0012). */
+    /**
+     * Deletes up to [limit] rows that expired before [now]; returns how many. Called in bounded batches (ADR-0012). Rows
+     * another transaction holds are skipped and left for the next pass (never waited for).
+     */
     fun deleteExpired(
         connection: Connection,
         now: Instant,
@@ -152,8 +161,10 @@ class KeyPackageRepository {
     ): Int {
         require(limit > 0) { "limit must be positive" }
         return connection
-            .prepareStatement("DELETE FROM key_packages WHERE id IN (SELECT id FROM key_packages WHERE not_after < ? LIMIT ?)")
-            .use {
+            .prepareStatement(
+                "DELETE FROM key_packages WHERE id IN (SELECT id FROM key_packages WHERE not_after < ? " +
+                    "ORDER BY id LIMIT ? FOR UPDATE SKIP LOCKED)",
+            ).use {
                 it.setObject(1, now.utc())
                 it.setInt(2, limit)
                 it.executeUpdate()

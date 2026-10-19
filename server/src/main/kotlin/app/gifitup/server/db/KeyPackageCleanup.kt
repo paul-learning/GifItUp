@@ -19,7 +19,12 @@ class KeyPackageCleanup(
 ) {
     private val log = LoggerFactory.getLogger(KeyPackageCleanup::class.java)
 
-    /** One pass; returns how many rows were deleted. A failure is logged by class and retried on the next pass. */
+    /**
+     * One pass; returns how many rows were deleted. Any failure is logged by class and retried on the next pass: an
+     * exception escaping a task given to `scheduleAtFixedRate` would silently cancel every later run, and expired rows
+     * would keep counting toward a device's cap (#118 CR-1).
+     */
+    @Suppress("TooGenericExceptionCaught") // The scheduled task must survive anything; only the class name is logged.
     fun runOnce(): Int {
         var total = 0
         try {
@@ -28,7 +33,7 @@ class KeyPackageCleanup(
                 total += deleted
                 if (deleted == batchSize) pause()
             } while (deleted == batchSize)
-        } catch (e: java.sql.SQLException) {
+        } catch (e: Exception) {
             log.warn("event=key_package_cleanup_failed exception={}", e::class.java.name)
         }
         if (total > 0) log.info("event=key_package_cleanup deleted={}", total)

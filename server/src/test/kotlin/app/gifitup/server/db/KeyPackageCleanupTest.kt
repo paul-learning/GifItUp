@@ -48,18 +48,20 @@ class KeyPackageCleanupTest {
     }
 
     @Test
-    fun aFailureIsLoggedByClassAndTheNextPassTriesAgain() {
-        var calls = 0
-        val failing =
-            object : TransactionRunner {
-                override fun <T> transaction(block: (java.sql.Connection) -> T): T {
-                    calls++
-                    throw java.sql.SQLException("secret detail")
+    fun anyFailureIsLoggedByClassAndTheNextPassTriesAgain() {
+        listOf<() -> Throwable>({ java.sql.SQLException("secret detail") }, { IllegalStateException("secret detail") }).forEach { failure ->
+            var calls = 0
+            val failing =
+                object : TransactionRunner {
+                    override fun <T> transaction(block: (java.sql.Connection) -> T): T {
+                        calls++
+                        throw failure()
+                    }
                 }
-            }
-        val cleanup = KeyPackageCleanup(failing, clock, repository, batchSize = 10) { error("no pause after a failure") }
-        assertEquals(0, cleanup.runOnce())
-        assertEquals(0, cleanup.runOnce())
-        assertEquals(2, calls)
+            val cleanup = KeyPackageCleanup(failing, clock, repository, batchSize = 10) { error("no pause after a failure") }
+            assertEquals(0, cleanup.runOnce())
+            assertEquals(0, cleanup.runOnce(), "an exception does not end the cleanup")
+            assertEquals(2, calls)
+        }
     }
 }

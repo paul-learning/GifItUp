@@ -9,7 +9,10 @@ import java.time.Instant
  * (SEC-M0-5). Three operations: [allows] looks without spending (#68 round 0, SEC-2), [spend] takes a token, [refund]
  * gives one back. [spend] is the atomic check-and-take: where a burst limit must hold under parallel requests (the
  * KeyPackage claim, ADR-0012), take the token with [spend] **before** the work and [refund] only if the work took
- * nothing; [allows] followed by [spend] lets N parallel requests all pass the check.
+ * nothing; [allows] followed by [spend] lets N parallel requests all pass the check. The limiter cannot tell whether a
+ * caller spent, so a caller that took several tokens (one per bucket) refunds exactly those, once each, in a `finally`,
+ * and only on a path that took nothing from the pool: a stray or partial refund creates free tokens or leaves a cost
+ * that lets a member empty someone else's bucket.
  *
  * Bounded: at most [maxKeys] buckets. A key's bucket is dropped only once it has refilled completely (it holds no
  * information then). If every bucket is still draining when a new key arrives, the new key is refused rather than an

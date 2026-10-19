@@ -194,16 +194,86 @@ class KeyPackageRepositoryTest {
                 it.setObject(6, now.atOffset(java.time.ZoneOffset.UTC))
                 it.executeUpdate()
             }
-            listOf(0 to bytes(1), 65_536 to bytes(1), 1 to ByteArray(0), 1 to ByteArray(2049)).forEach { (suite, kp) ->
+            val marker = ByteArray(2049) { 0xab.toByte() }
+            listOf(0 to marker.copyOf(40), 65_536 to marker.copyOf(40), 1 to ByteArray(0), 1 to marker).forEach { (suite, kp) ->
                 val e = assertFailsWith<SQLException>("suite $suite, ${kp.size} bytes") { insert(suite, kp) }
-                // PostgreSQL quotes the failing row in the error detail, which is why NewKeyPackage checks every value
-                // before it is bound: the code never sends one of these.
                 assertEquals("23514", e.sqlState, "check_violation")
+                // The driver is configured with logServerErrorDetail=false, so the failing row is not in the message.
+                assertFalse(e.message.orEmpty().contains("abab", ignoreCase = true), "no key bytes in the message")
+                assertFalse(e.message.orEmpty().contains("\\x"), "no bytea literal in the message")
             }
             insert(1, bytes(1))
             insert(65_535, bytes(2))
             assertEquals("23505", assertFailsWith<SQLException> { insert(1, bytes(1)) }.sqlState, "unique_violation")
         }
+
+    @Test
+    fun aClaimThatRollsBackLeavesTheRowToBeClaimedAgain() =
+        withApp { db ->
+            val (_, device) = deviceOf(db, "ann")
+            repository.insert(db, device, listOf(kp(1)), now)
+            db.autoCommit = false
+            assertContentEquals(bytes(1), repository.claimOne(db, device, listOf(1), now))
+            db.rollback()
+            db.autoCommit = true
+            assertContentEquals(bytes(1), repository.claimOne(db, device, listOf(1), now), "a claim that did not commit took nothing")
+        }
+
+    @Test
+    fun aKeyPackageExpiringExactlyAtTheFloorIsNotClaimed() =
+        withApp { db ->
+            val (_, device) = deviceOf(db, "ann")
+            val floor = now.plus(Duration.ofDays(1))
+            repository.insert(db, device, listOf(kp(1, notAfter = floor), kp(2, notAfter = floor.plusSeconds(1))), now)
+            assertContentEquals(bytes(2), repository.claimOne(db, device, listOf(1), floor), "strictly after the floor")
+            assertNull(repository.claimOne(db, device, listOf(1), floor))
+        }
+
+    /** The cleanup never waits for a row another transaction holds, so it cannot deadlock with a cascade or a claim. */
+    @Test
+    fun theCleanupSkipsRowsAnotherTransactionHoldsAndTakesThemNextTime() {
+        val url = TestPostgres.migratedDatabase()
+        val (setup, holder, cleaner) = List(3) { TestPostgres.appAt(url) }
+        try {
+            val (_, device) = deviceOf(setup, "ann")
+            repository.insert(setup, device, List(3) { kp(it, notAfter = now.minusSeconds(10L + it)) }, now)
+            cleaner.createStatement().use { it.execute("SET lock_timeout = '3s'") } // a wait would fail the test, not hang it
+            holder.autoCommit = false
+            holder.createStatement().use {
+                it.executeQuery("SELECT id FROM key_packages ORDER BY id LIMIT 1 FOR UPDATE").use { r ->
+                    r.next()
+                }
+            }
+            assertEquals(2, repository.deleteExpired(cleaner, now, 10), "the held row is skipped, not waited for")
+            holder.rollback()
+            assertEquals(1, repository.deleteExpired(cleaner, now, 10), "next time it is taken")
+        } finally {
+            listOf(setup, holder, cleaner).forEach(Connection::close)
+        }
+    }
+
+    /** Uploads that share KeyPackages in opposite order, on two devices: inserting in a fixed order means no deadlock. */
+    @Test
+    fun uploadsSharingKeyPackagesInOppositeOrderNeverDeadlock() {
+        val url = TestPostgres.migratedDatabase()
+        Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { db ->
+            val (first, second) =
+                db.transaction { c ->
+                    deviceOf(c, "ann").second to deviceOf(c, "bob").second
+                }
+            repeat(60) { round ->
+                val a = kp(round * 2)
+                val b = kp(round * 2 + 1)
+                val counts = ConcurrentLinkedQueue<Int>()
+                race(2) { index ->
+                    val device = if (index == 0) first else second
+                    val items = if (index == 0) listOf(a, b) else listOf(b, a)
+                    counts.add(db.transaction { c -> repository.insert(c, device, items, now) })
+                }
+                assertEquals(2, counts.sum(), "round $round: each of the two KeyPackages was stored once, by one of the devices")
+            }
+        }
+    }
 
     /** One claim of the last KeyPackage under eight racing claimers: exactly one gets it (single use, RFC 9420 §16.8). */
     @Test

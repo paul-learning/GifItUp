@@ -123,4 +123,22 @@ class KeyedRateLimiterTest {
         limiter.refund("unknown")
         assertTrue(limiter.spend("a"), "no bucket was created for the unknown key")
     }
+
+    /** Spends and refunds racing each other can never leave more tokens than the capacity. */
+    @Test
+    fun racingSpendsAndRefundsNeverExceedTheCapacity() {
+        val limiter = KeyedRateLimiter(clock, capacity = 3, refillEvery = Duration.ofDays(1))
+        val start = java.util.concurrent.CountDownLatch(1)
+        val threads =
+            List(40) {
+                Thread {
+                    start.await()
+                    if (limiter.spend("a")) limiter.refund("a")
+                    limiter.refund("a")
+                }.apply { start() }
+            }
+        start.countDown()
+        threads.forEach { it.join() }
+        assertEquals(3, (1..10).count { limiter.spend("a") }, "never more than the capacity, however they interleaved")
+    }
 }
