@@ -66,16 +66,18 @@ impl Client {
         // Forget only refs a Welcome provably used; a failed lookup keeps the ref tracked.
         refs.retain(|r| !matches!(self.stored_key_package(r), Ok(None)));
         // At the cap, the oldest held KeyPackages give way (#121): the ones a peer claimed and never
-        // used would otherwise block refills until they expire (ADR-0012).
+        // used would otherwise block refills until they expire (ADR-0012). The new ones are created
+        // first, so a failed build drops nothing; the oldest sit at the front of `refs`.
         let overflow = (refs.len() + count as usize).saturating_sub(MAX_KEY_PACKAGES_HELD);
-        self.evict_oldest_key_packages(&mut refs, overflow)?;
-        (0..count)
+        let created = (0..count)
             .map(|_| {
                 let (created, key_package_ref) = self.create_key_package()?;
                 refs.push(key_package_ref);
                 Ok(created)
             })
-            .collect()
+            .collect::<Result<Vec<_>, ErrorCode>>()?;
+        self.evict_oldest_key_packages(&mut refs, overflow)?;
+        Ok(created)
     }
 
     /// Deletes the private keys of the `n` oldest tracked KeyPackages (`refs` is in creation order,
