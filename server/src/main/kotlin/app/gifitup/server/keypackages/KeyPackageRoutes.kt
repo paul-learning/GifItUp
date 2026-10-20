@@ -33,7 +33,7 @@ private const val MAX_SUITES = KeyPackageRepository.MAX_SUITES
 private const val MAX_SUITE_ID = 65_535
 
 /**
- * 50 KeyPackages of 2,048 bytes in base64url (2,732 characters each) plus JSON framing, with margin. Only `POST
+ * 50 KeyPackages of 2,048 bytes in base64url (2,731 characters each) plus JSON framing, with margin. Only `POST
  * /key-packages` gets it; every other path keeps the small default (ADR-0012).
  */
 internal const val UPLOAD_BODY_LIMIT_BYTES = 160L * 1024

@@ -157,7 +157,7 @@ class KeyPackageService(
         when (outcome) {
             is UploadOutcome.Accepted -> "ok"
             UploadOutcome.Invalid -> "invalid"
-            UploadOutcome.LimitReached -> "limit_reached"
+            UploadOutcome.LimitReached -> "limit"
             UploadOutcome.RateLimited -> "rate_limited"
             UploadOutcome.NoDevice -> "no_device"
         }
@@ -176,13 +176,14 @@ class KeyPackageService(
         username: String,
         suites: List<Int>,
     ): ClaimOutcome {
-        val target = db.transaction { c -> accounts.findIdByUsername(c, username) }
-        val taken = if (target == null || target == claimer) null else limits.takeClaim(claimer, target)
+        val found = db.transaction { c -> accounts.findIdByUsername(c, username) }
+        val target = found?.takeIf { it != claimer }
         val outcome =
-            when {
-                target == null || target == claimer -> ClaimOutcome.NotFound
-                taken == null -> ClaimOutcome.RateLimited
-                else -> claimRows(target, suites, taken)
+            if (target == null) {
+                // A miss costs the claimer one token (no free username probing) and nothing else: no pair or target bucket.
+                if (limits.claimsByClaimer.spend(claimer.toString())) ClaimOutcome.NotFound else ClaimOutcome.RateLimited
+            } else {
+                limits.takeClaim(claimer, target)?.let { claimRows(target, suites, it) } ?: ClaimOutcome.RateLimited
             }
         logClaim(
             when (outcome) {

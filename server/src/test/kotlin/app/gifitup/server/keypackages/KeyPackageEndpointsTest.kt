@@ -237,18 +237,24 @@ class KeyPackageEndpointsTest {
         }
 
     @Test
-    fun unknownAndOwnUsernameGiveTheSameAnswerAndSpendNothing() =
-        keyPackageTest(KeyPackageLimits(clock)) {
+    fun unknownAndOwnUsernameGiveTheSameAnswerAndCostOnlyAClaimerToken() =
+        keyPackageTest {
             val ana = member("ana")
             val ben = member("ben")
-            uploadBytes(ben, keyPackage(ben))
+            uploadBytes(ben, keyPackage(ben), keyPackage(ben))
             val unknown = claim(ana, "nobody")
             val own = claim(ana, "ana")
             assertEquals(HttpStatusCode.NotFound, unknown.status)
             assertEquals(HttpStatusCode.NotFound, own.status)
             assertEquals(unknown.bodyAsText(), own.bodyAsText())
-            repeat(30) { claim(ana, "nobody") }
-            assertEquals(HttpStatusCode.OK, claim(ana, "ben").status, "no limit was spent on strangers")
+            // Probing is limited: 20 misses in all (2 so far), then a 429, the same for both kinds.
+            repeat(18) { assertEquals(HttpStatusCode.NotFound, claim(ana, if (it % 2 == 0) "nobody" else "ana").status) }
+            assertEquals(HttpStatusCode.TooManyRequests, claim(ana, "nobody").status)
+            assertEquals(HttpStatusCode.TooManyRequests, claim(ana, "ana").status)
+            // Only the claimer's bucket was touched: after a refill the pair and target buckets are still full.
+            clock.advance(Duration.ofMinutes(6))
+            assertEquals(HttpStatusCode.OK, claim(ana, "ben").status)
+            assertEquals(HttpStatusCode.OK, claim(ana, "ben").status)
         }
 
     @Test
@@ -464,8 +470,8 @@ class KeyPackageEndpointsTest {
             assertEquals(HttpStatusCode.BadRequest, upload(ana, tooMany).status)
             assertEquals(0, status(ana).available)
 
-            // 50 items of the maximum 2,732 characters: the largest honest request is far below the route's limit.
-            val full = List(KeyPackageService.MAX_BATCH) { it.toString(16).padStart(2, 'A') + "A".repeat(2730) }
+            // 50 items of the maximum 2,731 characters: the largest honest request is far below the route's limit.
+            val full = List(KeyPackageService.MAX_BATCH) { it.toString(16).padStart(2, 'A') + "A".repeat(2729) }
             val fullBody = ProtocolJson.encodeToString(UploadKeyPackagesRequest(full))
             assertTrue(fullBody.length < UPLOAD_BODY_LIMIT_BYTES)
             assertEquals(HttpStatusCode.BadRequest, upload(ana, full).status, "within the limit: refused by the reader, not by size")

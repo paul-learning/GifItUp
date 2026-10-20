@@ -141,4 +141,17 @@ class KeyedRateLimiterTest {
         threads.forEach { it.join() }
         assertEquals(3, (1..10).count { limiter.spend("a") }, "never more than the capacity, however they interleaved")
     }
+
+    @Test
+    fun aFullMapScansForRoomAtMostOncePerSecond() {
+        val clock = TestClock()
+        val limiter = KeyedRateLimiter(clock, 1, Duration.ofMillis(500), maxKeys = 2)
+        assertTrue(limiter.spend("a"))
+        assertTrue(limiter.spend("b"))
+        assertFalse(limiter.spend("c"), "full of draining buckets")
+        clock.advance(Duration.ofMillis(600)) // both refilled, but the last scan was under a second ago
+        assertFalse(limiter.spend("c"), "no new scan yet")
+        clock.advance(Duration.ofMillis(400))
+        assertTrue(limiter.spend("c"), "a second after the last scan the full buckets are dropped")
+    }
 }
