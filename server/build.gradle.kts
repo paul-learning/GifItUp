@@ -40,6 +40,7 @@ dependencies {
     }
 
     testImplementation(libs.kotlin.test)
+    testImplementation(testFixtures(projects.keypackage))
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
     testImplementation(libs.testcontainers.postgresql)

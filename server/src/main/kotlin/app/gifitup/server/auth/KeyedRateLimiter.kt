@@ -39,6 +39,7 @@ class KeyedRateLimiter(
     )
 
     private val buckets = HashMap<String, Bucket>()
+    private var lastPrune: Instant = Instant.EPOCH
 
     /** True if [key] has a token left. Doesn't spend it. A key without a bucket is refused only when the map is full. */
     @Synchronized
@@ -83,8 +84,14 @@ class KeyedRateLimiter(
         bucket.updated = now
     }
 
-    /** Drops buckets that have refilled completely; true if that made room. */
+    /**
+     * Drops buckets that have refilled completely; true if that made room. At most one scan a second: with a full map of
+     * draining buckets every new key would otherwise rescan all of them under the lock (#119 CR-2).
+     */
     private fun pruneFull(): Boolean {
+        val now = clock.instant()
+        if (Duration.between(lastPrune, now) < PRUNE_INTERVAL) return buckets.size < maxKeys
+        lastPrune = now
         buckets.values.forEach(::refill)
         buckets.values.removeIf { it.tokens >= capacity }
         return buckets.size < maxKeys
@@ -92,5 +99,6 @@ class KeyedRateLimiter(
 
     private companion object {
         const val DEFAULT_MAX_KEYS = 10_000
+        val PRUNE_INTERVAL: Duration = Duration.ofSeconds(1)
     }
 }

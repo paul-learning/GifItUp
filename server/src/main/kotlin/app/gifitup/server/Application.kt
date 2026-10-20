@@ -22,6 +22,10 @@ import app.gifitup.server.http.installErrorHandling
 import app.gifitup.server.http.installProtocolVersionCheck
 import app.gifitup.server.invites.InviteService
 import app.gifitup.server.invites.inviteRoutes
+import app.gifitup.server.keypackages.KeyPackageLimits
+import app.gifitup.server.keypackages.KeyPackageService
+import app.gifitup.server.keypackages.keyPackageBodyLimit
+import app.gifitup.server.keypackages.keyPackageRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -48,13 +52,14 @@ fun main() {
     // Registration needs a valid invite (ADR-0010); the first one comes from the admin CLI.
     val auth = AuthService(database, config.publicOrigin, Challenges(clock), DbInviteRedeemer(), clock)
     val invites = InviteService(database, config.publicOrigin, clock)
+    val keyPackages = KeyPackageService(database, clock, KeyPackageLimits(clock))
     val inviteCleanup = InviteCleanup(database, clock).start()
     val keyPackageCleanup = KeyPackageCleanup(database, clock).start()
     val server =
         embeddedServer(
             Netty,
             configure = { applyTo(this, config) },
-            module = { module(config, readiness, auth, invites) },
+            module = { module(config, readiness, auth, invites, keyPackages) },
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
@@ -103,14 +108,17 @@ fun Application.module(
     readiness: ReadinessProbe,
     auth: AuthService,
     invites: InviteService,
-) = configure(config, readiness, auth, invites, PUBLIC_PATHS)
+    keyPackages: KeyPackageService,
+) = configure(config, readiness, auth, invites, keyPackages, PUBLIC_PATHS)
 
 /** [module] with the public paths as a parameter, so tests can make their test-only routes public (#73 CR-5). */
+@Suppress("LongParameterList") // The composition root: one parameter per service.
 internal fun Application.configure(
     config: ServerConfig,
     readiness: ReadinessProbe,
     auth: AuthService,
     invites: InviteService,
+    keyPackages: KeyPackageService,
     publicPaths: Set<String>,
 ) {
     installErrorHandling()
@@ -119,11 +127,12 @@ internal fun Application.configure(
     installProtocolVersionCheck()
     // Second: deny by default. Every path but the public ones needs a session before routing runs (ADR-0009).
     installSessionAuth(auth, publicPaths)
-    install(RequestBodyLimit) { bodyLimit { config.limits.defaultBodyLimitBytes } }
+    install(RequestBodyLimit) { bodyLimit { call -> keyPackageBodyLimit(call, config.limits.defaultBodyLimitBytes) } }
     install(ContentNegotiation) { json(ProtocolJson) }
     routing {
         authRoutes(auth)
         inviteRoutes(invites)
+        keyPackageRoutes(keyPackages)
         // 503 when the database is unreachable, so deploy.sh's health gate covers it and rolls back (ADR-0008).
         get(HEALTH_PATH) {
             val ready = readiness.isReady()

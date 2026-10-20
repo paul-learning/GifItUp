@@ -56,6 +56,23 @@ class AccountRepository {
             setBoolean(5, joined == Joined.ViaAdmin)
         }
     }
+
+    /** The account with this username, or null. Rejects a value that breaks the username rule before it is bound. */
+    fun findIdByUsername(
+        connection: Connection,
+        username: String,
+    ): UUID? {
+        require(UsernamePolicy.isValid(username)) { "username must be validated before it reaches the database" }
+        return connection
+            .query("SELECT id FROM accounts WHERE username = ?", { setString(1, username) }) { it.getObject(1, UUID::class.java) }
+            .singleOrNull()
+    }
+
+    /** The username of the account, or null if it no longer exists. */
+    fun usernameOf(
+        connection: Connection,
+        id: UUID,
+    ): String? = connection.query("SELECT username FROM accounts WHERE id = ?", { setObject(1, id) }) { it.getString(1) }.singleOrNull()
 }
 
 data class DeviceRecord(

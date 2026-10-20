@@ -5,7 +5,7 @@ import java.security.Signature
 
 /** A test device: an Ed25519 key pair, as the crate holds it, signing with the JDK. */
 internal class TestDevice {
-    private val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+    val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
     val publicKey: ByteArray =
         pair.public.encoded
             .takeLast(32)

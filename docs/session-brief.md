@@ -10,7 +10,7 @@ Read this at the start of every session, instead of reading the full docs. It po
 
 ## Now
 - **Milestone:** M1, identity and server plumbing ([milestone 2](https://github.com/paul-learning/GifItUp/milestone/2) lists all open issues).
-- **Walking skeleton:** steps 1 and 2 are done (#92, #79). Step 3 is #17 (minimal onboarding); it depends on #16 (secure local key storage, done) and #14 (KeyPackage directory: plan approved, ADR-0012; PRs in order docs/protocol, server, client), so #14 comes first.
+- **Walking skeleton:** steps 1 and 2 are done (#92, #79). Step 3 is #17 (minimal onboarding); it depends on #16 (secure local key storage, done) and #14 (KeyPackage directory: plan approved, ADR-0012; PRs: docs/protocol, reader, repository merged; server API in review, client next), so #14 comes first.
 - **Outside the milestone:** #101 (deny agent edits to `gh-rest.sh` and `settings.json`, owner-filed).
 - Keep this section current in the PR that changes it, together with `docs/ROADMAP.md`. It is the brief's only low-tier part: the rest of this file, including what every session reads first, is high tier (`CLAUDE.md`, *Risk tiers*).
 

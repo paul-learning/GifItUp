@@ -11,6 +11,8 @@ import app.gifitup.server.auth.PUBLIC_PATHS
 import app.gifitup.server.db.TransactionRunner
 import app.gifitup.server.http.ReadinessProbe
 import app.gifitup.server.invites.InviteService
+import app.gifitup.server.keypackages.KeyPackageLimits
+import app.gifitup.server.keypackages.KeyPackageService
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
@@ -84,12 +86,16 @@ internal fun noDatabaseInvites(clock: Clock = Clock.systemUTC()): InviteService 
         clock,
     )
 
+/** A [KeyPackageService] for tests that never reach the database. */
+internal fun noDatabaseKeyPackages(clock: Clock = Clock.systemUTC()): KeyPackageService =
+    KeyPackageService(NoDatabase, clock, KeyPackageLimits(clock))
+
 /** The test-only routes below are public, like the real public routes; everything else still needs a session. */
 internal val TEST_PUBLIC_PATHS =
     PUBLIC_PATHS + setOf(ECHO_PATH, BOOM_PATH, SEALED_PATH, REQUIRE_PATH, SLOW_PATH, "/counted", "/test/wrapped")
 
 internal fun Application.testModule(config: ServerConfig = testConfig()) {
-    configure(config, AlwaysReady, noDatabaseAuth(), noDatabaseInvites(), TEST_PUBLIC_PATHS)
+    configure(config, AlwaysReady, noDatabaseAuth(), noDatabaseInvites(), noDatabaseKeyPackages(), TEST_PUBLIC_PATHS)
     routing {
         post(ECHO_PATH) { call.respond(call.receive<HealthResponse>()) }
         get(BOOM_PATH) { error("failure carrying $MARKER") }
