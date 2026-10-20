@@ -25,6 +25,8 @@ class KeyPackageApiTest {
 
     private suspend fun session(): Session = assertIs<ApiResult.Ok<Session>>(api.login(DEVICE_ID, ByteArray(56), ByteArray(64))).value
 
+    private fun deviceId(n: Int) = "00000000-0000-4000-8000-" + n.toString().padStart(12, '0')
+
     private fun claimed(vararg devices: String) = json("""{"devices":[${devices.joinToString(",")}]}""")
 
     private fun device(
@@ -99,7 +101,7 @@ class KeyPackageApiTest {
                     claimed(device(DEVICE_ID, "AB")), // non-zero trailing bits
                     claimed(device(DEVICE_ID, "")),
                     claimed(device(DEVICE_ID, tooBig)),
-                    claimed(*Array(11) { device("00000000-0000-4000-8000-" + it.toString().padStart(12, '0'), good) }), // more than 10 devices
+                    claimed(*Array(11) { device(deviceId(it), good) }), // more than 10 devices
                     json("""{"devices":[{"deviceId":"$DEVICE_ID"}]}"""),
                     json("""{"devices":"x"}"""),
                 )
@@ -155,7 +157,7 @@ class KeyPackageApiTest {
             val big = Base64Url.encode(ByteArray(2048) { it.toByte() })
             server.on(
                 "/key-packages/claim",
-                claimed(*Array(10) { device("00000000-0000-4000-8000-" + it.toString().padStart(12, '0'), big) }),
+                claimed(*Array(10) { device(deviceId(it), big) }),
             )
             assertEquals(10, assertIs<ApiResult.Ok<List<ClaimedKeyPackage>>>(api.claimKeyPackages(session, "ben", listOf(1))).value.size)
         }
