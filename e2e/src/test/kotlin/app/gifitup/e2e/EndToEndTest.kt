@@ -203,7 +203,7 @@ class EndToEndTest {
         // Each claim hands out one KeyPackage that the crate accepts and removes it from the pool.
         repeat(2) { n ->
             val line = ok("keypackages-claim", carol, "--target", "e2e_ann")
-            assertTrue(CLAIMED_USABLE.matches(line), "claim ${n + 1}: one usable KeyPackage for e2e_ann")
+            assertTrue(CLAIMED_USABLE.matches(line), "claim ${n + 1}: one crate-valid KeyPackage for e2e_ann")
             assertTrue("${49 - n} available" in ok("keypackages-status", ann), "claim ${n + 1} deleted its KeyPackage")
         }
         val third = cli.run("keypackages-claim", carol, "--target", "e2e_ann")
@@ -273,7 +273,7 @@ class EndToEndTest {
         const val POLL_MILLIS = 200L
         const val EXIT_SERVER = 1
         const val UUID_LENGTH = 36
-        val CLAIMED_USABLE = Regex("^[0-9a-f-]{36} {2}usable \\(credential e2e_ann\\)$")
+        val CLAIMED_USABLE = Regex("^[0-9a-f-]{36} {2}crate-valid, not authenticated \\(credential e2e_ann\\)$")
         val CLAIMED_EMPTY = Regex("^[0-9a-f-]{36} {2}empty \\(no KeyPackage left\\)$")
         val DEVICE_LINE = Regex("^registered e2e_ann as device ([0-9a-f-]{36})$")
     }

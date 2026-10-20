@@ -85,4 +85,19 @@ class GuardTest {
         }
         assertEquals(0, requests)
     }
+
+    @Test
+    fun aClaimNeedsATestAccountAsTargetToo() {
+        runBlocking {
+            val state = StateDir(dir)
+            state.lock().use {
+                state.keys.save(ByteArray(StateDir.KEY_BYTES))
+                state.identities.save(StoredIdentity("https://gifitup.app", "cli_smoke", byteArrayOf(1), deviceId = "d"))
+            }
+        }
+        // The caller is a test account (allowed with the flag); the target is a real member: refused before any request.
+        val real = listOf("--server", "https://gifitup.app", "--remote-test-account", "--target")
+        assertRefused("keypackages-claim", real + "ann")
+        assertEquals(0, requests)
+    }
 }

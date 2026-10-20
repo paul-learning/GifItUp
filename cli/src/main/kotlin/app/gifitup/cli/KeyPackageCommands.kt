@@ -52,7 +52,7 @@ internal class KeyPackageCommands(
 
     private fun describe(device: ClaimedDeviceKey): String =
         when (device) {
-            is ClaimedDeviceKey.Usable -> "usable (credential ${device.identity.username})"
+            is ClaimedDeviceKey.Usable -> "crate-valid, not authenticated (credential ${device.identity.username})"
             is ClaimedDeviceKey.Empty -> "empty (no KeyPackage left)"
             is ClaimedDeviceKey.Unusable -> "unusable (the crate refused the server's KeyPackage)"
         }

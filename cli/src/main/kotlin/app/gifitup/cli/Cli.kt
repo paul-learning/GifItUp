@@ -141,6 +141,8 @@ class Cli(
     ): Int {
         val stored = state.identities.load()
         if (stored != null) guard(api, stored.username, invocation.remoteTestAccount)
+        // A claim consumes the target's KeyPackages and spends their budget: a real member is off limits too (#123 CR-2).
+        invocation.target?.let { guard(api, it, invocation.remoteTestAccount) }
         val login = LogIn(api, guarded(), state.identities, state.keys, lock)()
         if (login !is AuthResult.Ok) return report(login) { }
         return try {
