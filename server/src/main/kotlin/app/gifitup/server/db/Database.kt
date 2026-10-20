@@ -66,6 +66,9 @@ class Database internal constructor(
                     schema = APP_SCHEMA
                     maximumPoolSize = POOL_SIZE
                     connectionTimeout = CONNECTION_TIMEOUT_MILLIS
+                    // Pinned, not the driver default: the KeyPackage claim (DELETE … FOR UPDATE SKIP LOCKED) and the upload cap
+                    // count rely on READ COMMITTED; under REPEATABLE READ a claim would fail with 40001 (#118 SEC-5).
+                    transactionIsolation = "TRANSACTION_READ_COMMITTED"
                     poolName = "gifitup"
                     dataSourceProperties = safeDriverProperties()
                 }

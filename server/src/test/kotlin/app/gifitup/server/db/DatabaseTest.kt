@@ -108,4 +108,26 @@ class DatabaseTest {
         }
         assertFailsWith<IllegalArgumentException> { readSecretFile(Path.of("does-not-exist"), "S") }
     }
+
+    /** The KeyPackage claim and the upload cap rely on READ COMMITTED (#118 SEC-5): the pool pins it. */
+    @Test
+    fun transactionsRunAtReadCommitted() {
+        val url = TestPostgres.migratedDatabase()
+        // Make the database's own default something else: only the pool's setting keeps READ COMMITTED.
+        TestPostgres.adminAt(url).use { admin ->
+            val name = url.substringAfterLast('/')
+            admin.createStatement().use { it.execute("ALTER DATABASE $name SET default_transaction_isolation = 'repeatable read'") }
+        }
+        Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { database ->
+            database.transaction { connection ->
+                assertEquals(java.sql.Connection.TRANSACTION_READ_COMMITTED, connection.transactionIsolation)
+                connection.createStatement().use { s ->
+                    s.executeQuery("SHOW transaction_isolation").use {
+                        it.next()
+                        assertEquals("read committed", it.getString(1))
+                    }
+                }
+            }
+        }
+    }
 }

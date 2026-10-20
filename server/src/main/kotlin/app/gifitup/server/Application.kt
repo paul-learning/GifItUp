@@ -13,6 +13,7 @@ import app.gifitup.server.auth.authRoutes
 import app.gifitup.server.auth.installSessionAuth
 import app.gifitup.server.db.Database
 import app.gifitup.server.db.DatabaseConfig
+import app.gifitup.server.db.KeyPackageCleanup
 import app.gifitup.server.http.CachedReadiness
 import app.gifitup.server.http.HEALTH_PATH
 import app.gifitup.server.http.ReadinessProbe
@@ -48,6 +49,7 @@ fun main() {
     val auth = AuthService(database, config.publicOrigin, Challenges(clock), DbInviteRedeemer(), clock)
     val invites = InviteService(database, config.publicOrigin, clock)
     val inviteCleanup = InviteCleanup(database, clock).start()
+    val keyPackageCleanup = KeyPackageCleanup(database, clock).start()
     val server =
         embeddedServer(
             Netty,
@@ -56,7 +58,9 @@ fun main() {
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
+        keyPackageCleanup.shutdownNow()
         inviteCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+        keyPackageCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         database.close()
     }
     server.start(wait = true)
