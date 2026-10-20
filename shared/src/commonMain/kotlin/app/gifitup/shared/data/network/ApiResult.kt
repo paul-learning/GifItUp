@@ -24,6 +24,15 @@ enum class ApiError {
     INVITE_INVALID,
     USERNAME_UNAVAILABLE,
     RATE_LIMITED,
+
+    /** Claim: no such member (an unknown username and the caller's own look the same, ADR-0012). */
+    NOT_FOUND,
+
+    /** Upload: some KeyPackage is not acceptable; the server says no more than that (ADR-0012). */
+    KEY_PACKAGE_INVALID,
+
+    /** Upload: the device would hold more KeyPackages than the server allows. */
+    KEY_PACKAGE_LIMIT,
     SERVER_ERROR,
     MALFORMED_RESPONSE,
     NETWORK,
@@ -47,4 +56,22 @@ data class Device(
     val deviceId: String,
     val createdAt: Long,
     val lastSeenAt: Long,
+)
+
+/** The answer to an upload: how many were stored, how many this device now has, and when to refill (ADR-0012). */
+data class KeyPackageUpload(
+    val accepted: Int,
+    val available: Int,
+    val lowWaterMark: Int,
+)
+
+data class KeyPackageStatus(
+    val available: Int,
+    val lowWaterMark: Int,
+)
+
+/** One device of the claimed member; [keyPackage] is null if it had none for the wanted ciphersuites. Untrusted bytes. */
+class ClaimedKeyPackage(
+    val deviceId: String,
+    val keyPackage: ByteArray?,
 )

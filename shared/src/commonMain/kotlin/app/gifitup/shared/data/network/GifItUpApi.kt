@@ -2,14 +2,19 @@ package app.gifitup.shared.data.network
 
 import app.gifitup.protocol.ApiErrorCode
 import app.gifitup.protocol.ChallengeResponse
+import app.gifitup.protocol.ClaimKeyPackagesRequest
+import app.gifitup.protocol.ClaimKeyPackagesResponse
 import app.gifitup.protocol.DeviceListResponse
 import app.gifitup.protocol.ErrorResponse
+import app.gifitup.protocol.KeyPackageStatusResponse
 import app.gifitup.protocol.LoginRequest
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION_HEADER
 import app.gifitup.protocol.ProtocolJson
 import app.gifitup.protocol.RegisterRequest
 import app.gifitup.protocol.SessionResponse
+import app.gifitup.protocol.UploadKeyPackagesRequest
+import app.gifitup.protocol.UploadKeyPackagesResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpTimeout
@@ -109,6 +114,59 @@ class GifItUpApi(
                 ?.map { Device(it.deviceId, it.createdAt, it.lastSeenAt) }
         }
 
+    /**
+     * `POST /key-packages`: uploads 1..[MAX_UPLOAD_BATCH] own KeyPackages of at most [MAX_KEY_PACKAGE_BYTES] bytes each,
+     * all or none (ADR-0012). The caller has already persisted the private keys (a KeyPackage is never public without
+     * them).
+     */
+    suspend fun uploadKeyPackages(
+        session: Session,
+        keyPackages: List<ByteArray>,
+    ): ApiResult<KeyPackageUpload> {
+        require(keyPackages.size in 1..MAX_UPLOAD_BATCH && keyPackages.all { it.size in 1..MAX_KEY_PACKAGE_BYTES }) { "batch out of range" }
+        val body =
+            ProtocolJson.encodeToString(
+                UploadKeyPackagesRequest.serializer(),
+                UploadKeyPackagesRequest(keyPackages.map(Base64Url::encode)),
+            )
+        return exchange(Route.UPLOAD_KEY_PACKAGES, body, session) { bytes ->
+            decode(UploadKeyPackagesResponse.serializer(), bytes)
+                ?.takeIf { it.accepted == keyPackages.size && it.available >= it.accepted && it.lowWaterMark >= 0 }
+                ?.let { KeyPackageUpload(it.accepted, it.available, it.lowWaterMark) }
+        }
+    }
+
+    /** `GET /key-packages/status`: how many unexpired KeyPackages this device has on the server. */
+    suspend fun keyPackageStatus(session: Session): ApiResult<KeyPackageStatus> =
+        exchange(Route.KEY_PACKAGE_STATUS, body = null, session) { bytes ->
+            decode(KeyPackageStatusResponse.serializer(), bytes)
+                ?.takeIf { it.available >= 0 && it.lowWaterMark >= 0 }
+                ?.let { KeyPackageStatus(it.available, it.lowWaterMark) }
+        }
+
+    /**
+     * `POST /key-packages/claim`: takes one KeyPackage per device of [username] out of the directory (ADR-0012).
+     * [ciphersuites] is the wanted order, 1..[MAX_SUITES] distinct ids. A claim consumes what it returns, so this call
+     * is **never repeated automatically**: a lost answer loses that KeyPackage, and the caller decides whether to ask
+     * again. A [Session] and username are checked here only for shape; the server is authoritative.
+     */
+    suspend fun claimKeyPackages(
+        session: Session,
+        username: String,
+        ciphersuites: List<Int>,
+    ): ApiResult<List<ClaimedKeyPackage>> {
+        require(
+            USERNAME.matches(username) && ciphersuites.size in 1..MAX_SUITES && ciphersuites.distinct().size == ciphersuites.size &&
+                ciphersuites.all { it in 1..MAX_SUITE_ID },
+        ) { "claim out of range" }
+        val body = ProtocolJson.encodeToString(ClaimKeyPackagesRequest.serializer(), ClaimKeyPackagesRequest(username, ciphersuites))
+        return exchange(
+            Route.CLAIM_KEY_PACKAGES,
+            body,
+            session,
+        ) { bytes -> decode(ClaimKeyPackagesResponse.serializer(), bytes)?.let(::readClaimed) }
+    }
+
     override fun close() = client.close()
 
     /** An endpoint: its method, path and the one status that means success. */
@@ -122,6 +180,9 @@ class GifItUpApi(
         LOGIN(HttpMethod.Post, "/auth/login", HttpStatusCode.OK),
         LOGOUT(HttpMethod.Post, "/auth/logout", HttpStatusCode.NoContent),
         DEVICES(HttpMethod.Get, "/devices", HttpStatusCode.OK),
+        UPLOAD_KEY_PACKAGES(HttpMethod.Post, "/key-packages", HttpStatusCode.OK),
+        KEY_PACKAGE_STATUS(HttpMethod.Get, "/key-packages/status", HttpStatusCode.OK),
+        CLAIM_KEY_PACKAGES(HttpMethod.Post, "/key-packages/claim", HttpStatusCode.OK),
     }
 
     /**
@@ -165,6 +226,16 @@ class GifItUpApi(
         /** The crate signs challenges of 16..64 bytes (ADR-0009); the server sends 56. */
         private val CHALLENGE_SIZES = 16..64
 
+        /** The server's caps (ADR-0012): 50 KeyPackages of at most 2,048 bytes per upload; 1..4 suites per claim. */
+        const val MAX_UPLOAD_BATCH = 50
+        const val MAX_KEY_PACKAGE_BYTES = 2048
+        const val MAX_SUITES = 4
+        private const val MAX_SUITE_ID = 65_535
+
+        /** A claim returns at most this many devices (ADR-0012). */
+        internal const val MAX_CLAIMED_DEVICES = 10
+        private val USERNAME = Regex("^[a-z0-9_]{3,32}$")
+
         /** Device ids are lowercase canonical UUIDs (ADR-0009). */
         internal val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
     }
@@ -199,9 +270,25 @@ private fun failure(error: ErrorResponse): ApiResult.Failed =
             ApiErrorCode.INVITE_INVALID -> ApiError.INVITE_INVALID
             ApiErrorCode.USERNAME_UNAVAILABLE -> ApiError.USERNAME_UNAVAILABLE
             ApiErrorCode.RATE_LIMITED -> ApiError.RATE_LIMITED
+            ApiErrorCode.NOT_FOUND -> ApiError.NOT_FOUND
+            ApiErrorCode.KEY_PACKAGE_INVALID -> ApiError.KEY_PACKAGE_INVALID
+            ApiErrorCode.KEY_PACKAGE_LIMIT -> ApiError.KEY_PACKAGE_LIMIT
             else -> ApiError.SERVER_ERROR
         },
     )
+
+/** Every device is listed once with a canonical id; a KeyPackage is canonical base64url of 1..2,048 bytes, or null. */
+private fun readClaimed(response: ClaimKeyPackagesResponse): List<ClaimedKeyPackage>? {
+    val devices = response.devices
+    if (devices.size > GifItUpApi.MAX_CLAIMED_DEVICES || devices.map { it.deviceId }.distinct().size != devices.size) return null
+    val claimed =
+        devices.map { device ->
+            val bytes = device.keyPackage?.let { Base64Url.decode(it, 1..GifItUpApi.MAX_KEY_PACKAGE_BYTES) }
+            val valid = GifItUpApi.UUID.matches(device.deviceId) && (device.keyPackage == null || bytes != null)
+            if (valid) ClaimedKeyPackage(device.deviceId, bytes) else null
+        }
+    return claimed.takeIf { list -> list.all { it != null } }?.filterNotNull()
+}
 
 /** A session token is 32 random bytes (ADR-0009). */
 private const val TOKEN_BYTES = 32
