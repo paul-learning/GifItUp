@@ -28,6 +28,11 @@ data class Refilled(
  *   the 200 the server and the crate allow), **persist the exported state first**, then upload. A KeyPackage is never
  *   public without its private key: if the upload fails or its answer is lost, the keys are kept (they expire and are
  *   pruned later), and the next refill asks the server again.
+ * - **Known limits (ADR-0012, threat model):** the batch is sized from the server's count, but the crate counts every
+ *   unused private key it still holds, including ones a peer claimed and never used. At the crate's cap of 200,
+ *   `createKeyPackages` fails (`CRYPTO`) until old keys expire (up to 84 days). The planned crate change drops the oldest
+ *   held keys at the cap. A server that always reports 0 available makes each refill mint up to [BATCH] more keys, which
+ *   leads to the same stop; the server is trusted for availability only, never for secrecy.
  * - Holds the device lock, like login, for the restore, the state write and the upload.
  */
 class RefillKeyPackages internal constructor(
@@ -60,7 +65,7 @@ class RefillKeyPackages internal constructor(
         val low = status.lowWaterMark.coerceIn(1, MAX_HELD)
         if (status.available >= low) return AuthResult.Ok(Refilled(0, status.available))
         mls.pruneExpiredKeyPackages()
-        val created = mls.createKeyPackages(minOf(BATCH, MAX_HELD - status.available).coerceAtLeast(1))
+        val created = mls.createKeyPackages(minOf(BATCH, MAX_HELD - status.available))
         // Persist first: from here on the private keys exist only in this snapshot (ADR-0012).
         identities.save(StoredIdentity(stored.origin, stored.username, mls.exportState(), stored.deviceId))
         return when (val uploaded = api.uploadKeyPackages(session, created.map { it.keyPackage })) {

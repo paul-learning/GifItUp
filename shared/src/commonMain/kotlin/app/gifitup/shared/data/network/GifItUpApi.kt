@@ -148,7 +148,7 @@ class GifItUpApi(
      * `POST /key-packages/claim`: takes one KeyPackage per device of [username] out of the directory (ADR-0012).
      * [ciphersuites] is the wanted order, 1..[MAX_SUITES] distinct ids. A claim consumes what it returns, so this call
      * is **never repeated automatically**: a lost answer loses that KeyPackage, and the caller decides whether to ask
-     * again. A [Session] and username are checked here only for shape; the server is authoritative.
+     * again. The username and suites are checked for shape here; the server is authoritative.
      */
     suspend fun claimKeyPackages(
         session: Session,
@@ -280,14 +280,14 @@ private fun failure(error: ErrorResponse): ApiResult.Failed =
 /** Every device is listed once with a canonical id; a KeyPackage is canonical base64url of 1..2,048 bytes, or null. */
 private fun readClaimed(response: ClaimKeyPackagesResponse): List<ClaimedKeyPackage>? {
     val devices = response.devices
-    if (devices.size > GifItUpApi.MAX_CLAIMED_DEVICES || devices.map { it.deviceId }.distinct().size != devices.size) return null
-    val claimed =
-        devices.map { device ->
-            val bytes = device.keyPackage?.let { Base64Url.decode(it, 1..GifItUpApi.MAX_KEY_PACKAGE_BYTES) }
-            val valid = GifItUpApi.UUID.matches(device.deviceId) && (device.keyPackage == null || bytes != null)
-            if (valid) ClaimedKeyPackage(device.deviceId, bytes) else null
-        }
-    return claimed.takeIf { list -> list.all { it != null } }?.filterNotNull()
+    val decoded = devices.map { device -> device.keyPackage?.let { Base64Url.decode(it, 1..GifItUpApi.MAX_KEY_PACKAGE_BYTES) } }
+    val valid =
+        devices.size <= GifItUpApi.MAX_CLAIMED_DEVICES &&
+            devices.map { it.deviceId }.distinct().size == devices.size &&
+            devices.indices.all { i ->
+                GifItUpApi.UUID.matches(devices[i].deviceId) && (devices[i].keyPackage == null || decoded[i] != null)
+            }
+    return if (valid) devices.indices.map { ClaimedKeyPackage(devices[it].deviceId, decoded[it]) } else null
 }
 
 /** A session token is 32 random bytes (ADR-0009). */

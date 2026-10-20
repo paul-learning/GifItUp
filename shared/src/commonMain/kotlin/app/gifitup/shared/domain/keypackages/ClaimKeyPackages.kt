@@ -22,7 +22,11 @@ import app.gifitup.shared.domain.auth.toAuth
 sealed interface ClaimedDeviceKey {
     val deviceId: String
 
-    /** A KeyPackage the crate accepted for the claimed username; [identity] holds the signature key for TOFU (#18). */
+    /**
+     * A KeyPackage the crate accepted for the claimed username: signatures, credential and lifetime are consistent. That
+     * is not authentication: an untrusted server can supply a KeyPackage of its own for any username, and [deviceId] is
+     * unauthenticated. Nothing may add this member until the TOFU record of [identity]'s signature key (#18) checks it.
+     */
     class Usable(
         override val deviceId: String,
         val keyPackage: ByteArray,
