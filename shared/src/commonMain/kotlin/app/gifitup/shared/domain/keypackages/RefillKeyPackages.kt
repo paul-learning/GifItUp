@@ -29,11 +29,11 @@ data class Refilled(
  *   public without its private key: if the upload fails or its answer is lost, the keys are kept (they expire and are
  *   pruned later), and the next refill asks the server again.
  * - **Known limits (ADR-0012, threat model):** the batch is sized from the server's count, but the crate counts every
- *   unused private key it still holds, including ones a peer claimed and never used. Once held plus
- *   the new batch would exceed the crate's cap of 200, `createKeyPackages` fails (`CRYPTO`) until old keys expire (up to
- *   84 days). The planned crate change drops the oldest
- *   held keys at the cap. A server that always reports 0 available makes each refill mint up to [BATCH] more keys, which
- *   leads to the same stop; the server is trusted for availability only, never for secrecy.
+ *   unused private key it still holds, including ones a peer claimed and never used. Once held plus the new batch would
+ *   exceed the crate's cap of 200, `createKeyPackages` fails (`CRYPTO`) until old keys expire (up to 84 days). The
+ *   planned crate change drops the oldest held keys at the cap (a follow-up of #14, to be tracked in its own issue). A
+ *   server that always reports 0 available makes each refill mint up to [BATCH] more keys, which leads to the same
+ *   stop; the server is trusted for availability only, never for secrecy.
  * - Holds the device lock, like login, for the restore, the state write and the upload.
  */
 class RefillKeyPackages internal constructor(
