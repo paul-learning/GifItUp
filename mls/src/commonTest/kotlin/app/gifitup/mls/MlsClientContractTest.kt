@@ -79,6 +79,21 @@ class MlsClientContractTest {
         }
 
     @Test
+    fun createdKeyPackagesBeyondTheCapDropTheOldest() =
+        runTest {
+            platformMlsClientFactory().create("bob", key()).use { bob ->
+                // 100 + 100 fill the cap; 100 more must still succeed (the oldest give way, #121) and stay valid.
+                val first = bob.createKeyPackages(MAX_PER_CALL)
+                bob.createKeyPackages(MAX_PER_CALL)
+                val more = bob.createKeyPackages(MAX_PER_CALL)
+                assertEquals(MAX_PER_CALL, more.size)
+                assertEquals(MAX_PER_CALL, more.map { it.keyPackageRef.toList() }.toSet().size)
+                assertTrue(first.map { it.keyPackageRef.toList() }.intersect(more.map { it.keyPackageRef.toList() }.toSet()).isEmpty())
+                assertTrue(bob.exportState().isNotEmpty())
+            }
+        }
+
+    @Test
     fun signAuthIsA64ByteDeterministicSignatureOverEveryField() =
         runTest {
             platformMlsClientFactory().create("alice", key()).use { alice ->

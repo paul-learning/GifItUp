@@ -13,7 +13,11 @@ package app.gifitup.shared.data.crypto
 interface MlsClient : AutoCloseable {
     fun publicIdentity(): PublicIdentity
 
-    /** Creates 1..100 single-use KeyPackages for upload (at most 200 unused ones are held). */
+    /**
+     * Creates 1..100 single-use KeyPackages for upload. At most 200 unused ones are held: when the new ones would exceed
+     * that, the oldest held ones are dropped first (their private keys deleted, #121), so a refill never blocks. A Welcome
+     * for a dropped KeyPackage can no longer be processed, so pending Welcomes are processed before a refill.
+     */
     fun createKeyPackages(count: Int): List<CreatedKeyPackage>
 
     /** Deletes the private keys of expired own KeyPackages; returns how many were deleted. */

@@ -13,14 +13,17 @@ class FakeMlsClient private constructor(
     private val keyPackagesHeld: MutableList<ByteArray> = mutableListOf(),
 ) : MlsClient {
     private var closed = false
+    private var created = keyPackagesHeld.size
 
     override fun publicIdentity(): PublicIdentity = live { PublicIdentity(username, signatureKey(username, keyTag)) }
 
     override fun createKeyPackages(count: Int): List<CreatedKeyPackage> =
         live {
-            if (count !in 1..MAX_PER_CALL || keyPackagesHeld.size + count > MAX_HELD) fail(MlsErrorCode.InvalidInput)
+            if (count !in 1..MAX_PER_CALL) fail(MlsErrorCode.InvalidInput)
+            // At the cap the oldest held ones give way, like the real client (#121).
+            repeat((keyPackagesHeld.size + count - MAX_HELD).coerceAtLeast(0)) { keyPackagesHeld.removeAt(0) }
             List(count) {
-                val bytes = "kp:$username:$keyTag:${keyPackagesHeld.size}".encodeToByteArray()
+                val bytes = "kp:$username:$keyTag:${created++}".encodeToByteArray()
                 keyPackagesHeld += bytes
                 CreatedKeyPackage(bytes, bytes.copyOf(REF_SIZE), NOT_AFTER)
             }
