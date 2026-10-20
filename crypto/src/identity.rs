@@ -12,7 +12,8 @@ use crate::error::{ErrorCode, mls};
 
 /// Most KeyPackages one call may create (the directory refills in batches, #14).
 pub(crate) const MAX_KEY_PACKAGES_PER_CALL: u32 = 100;
-/// Most unused own KeyPackages held at once: each keeps two private keys until used or pruned.
+/// Most unused own KeyPackages held at once: each keeps two private keys until used or pruned. At
+/// the cap, creating more drops the oldest held ones first (#121).
 pub(crate) const MAX_KEY_PACKAGES_HELD: usize = 200;
 /// Size cap before parsing someone else's KeyPackage (ours are about 300 bytes).
 const MAX_KEY_PACKAGE_BYTES: usize = 16 * 1024;
@@ -53,7 +54,10 @@ impl Client {
     }
 
     /// Creates `count` single-use KeyPackages (OpenMLS default lifetime, not last-resort). Their
-    /// private keys stay in the client state until a Welcome uses them or they are pruned.
+    /// private keys stay in the client state until a Welcome uses them, they are pruned, or newer
+    /// ones push the held count over [`MAX_KEY_PACKAGES_HELD`]: then the oldest are dropped first,
+    /// so KeyPackages a peer claimed but never used cannot block a refill (#121). A Welcome for a
+    /// dropped KeyPackage can no longer be processed, so pending Welcomes are processed first.
     pub fn create_key_packages(&self, count: u32) -> Result<Vec<CreatedKeyPackage>, ErrorCode> {
         if !(1..=MAX_KEY_PACKAGES_PER_CALL).contains(&count) {
             return Err(ErrorCode::InvalidInput);
@@ -61,16 +65,38 @@ impl Client {
         let mut refs = self.lock_key_package_refs()?;
         // Forget only refs a Welcome provably used; a failed lookup keeps the ref tracked.
         refs.retain(|r| !matches!(self.stored_key_package(r), Ok(None)));
-        if refs.len() + count as usize > MAX_KEY_PACKAGES_HELD {
-            return Err(ErrorCode::InvalidInput);
-        }
-        (0..count)
+        // At the cap, the oldest held KeyPackages give way (#121): the ones a peer claimed and never
+        // used would otherwise block refills until they expire (ADR-0012). The new ones are created
+        // first, so a failed build drops nothing; the oldest sit at the front of `refs`.
+        let overflow = (refs.len() + count as usize).saturating_sub(MAX_KEY_PACKAGES_HELD);
+        let created = (0..count)
             .map(|_| {
                 let (created, key_package_ref) = self.create_key_package()?;
                 refs.push(key_package_ref);
                 Ok(created)
             })
-            .collect()
+            .collect::<Result<Vec<_>, ErrorCode>>()?;
+        self.evict_oldest_key_packages(&mut refs, overflow)?;
+        Ok(created)
+    }
+
+    /// Deletes the private keys of the `n` oldest tracked KeyPackages (`refs` is in creation order,
+    /// which the snapshot keeps) and forgets them. A ref leaves the list only after its keys are
+    /// gone, so on an error the list holds exactly the refs whose keys are still stored.
+    fn evict_oldest_key_packages(
+        &self,
+        refs: &mut Vec<KeyPackageRef>,
+        n: usize,
+    ) -> Result<(), ErrorCode> {
+        for _ in 0..n {
+            let oldest = refs.first().ok_or(ErrorCode::Internal)?;
+            self.provider
+                .storage()
+                .delete_key_package(oldest)
+                .map_err(mls)?;
+            refs.remove(0);
+        }
+        Ok(())
     }
 
     fn create_key_package(&self) -> Result<(CreatedKeyPackage, KeyPackageRef), ErrorCode> {
@@ -283,18 +309,171 @@ mod tests {
         }
     }
 
+    /// Fills `client` to the cap with 200 KeyPackages, oldest first.
+    fn fill_to_cap(client: &Client) -> Vec<CreatedKeyPackage> {
+        let mut all = client
+            .create_key_packages(MAX_KEY_PACKAGES_PER_CALL)
+            .unwrap();
+        all.extend(
+            client
+                .create_key_packages(MAX_KEY_PACKAGES_PER_CALL)
+                .unwrap(),
+        );
+        assert_eq!(all.len(), MAX_KEY_PACKAGES_HELD);
+        all
+    }
+
+    fn is_stored(client: &Client, created: &CreatedKeyPackage) -> bool {
+        // A KeyPackageRef is a 32 byte opaque vector in TLS encoding.
+        let mut encoded = vec![created.key_package_ref.len() as u8];
+        encoded.extend_from_slice(&created.key_package_ref);
+        let r = KeyPackageRef::tls_deserialize_exact(&encoded).unwrap();
+        client.stored_key_package(&r).unwrap().is_some()
+    }
+
+    fn held(client: &Client) -> usize {
+        client.lock_key_package_refs().unwrap().len()
+    }
+
     #[test]
-    fn caps_the_number_of_unused_key_packages_held() {
+    fn at_the_cap_the_oldest_key_package_gives_way() {
         let alice = client("alice");
-        alice
+        let all = fill_to_cap(&alice);
+        let before = crate::test_support::storage_keys(&alice);
+        let fresh = alice.create_key_packages(1).unwrap().pop().unwrap();
+        assert_eq!(held(&alice), MAX_KEY_PACKAGES_HELD);
+        assert!(!is_stored(&alice, &all[0]), "the oldest was dropped");
+        assert!(is_stored(&alice, &all[1]));
+        assert!(is_stored(&alice, &all[MAX_KEY_PACKAGES_HELD - 1]));
+        assert!(is_stored(&alice, &fresh));
+        // Nothing of the dropped KeyPackage stays behind (#121 SEC-4): one entry went, one came.
+        let after = crate::test_support::storage_keys(&alice);
+        assert_eq!(after.len(), before.len());
+        assert_eq!(before.difference(&after).count(), 1);
+        assert_eq!(after.difference(&before).count(), 1);
+    }
+
+    #[test]
+    fn a_full_batch_drops_exactly_the_hundred_oldest_and_keeps_the_new_ones() {
+        let alice = client("alice");
+        let all = fill_to_cap(&alice);
+        let fresh = alice
             .create_key_packages(MAX_KEY_PACKAGES_PER_CALL)
             .unwrap();
-        alice
-            .create_key_packages(MAX_KEY_PACKAGES_PER_CALL)
-            .unwrap();
+        assert_eq!(held(&alice), MAX_KEY_PACKAGES_HELD);
+        let per_call = MAX_KEY_PACKAGES_PER_CALL as usize;
+        assert!(all[..per_call].iter().all(|k| !is_stored(&alice, k)));
+        assert!(all[per_call..].iter().all(|k| is_stored(&alice, k)));
+        assert!(
+            fresh.iter().all(|k| is_stored(&alice, k)),
+            "the new ones stay"
+        );
+    }
+
+    #[test]
+    fn below_the_cap_nothing_is_dropped() {
+        let alice = client("alice");
+        let first = alice.create_key_packages(100).unwrap();
+        let second = alice.create_key_packages(99).unwrap();
+        assert_eq!(held(&alice), 199);
+        assert!(first.iter().chain(&second).all(|k| is_stored(&alice, k)));
+        alice.create_key_packages(1).unwrap();
         assert_eq!(
-            alice.create_key_packages(1).err(),
-            Some(ErrorCode::InvalidInput)
+            held(&alice),
+            MAX_KEY_PACKAGES_HELD,
+            "exactly at the cap is no overflow"
+        );
+        assert!(first.iter().all(|k| is_stored(&alice, k)));
+    }
+
+    #[test]
+    fn key_packages_a_welcome_used_free_room_before_anything_is_dropped() {
+        let alice = client("alice");
+        let bob = client("bob");
+        let mut all = fill_to_cap(&bob);
+        // Alice adds Bob with his newest KeyPackage; the Welcome uses it up.
+        let used = all.pop().unwrap();
+        let group_id = alice.create_group().unwrap();
+        let welcome = alice
+            .add_member(&group_id, &used.key_package)
+            .unwrap()
+            .welcome;
+        bob.join_from_welcome(&welcome).unwrap();
+
+        bob.create_key_packages(1).unwrap();
+        assert_eq!(held(&bob), MAX_KEY_PACKAGES_HELD);
+        assert!(
+            all.iter().all(|k| is_stored(&bob, k)),
+            "the freed room was used first"
+        );
+
+        // Room for a part only: a second Welcome (in another group) uses one more, so two new
+        // ones overflow by exactly one.
+        let second_group = alice.create_group().unwrap();
+        let used2 = all.pop().unwrap();
+        let welcome2 = alice
+            .add_member(&second_group, &used2.key_package)
+            .unwrap()
+            .welcome;
+        bob.join_from_welcome(&welcome2).unwrap();
+        bob.create_key_packages(2).unwrap();
+        assert_eq!(held(&bob), MAX_KEY_PACKAGES_HELD);
+        assert!(!is_stored(&bob, &all[0]), "one dropped, the oldest");
+        assert!(is_stored(&bob, &all[1]), "and only one");
+    }
+
+    #[test]
+    fn the_order_survives_a_snapshot_and_dropped_ones_stay_dropped() {
+        let alice = client("alice");
+        let all = fill_to_cap(&alice);
+        alice.create_key_packages(1).unwrap();
+        let restored =
+            Client::restore(&alice.export_state().unwrap(), crate::test_support::key()).unwrap();
+        assert_eq!(held(&restored), MAX_KEY_PACKAGES_HELD);
+        assert!(!is_stored(&restored, &all[0]), "no resurrection");
+        restored.create_key_packages(2).unwrap();
+        assert!(!is_stored(&restored, &all[1]) && !is_stored(&restored, &all[2]));
+        assert!(
+            is_stored(&restored, &all[3]),
+            "the oldest of the restored list went first"
+        );
+    }
+
+    #[test]
+    fn a_welcome_for_a_dropped_key_package_fails_cleanly_and_a_later_one_works() {
+        let alice = client("alice");
+        let bob = client("bob");
+        let all = fill_to_cap(&bob);
+        bob.create_key_packages(1).unwrap();
+        let group_id = alice.create_group().unwrap();
+        let stale = alice
+            .add_member(&group_id, &all[0].key_package)
+            .unwrap()
+            .welcome;
+        assert_eq!(bob.join_from_welcome(&stale).err(), Some(ErrorCode::Mls));
+        assert_eq!(held(&bob), MAX_KEY_PACKAGES_HELD);
+        let group_id = alice.create_group().unwrap();
+        let good = alice
+            .add_member(&group_id, &all[5].key_package)
+            .unwrap()
+            .welcome;
+        assert_eq!(bob.join_from_welcome(&good).unwrap(), group_id);
+    }
+
+    #[test]
+    fn the_per_call_limit_still_applies_at_the_cap() {
+        let alice = client("alice");
+        fill_to_cap(&alice);
+        for count in [0, MAX_KEY_PACKAGES_PER_CALL + 1] {
+            assert_eq!(
+                alice.create_key_packages(count).err(),
+                Some(ErrorCode::InvalidInput)
+            );
+        }
+        assert_eq!(
+            held(&alice),
+            MAX_KEY_PACKAGES_HELD,
+            "a refused call drops nothing"
         );
     }
 

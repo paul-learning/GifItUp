@@ -5,6 +5,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class FakeMlsClientTest {
     private fun key() = ByteArray(32) { 1 }
@@ -53,6 +54,18 @@ class FakeMlsClientTest {
         assertCode(MlsErrorCode.InvalidKeyPackage) { alice.inspectKeyPackage(kp.keyPackage, "carol") }
         assertCode(MlsErrorCode.InvalidInput) { bob.createKeyPackages(0) }
         assertCode(MlsErrorCode.InvalidInput) { alice.inspectKeyPackage(ByteArray(16 * 1024 + 1), "bob") }
+    }
+
+    @Test
+    fun atTheCapTheOldestKeyPackagesGiveWayAndNewOnesAreDistinct() {
+        val bob = FakeMlsClient.Factory.create("bob", key())
+        val first = bob.createKeyPackages(100) + bob.createKeyPackages(100)
+        assertTrue(bob.exportState().decodeToString().endsWith(":200"))
+        val more = bob.createKeyPackages(100)
+        assertTrue(bob.exportState().decodeToString().endsWith(":200"), "never more than 200 held")
+        val all = (first + more).map { it.keyPackage.decodeToString() }
+        assertEquals(all.size, all.toSet().size, "evicting never reuses a KeyPackage")
+        assertCode(MlsErrorCode.InvalidInput) { bob.createKeyPackages(101) }
     }
 
     @Test

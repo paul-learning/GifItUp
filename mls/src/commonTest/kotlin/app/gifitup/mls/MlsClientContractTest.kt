@@ -79,6 +79,23 @@ class MlsClientContractTest {
         }
 
     @Test
+    fun createdKeyPackagesBeyondTheCapDropTheOldest() =
+        runTest {
+            platformMlsClientFactory().create("bob", key()).use { bob ->
+                // 100 + 100 fill the cap; 100 more must still succeed (the oldest give way, #121) and be new.
+                val first = bob.createKeyPackages(MAX_PER_CALL)
+                bob.createKeyPackages(MAX_PER_CALL)
+                val atCap = bob.exportState().size
+                val more = bob.createKeyPackages(MAX_PER_CALL)
+                assertEquals(MAX_PER_CALL, more.size)
+                val firstRefs = first.map { it.keyPackageRef.toList() }.toSet()
+                assertTrue(more.none { it.keyPackageRef.toList() in firstRefs })
+                // The dropped private keys are gone from the state: it does not grow with 100 more KeyPackages.
+                assertTrue(bob.exportState().size < atCap + atCap / 20, "state grew: dropped keys are still stored")
+            }
+        }
+
+    @Test
     fun signAuthIsA64ByteDeterministicSignatureOverEveryField() =
         runTest {
             platformMlsClientFactory().create("alice", key()).use { alice ->

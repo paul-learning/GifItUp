@@ -28,12 +28,11 @@ data class Refilled(
  *   the 200 the server and the crate allow), **persist the exported state first**, then upload. A KeyPackage is never
  *   public without its private key: if the upload fails or its answer is lost, the keys are kept (they expire and are
  *   pruned later), and the next refill asks the server again.
- * - **Known limits (ADR-0012, threat model):** the batch is sized from the server's count, but the crate counts every
- *   unused private key it still holds, including ones a peer claimed and never used. Once held plus the new batch would
- *   exceed the crate's cap of 200, `createKeyPackages` fails (`CRYPTO`) until old keys expire (up to 84 days). The
- *   planned crate change drops the oldest held keys at the cap (a follow-up of #14, to be tracked in its own issue). A
- *   server that always reports 0 available makes each refill mint up to [BATCH] more keys, which leads to the same
- *   stop; the server is trusted for availability only, never for secrecy.
+ * - **Known limits (ADR-0012, threat model):** the crate holds at most 200 unused private keys and, when a batch would
+ *   exceed that, drops the oldest first (#121), so a refill never blocks. A dropped KeyPackage's Welcome can no longer
+ *   be processed, so the app processes pending Welcomes before it refills (#22). The batch size comes from the
+ *   untrusted server's count: a server that always reports 0 available makes each refill drop the 50 oldest, which is
+ *   availability only (it can withhold Welcomes anyway; accepted by the owner, 2026-10-20).
  * - Holds the device lock, like login, for the restore, the state write and the upload.
  */
 class RefillKeyPackages internal constructor(
