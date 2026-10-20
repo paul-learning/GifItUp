@@ -16,6 +16,9 @@ class CliTest {
         assertEquals(Invocation("register", "http://127.0.0.1:8080", Path.of("/tmp/s"), "https://e2e.invalid", "ann", false), register)
         listOf("login", "devices", "reset").forEach { assertEquals(it, Invocation.parse(listOf(it) + base).command) }
         assertEquals(true, Invocation.parse(listOf("login") + base + "--remote-test-account").remoteTestAccount)
+        listOf("keypackages-refill", "keypackages-status").forEach { assertEquals(it, Invocation.parse(listOf(it) + base).command) }
+        val claim = Invocation.parse(listOf("keypackages-claim") + base + listOf("--target", "ben"))
+        assertEquals("ben", claim.target)
     }
 
     @Test
@@ -32,6 +35,10 @@ class CliTest {
                 listOf("login") + base + "--origin", // value missing
                 listOf("login") + base + "--invite", // the invite never comes from argv (#79 SEC-6)
                 listOf("login") + base + "extra",
+                listOf("keypackages-claim") + base, // no target
+                listOf("keypackages-claim") + base + listOf("--target", "ben", "--target", "cat"),
+                listOf("keypackages-refill") + base + listOf("--target", "ben"), // a target only for claim
+                listOf("login") + base + listOf("--target", "ben"),
             )
         cases.forEach { assertEquals(EXIT_USAGE, assertFailsWith<CliError>("$it") { Invocation.parse(it) }.exit) }
     }

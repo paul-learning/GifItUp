@@ -9,6 +9,7 @@ import app.gifitup.shared.data.network.FakeAuthServer
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.DEVICE_ID
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.error
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.json
+import app.gifitup.shared.data.network.KeyPackageStatus
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.StoredIdentity
 import app.gifitup.shared.domain.auth.AuthError
@@ -130,6 +131,16 @@ class KeyPackageUseCasesTest {
             assertEquals(Refilled(10, 200), assertIs<AuthResult.Ok<Refilled>>(refill(session)).value)
             val last = ProtocolJson.decodeFromString(UploadKeyPackagesRequest.serializer(), server.bodiesFor("/key-packages").last())
             assertEquals(10, last.keyPackages.size)
+        }
+
+    @Test
+    fun checkReportsTheServersCounts() =
+        runTest {
+            val session = registered()
+            server.on("/key-packages/status", status(available = 7, low = 20), error(HttpStatusCode.TooManyRequests, "rate_limited"))
+            val check = CheckKeyPackages(server.api())
+            assertEquals(7, assertIs<AuthResult.Ok<KeyPackageStatus>>(check(session)).value.available)
+            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.RATE_LIMITED)), check(session))
         }
 
     @Test
