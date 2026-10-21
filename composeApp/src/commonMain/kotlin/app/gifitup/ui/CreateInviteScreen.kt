@@ -45,7 +45,20 @@ internal fun CreateInviteScreen(
     LaunchedEffect(holder) { holder.refresh() }
     DisposableEffect(holder, lifecycle) {
         screen.protect(true)
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) holder.stopped() }
+        val observer =
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_START -> {
+                        holder.resumed()
+                    }
+
+                    Lifecycle.Event.ON_STOP -> {
+                        holder.stopped()
+                    }
+
+                    else -> {}
+                }
+            }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)

@@ -93,8 +93,10 @@ class CreateInviteStateHolder(
     private val flow = MutableStateFlow(InviteScreenState())
     val state: StateFlow<InviteScreenState> = flow.asStateFlow()
 
-    /** Bumped by [leave]: an answer for an older screen visit is dropped. */
+    /** Bumped by [leave] and [stopped]: an answer for an older screen visit is dropped. */
     private var visit = 0
+
+    private val link = ClipboardLink(clipboard)
 
     fun refresh() = act { loadList() }
 
@@ -120,26 +122,17 @@ class CreateInviteStateHolder(
     fun copy() {
         val shown = flow.value.shown ?: return
         scope.launch {
-            val copied = safeCopy(shown.link)
+            val copied = clipboard.copyOrFalse(shown.link)
+            if (copied) link.inviteId = shown.inviteId
             var stillShown = false
             flow.update {
                 stillShown = it.shown === shown
                 if (stillShown) it.copy(copied = copied, problem = if (copied) it.problem else InviteScreenProblem.COPY_FAILED) else it
             }
-            if (!stillShown && copied) clipboard.clearCopied() // the link was dropped while the platform copied it
+            // The link was dropped while the platform copied it: take it off again, unless the app is on its way to the paste.
+            if (!stillShown && !link.appStopped) link.remove()
         }
     }
-
-    /** A platform failure is a refusal, not a crash; only our own cancellation goes on. */
-    @Suppress("TooGenericExceptionCaught") // Anything but cancellation becomes COPY_FAILED; no message is kept.
-    private suspend fun safeCopy(text: String): Boolean =
-        try {
-            clipboard.copy(text)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (ignored: Throwable) {
-            false
-        }
 
     fun revoke(inviteId: String) =
         act {
@@ -154,32 +147,42 @@ class CreateInviteStateHolder(
                     flow.update { it.copy(problem = revoked.error.toProblem()) }
                 }
             }
-            if (flow.value.shown?.inviteId == inviteId && flow.value.problem == null) dropShown()
+            // A deliberate action in the foreground: the invite is dead, so its link goes too, wherever it still is.
+            if (flow.value.problem == null && (flow.value.shown?.inviteId == inviteId || link.inviteId == inviteId)) dropShown()
             loadList()
         }
 
-    /** The screen was left: drop the link and take it off the clipboard. Synchronous, so it also works while the owner is cleared. */
+    /**
+     * The screen was left: drop the link and take it off the clipboard. Synchronous, so it also works while the owner is
+     * cleared. While the app is stopped ([stopped] without [resumed]) the entry stays: a rotation stops the app and then
+     * recreates the screen, and the user is probably on the way to paste it; the next leave, create or revoke in the
+     * foreground removes it.
+     */
     fun leave() {
         visit++
-        val copied = flow.value.copied
         flow.update { it.copy(shown = null, copied = false, problem = null) }
-        if (copied) clipboard.clearCopied()
+        if (!link.appStopped) link.remove()
     }
 
     /**
      * The app stopped (background, screen off, rotation): the link leaves the screen and memory, but the clipboard is
      * left alone, because the user is most likely on the way to paste it into a messenger. The entry is removed at the
-     * next create, revoke or [leave] (best effort, see [SensitiveClipboard]).
+     * next create, revoke or [leave] in the foreground (best effort, see [SensitiveClipboard]).
      */
     fun stopped() {
         visit++
-        flow.update { it.copy(shown = null) }
+        link.appStopped = true
+        flow.update { it.copy(shown = null, copied = false) }
+    }
+
+    /** The app is in the foreground again (the lifecycle started): a leave from now on is a deliberate one. */
+    fun resumed() {
+        link.appStopped = false
     }
 
     private fun dropShown() {
-        val copied = flow.value.copied
         flow.update { it.copy(shown = null, copied = false) }
-        if (copied) clipboard.clearCopied()
+        link.remove()
     }
 
     private suspend fun loadList() {
@@ -217,4 +220,31 @@ private fun AuthError.toProblem(): InviteScreenProblem =
         is AuthError.Local -> {
             if (this == AuthError.Local.NOT_REGISTERED) InviteScreenProblem.NOT_SIGNED_IN else InviteScreenProblem.FAILED
         }
+    }
+
+/** What the holder put on the clipboard: the invite it was for, and whether the app is stopped (see `leave`). */
+private class ClipboardLink(
+    private val clipboard: SensitiveClipboard,
+) {
+    var inviteId: String? = null
+
+    /** Between `stopped` and `resumed`: the app is in the background, or recreating the screen after a rotation. */
+    var appStopped = false
+
+    fun remove() {
+        if (inviteId == null) return
+        inviteId = null
+        clipboard.clearCopied()
+    }
+}
+
+/** A platform failure is a refusal, not a crash; only our own cancellation goes on. */
+@Suppress("TooGenericExceptionCaught") // Anything but cancellation becomes a refusal; no message is kept.
+private suspend fun SensitiveClipboard.copyOrFalse(text: String): Boolean =
+    try {
+        copy(text)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (ignored: Throwable) {
+        false
     }
