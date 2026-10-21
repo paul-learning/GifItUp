@@ -4,6 +4,9 @@ agp = "9.4.1"
 compose-multiplatform = "1.12.1"
 compose-material3 = "1.9.0"
 androidx-activity = "1.13.0"
+# Navigation and ViewModel for the shared UI (ADR-0013); lifecycle matches what Compose Multiplatform 1.12 already brings.
+androidx-navigation = "2.9.2"
+androidx-lifecycle = "2.11.0"
 kotlinx-serialization = "1.11.0"
 ktor = "3.6.0"
 logback = "1.6.5"
@@ -41,6 +44,8 @@ compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", v
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-multiplatform" }
 compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-material3" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+androidx-navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "androidx-navigation" }
+androidx-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
 
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
 ktor-server-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor" }
@@ -53,6 +58,8 @@ ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 ktor-client-java = { module = "io.ktor:ktor-client-java", version.ref = "ktor" }
+ktor-client-js = { module = "io.ktor:ktor-client-js", version.ref = "ktor" }
+ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
 slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
 jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidx-test-runner" }

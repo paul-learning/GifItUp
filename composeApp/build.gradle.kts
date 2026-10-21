@@ -5,6 +5,25 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
 }
 
+// The server origin a build starts with (ADR-0013): `-Pgifitup.defaultOrigin=https://...` for a real build. The user
+// can change it in Settings while the device has no identity. Must be canonical (https, lowercase, no path).
+val defaultOrigin = providers.gradleProperty("gifitup.defaultOrigin").orElse("https://gifitup.invalid")
+val generateBuildDefaults by tasks.registering {
+    val origin = defaultOrigin
+    val out = layout.buildDirectory.dir("generated/buildDefaults/kotlin")
+    inputs.property("origin", origin)
+    outputs.dir(out)
+    doLast {
+        val value = origin.get()
+        require(Regex("^https://[a-z0-9.-]+(:[1-9][0-9]{0,4})?$").matches(value)) {
+            "gifitup.defaultOrigin must be a canonical https origin"
+        }
+        val file = out.get().file("app/gifitup/BuildDefaults.kt").asFile
+        file.parentFile.mkdirs()
+        file.writeText("package app.gifitup\n\ninternal object BuildDefaults {\n    const val DEFAULT_ORIGIN = \"$value\"\n}\n")
+    }
+}
+
 kotlin {
     jvmToolchain(21)
 
@@ -29,9 +48,16 @@ kotlin {
         // The web composition root (Main.kt) builds the MlsClient factory (ADR-0007); Android's lives in :androidApp.
         wasmJsMain.dependencies {
             implementation(projects.mls)
+            implementation(libs.ktor.client.js)
+        }
+        commonMain {
+            kotlin.srcDir(generateBuildDefaults)
         }
         commonMain.dependencies {
             implementation(projects.shared)
+            implementation(libs.ktor.client.core)
+            implementation(libs.androidx.navigation.compose)
+            implementation(libs.androidx.lifecycle.viewmodel.compose)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)

@@ -8,6 +8,8 @@ import app.gifitup.shared.data.storage.LocalStore
 import app.gifitup.shared.data.storage.RecordIdentityStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredRestoreCounter
+import app.gifitup.shared.domain.keypackages.RefillKeyPackages
+import app.gifitup.shared.domain.origin.ServerOriginSetting
 
 /**
  * This device's storage (ADR-0011), built once per app instance by the platform's composition root: once per page on
@@ -27,6 +29,9 @@ class DeviceStorage(
     internal val lock = DeviceLock()
 
     fun snapshotKeys(origin: String): SnapshotKeyStore = keyStoreFor(origin, identities)
+
+    /** The server origin setting over this storage and its lock (ADR-0013); [default] is the build's origin. */
+    fun originSetting(default: String): ServerOriginSetting = ServerOriginSetting(store, identities, lock, default)
 }
 
 /**
@@ -44,6 +49,7 @@ class DeviceAuth(
     private val keys = storage.snapshotKeys(api.endpoint.origin)
 
     val register = RegisterDevice(api, guarded, storage.identities, keys, random, lock)
+    val refillKeyPackages = RefillKeyPackages(api, guarded, storage.identities, keys, lock)
     val logIn = LogIn(api, guarded, storage.identities, keys, lock)
     val logOut = LogOut(api)
     val wipe = WipeLocalData(storage.data, logOut, lock)
