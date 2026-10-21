@@ -7,7 +7,7 @@
 We need Android and Web clients from a single codebase. Development happens on Windows, so iOS is out of scope for now, though it should stay possible later. The backend runs on one Hetzner VM. It is a hobby project, so it should cost nothing beyond the VM.
 
 ## Decision
-- **Clients:** Kotlin Multiplatform with **Compose Multiplatform** UI, targets `androidTarget` and `wasmJs` (browser).
+- **Clients:** Kotlin Multiplatform with **Compose Multiplatform** UI, targets Android and `wasmJs` (browser). Since AGP 9 the Android side is a KMP library plus the `:androidApp` shell (see *Amendments*).
 - **Shared code:** `shared` KMP module for domain, data, networking (Ktor client), serialization (kotlinx.serialization) and the crypto facade.
 - **Backend:** **Ktor** server on the JVM, **PostgreSQL**, migrations via Flyway (chosen in ADR-0008, not at scaffold time; see *Amendments*). It shares wire models with the clients through a dedicated `protocol` KMP module (wire models only). The server never depends on `shared`, which is client code.
 - **Deployment:** Docker Compose on the VM with **Caddy** as reverse proxy, which provides automatic TLS. Deployed by a GitHub Actions workflow.
