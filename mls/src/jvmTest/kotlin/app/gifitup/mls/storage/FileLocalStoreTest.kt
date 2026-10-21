@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 /** The Android file store on the JVM: it is plain files (ADR-0011). */
 class FileLocalStoreTest {
     private val dir = Files.createTempDirectory("gifitup-store").toFile().resolve("state")
-    private val store = FileLocalStore(dir, move, hostSync)
+    private val store = hostStore(dir)
     private val file = File(dir, FileLocalStore.FILE_NAME)
 
     @AfterTest
@@ -40,14 +40,6 @@ class FileLocalStoreTest {
             assertEquals(2, synced.size, "nothing deleted, nothing to sync")
         }
 
-    private companion object {
-        val move: (java.nio.file.Path, java.nio.file.Path) -> Unit = { from, to -> FileLocalStore.atomicMove(from, to) }
-
-        /** The real fsync, except on a Windows dev machine, where a directory can't be opened (#136). */
-        val hostSync: (java.nio.file.Path) -> Unit =
-            if (System.getProperty("os.name").startsWith("Windows")) { _ -> } else { dir -> FileLocalStore.forceDirectory(dir) }
-    }
-
     @Test
     fun roundTripsEntriesAndNullDeletes() =
         runTest {
@@ -58,7 +50,7 @@ class FileLocalStoreTest {
             assertNull(store.get("a"))
             assertContentEquals(byteArrayOf(2, 3), store.get("b"))
             assertContentEquals(byteArrayOf(), store.get("c"))
-            assertContentEquals(byteArrayOf(2, 3), FileLocalStore(dir, move, hostSync).get("b"), "a new instance reads it from disk")
+            assertContentEquals(byteArrayOf(2, 3), hostStore(dir).get("b"), "a new instance reads it from disk")
         }
 
     /** The store keeps no history: one file after any number of writes, and no temp file (ADR-0011, #16 SEC-3). */
