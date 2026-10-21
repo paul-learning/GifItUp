@@ -292,6 +292,7 @@ private fun localMessage(error: AuthError.Local): String =
         AuthError.Local.KEY_UNAVAILABLE -> "the state dir's key can't be used"
         AuthError.Local.RESTORE_BLOCKED -> "the last restores failed; this can't happen in the CLI"
         AuthError.Local.STORAGE_FAILED -> "the state dir couldn't be read or written"
+        AuthError.Local.UNEXPECTED -> "an unexpected error on this device"
     }
 
 /** After a refused resume the identity is kept on purpose (#95 CR-5): only the user knows the earlier attempt is lost. */

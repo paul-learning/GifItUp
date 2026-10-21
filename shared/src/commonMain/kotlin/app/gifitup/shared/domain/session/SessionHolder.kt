@@ -3,6 +3,7 @@ package app.gifitup.shared.domain.session
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.auth.toAuth
 import kotlinx.coroutines.CoroutineScope
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The logged-in session of one app instance, in memory only (ADR-0009: 24 hours, no refresh; never stored, never in
@@ -22,7 +24,9 @@ import kotlinx.coroutines.sync.withLock
  *   upload, create-invite), so the caller decides.
  * - A failed login is returned as it is and not repeated. A `401` or `429` on the login never discards keys or a
  *   pending registration (#73 SEC-42): this class touches no storage.
- * - [clear] after a wipe, logout or origin change; the next call then answers `NOT_REGISTERED` from the login.
+ * - [clear] after a wipe, logout or origin change; the next call then answers `NOT_REGISTERED` from the login. Callers
+ *   that were already waiting on a login that started before the clear get `NOT_REGISTERED` too, never its session.
+ * - A login that throws anything (a bug, a platform error) is a closed `UNEXPECTED` failure for that attempt only.
  * One holder per endpoint (a [Session] carries its endpoint).
  */
 class SessionHolder(
@@ -34,6 +38,9 @@ class SessionHolder(
     private var session: Session? = null
     private var pending: Deferred<AuthResult<Session>>? = null
 
+    /** Bumped by [clear]: a login that was started before it must not hand out its session afterwards. */
+    private var generation = 0
+
     suspend fun <T> withSession(call: suspend (Session) -> ApiResult<T>): AuthResult<T> {
         val first = attempt(call)
         return if (first.unauthorized) retryAfterLogin(first.used, call) else first.result
@@ -44,6 +51,7 @@ class SessionHolder(
         mutex.withLock {
             session = null
             pending = null
+            generation++
         }
     }
 
@@ -73,22 +81,50 @@ class SessionHolder(
         return attempt(call).result
     }
 
+    private class Started(
+        val login: Deferred<AuthResult<Session>>,
+        val generation: Int,
+    )
+
     private suspend fun ensureSession(): AuthResult<Session> {
-        val login =
+        val started =
             mutex.withLock {
                 val live = session?.takeIf { it.expiresAt - EXPIRY_MARGIN_SECONDS > nowEpochSeconds() }
                 if (live != null) return AuthResult.Ok(live)
-                pending ?: scope.async { logIn() }.also { pending = it }
+                Started(pending ?: scope.async { safeLogIn() }.also { pending = it }, generation)
             }
-        val result = login.await()
-        mutex.withLock {
-            if (pending === login) {
-                pending = null
-                if (result is AuthResult.Ok) session = result.value
+        val result = started.login.await()
+        return mutex.withLock {
+            when {
+                // A clear (wipe, logout, origin change) came while this login ran: its session is not for anyone.
+                started.generation != generation -> {
+                    AuthResult.Failed(AuthError.Local.NOT_REGISTERED)
+                }
+
+                else -> {
+                    if (pending === started.login) {
+                        pending = null
+                        if (result is AuthResult.Ok) session = result.value
+                    }
+                    result
+                }
             }
         }
-        return result
     }
+
+    /**
+     * The login, with anything it throws turned into a closed failure: an exception inside the shared [Deferred] would
+     * stay in `pending` for every later call, and in a scope without a supervisor it would cancel the whole scope.
+     */
+    @Suppress("TooGenericExceptionCaught") // Anything but cancellation becomes `UNEXPECTED`; no message is kept.
+    private suspend fun safeLogIn(): AuthResult<Session> =
+        try {
+            logIn()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Throwable) {
+            AuthResult.Failed(AuthError.Local.UNEXPECTED)
+        }
 
     private companion object {
         /** Renew a little early: the phone's clock and the server's can differ by minutes. */

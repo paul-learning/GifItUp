@@ -210,6 +210,42 @@ class SessionHolderTest {
         }
 
     @Test
+    fun aLoginThatThrowsIsAClosedFailureForThatAttemptOnly() =
+        runTest {
+            loginResult = { error("platform error with a secret") }
+            val holder = holder()
+            val first = holder.withSession { ok() }
+            assertEquals(AuthResult.Failed(AuthError.Local.UNEXPECTED), first)
+            loginResult = null
+            assertIs<AuthResult.Ok<String>>(holder.withSession { ok() }, "the next call logs in again; nothing is stuck")
+            assertEquals(2, logins)
+        }
+
+    @Test
+    fun callersWaitingOnALoginThatStartedBeforeAClearNeverGetItsSession() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            loginResult = {
+                gate.await()
+                AuthResult.Ok(session())
+            }
+            val holder = holder()
+            var used = false
+            val waiting =
+                async {
+                    holder.withSession {
+                        used = true
+                        ok()
+                    }
+                }
+            repeat(5) { yield() }
+            holder.clear()
+            gate.complete(Unit)
+            assertEquals(AuthResult.Failed(AuthError.Local.NOT_REGISTERED), waiting.await())
+            assertEquals(false, used)
+        }
+
+    @Test
     fun theSessionNeverPrintsItsToken() =
         runTest {
             val s = session()

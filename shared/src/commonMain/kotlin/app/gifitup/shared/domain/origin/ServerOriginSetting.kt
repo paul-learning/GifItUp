@@ -17,6 +17,9 @@ import app.gifitup.shared.domain.auth.DeviceLock
  *   is "fixed up".
  * - The setting is a [LocalStore] record, so the wipe's `deleteAll` resets it to the default (ADR-0011).
  * After a change the caller rebuilds everything that holds the old origin (API, `DeviceAuth`, session holder).
+ *
+ * Storage failures are not swallowed: [current] and [set] throw [LocalStateException] (`STORAGE`, or `KEY_UNAVAILABLE`
+ * from the identity store). The screens map it with the same closed texts as the auth use cases (#17 PR 2).
  */
 class ServerOriginSetting(
     private val store: LocalStore,

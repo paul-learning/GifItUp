@@ -58,6 +58,9 @@ sealed interface AuthError {
 
         /** The device's storage failed to read or write; can be transient (#108 SEC-13). */
         STORAGE_FAILED,
+
+        /** Something outside the closed cases failed on this device (a bug or a platform error); nothing is kept of it. */
+        UNEXPECTED,
     }
 }
 
