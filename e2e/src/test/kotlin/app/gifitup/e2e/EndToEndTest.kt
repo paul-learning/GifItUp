@@ -55,6 +55,7 @@ class EndToEndTest {
             walkingSkeleton(cli, used)
             refusals(cli, used, createInvite(dbEnv))
             keyPackages(cli, createInvite(dbEnv))
+            invites(cli)
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
@@ -223,6 +224,76 @@ class EndToEndTest {
         assertTrue(CLAIMED_EMPTY.matches(ok("keypackages-claim", carol, "--target", "e2e_dave")), "an empty pool")
     }
 
+    /**
+     * A member's own invites (#17, ADR-0010): the link goes to a new file only, a new member registers with it, the
+     * list shows who used it, a revoked invite is refused, and the limit of 5 open invites holds. `e2e_dave` was
+     * registered by the step before and hasn't logged in since (10 logins per device per hour).
+     */
+    private fun invites(cli: Cli) {
+        val dave = work.resolve("state-dave")
+        val erinLink = createdLink(cli, dave, "link-erin")
+        assertEquals(0, cli.run("register", work.resolve("state-erin"), "--username", "e2e_erin", stdin = erinLink).exit, "register erin")
+
+        val frankFile = work.resolve("link-frank")
+        val frankLink = createdLink(cli, dave, frankFile.name)
+        val frankId = inviteId(cli.run("invites", dave).stdout, "open")
+        assertEquals("invite $frankId revoked", cli.run("invite-revoke", dave, "--id", frankId).stdout.trim())
+        val revokedAgain = cli.run("invite-revoke", dave, "--id", frankId)
+        assertEquals(EXIT_SERVER, revokedAgain.exit, "a second revoke: exit code")
+        assertTrue("gifitup-cli: no open invite" in revokedAgain.stderr, "a second revoke: not found")
+        val frank = cli.run("register", work.resolve("state-frank"), "--username", "e2e_frank", stdin = frankLink)
+        assertEquals(EXIT_SERVER, frank.exit, "a revoked invite: exit code")
+        assertTrue("gifitup-cli: invite not accepted" in frank.stderr, "a revoked invite: the closed message")
+
+        // An existing file is never overwritten, and no invite is created for it.
+        val existing = cli.run("invite-create", dave, "--link-file", "$frankFile")
+        assertEquals(EXIT_REFUSED, existing.exit, "an existing link file: exit code")
+        val listed =
+            cli
+                .run("invites", dave)
+                .stdout
+                .lines()
+                .filter { it.isNotBlank() }
+        assertEquals(2, listed.size, "dave has the two invites")
+        assertTrue(listed.any { it.contains("  used  ") && it.endsWith("  used by e2e_erin") }, "the used invite names erin")
+        assertTrue(listed.any { it.startsWith("$frankId  revoked  ") }, "the revoked invite")
+
+        // At most 5 open invites: the 6th is refused and leaves no link file behind.
+        val erin = work.resolve("state-erin")
+        repeat(MAX_OPEN_INVITES) { createdLink(cli, erin, "link-open-$it") }
+        val sixth = cli.run("invite-create", erin, "--link-file", "${work.resolve("link-sixth")}")
+        assertEquals(EXIT_SERVER, sixth.exit, "a 6th open invite: exit code")
+        assertTrue("gifitup-cli: too many open invites" in sixth.stderr, "a 6th open invite: the limit")
+        assertFalse(Files.exists(work.resolve("link-sixth")), "no link file for a refused invite")
+    }
+
+    /** `invite-create` into [fileName] in the work dir; returns the link, whose code then counts as a secret. */
+    private fun createdLink(
+        cli: Cli,
+        state: Path,
+        fileName: String,
+    ): String {
+        val file = work.resolve(fileName)
+        val created = cli.run("invite-create", state, "--link-file", "$file")
+        assertEquals(0, created.exit, "invite-create exit code")
+        assertTrue(CREATED_LINE.matches(created.stdout.trim()), "invite-create prints the id and the file, never the code")
+        val link = Files.readString(file).trim()
+        assertTrue(link.startsWith("$ORIGIN/invite#"), "the link file holds a link to the configured origin")
+        secrets += link.substringAfterLast('#')
+        return link
+    }
+
+    /** The id of the one listed invite in [status]. */
+    private fun inviteId(
+        listed: String,
+        status: String,
+    ): String =
+        listed
+            .lines()
+            .singleOrNull { it.contains("  $status  ") }
+            ?.substringBefore(' ')
+            ?: fail("invites lists no single $status invite")
+
     private fun assertNoSecretInOutput() {
         val processOutput = processes.capturedOutput()
         (processOutput + ("postgres" to EndToEndDatabase.serverLog())).forEach { (name, text) ->
@@ -272,9 +343,12 @@ class EndToEndTest {
         const val HTTP_OK = 200
         const val POLL_MILLIS = 200L
         const val EXIT_SERVER = 1
+        const val EXIT_REFUSED = 3
+        const val MAX_OPEN_INVITES = 5
         const val UUID_LENGTH = 36
         val CLAIMED_USABLE = Regex("^[0-9a-f-]{36} {2}crate-valid, not authenticated \\(credential e2e_ann\\)$")
         val CLAIMED_EMPTY = Regex("^[0-9a-f-]{36} {2}empty \\(no KeyPackage left\\)$")
+        val CREATED_LINE = Regex("^invite [0-9a-f-]{36} created, expires \\S+; link in \\S+$")
         val DEVICE_LINE = Regex("^registered e2e_ann as device ([0-9a-f-]{36})$")
     }
 }
