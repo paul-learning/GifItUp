@@ -17,7 +17,14 @@ all-features = true
 [advisories]
 yanked = "deny"
 # Every entry needs a reason and a linked issue.
-ignore = []
+ignore = [
+  # basic-toml is unmaintained (the repository is archived; no safe upgrade exists). It is reached only through
+  # uniffi's bindings generator (uniffi_bindgen -> askama -> askama_derive -> basic-toml), which the `bindgen` feature
+  # builds into the dev tool `uniffi-bindgen`; the default, Android and wasm builds do not contain it
+  # (`cargo tree -i basic-toml` finds nothing without `--all-features`). Remove this entry when uniffi or askama stops
+  # using it. Tracked in #126.
+  { id = "RUSTSEC-2026-0374", reason = "unmaintained, build-time bindings generator only (#126)" },
+]
 
 [licenses]
 # Taken from the crates in Cargo.lock (`cargo deny list`); add a license only after reading it.
