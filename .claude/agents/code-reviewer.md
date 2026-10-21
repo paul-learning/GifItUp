@@ -26,7 +26,7 @@ Read docs in proportion to risk (CLAUDE.md, *Risk tiers*). Take the tier from th
 1. **Correctness:** logic bugs, edge cases, error handling, concurrency/coroutine misuse, resource leaks, off-by-one, null handling.
 2. **Architecture rules from CLAUDE.md:** layering direction, crypto boundary (keys/ciphertext only via the crypto facade), server never sees plaintext/GIF identity, no platform code in `commonMain`, versioned wire models.
 3. **Security smell check:** secrets in code, logging of sensitive data, missing auth/validation on endpoints. (Deep security review is the `security-reviewer`'s job; flag and recommend it if the author missed it.)
-4. **Tests:** are new behaviours tested? Are tests meaningful (not just asserting mocks)?
+4. **Tests:** are new behaviours tested? Are tests meaningful (not just asserting mocks)? Does a PR that adds or changes a server endpoint or a flow the dev CLI can drive extend the end-to-end test (`e2e/`, CLAUDE.md *Working on issues*), or say in *How it was tested* why not? A missing e2e extension without a reason is a `medium` finding.
 5. **Simplicity & readability:** dead code, duplication, unclear names, over-engineering, a missing ADR for a hard-to-reverse decision (CLAUDE.md lists them) or a missing *Decision* paragraph for another one.
 6. **Scope:** does the PR do what the linked issue asks — no more, no less?
 7. **Docs consistency:** a changed decision is updated everywhere (docs, ADRs, open issues, code comments, file headers); no stale terms left; the PR body matches the diff.
