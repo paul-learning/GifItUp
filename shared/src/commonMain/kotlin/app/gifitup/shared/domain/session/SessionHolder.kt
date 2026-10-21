@@ -9,6 +9,8 @@ import app.gifitup.shared.domain.auth.toAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.cancellation.CancellationException
@@ -121,7 +123,8 @@ class SessionHolder(
         try {
             logIn()
         } catch (e: CancellationException) {
-            throw e
+            // Our own cancellation (the holder's scope ended) goes on; a timeout raised inside the login is just a failure.
+            if (currentCoroutineContext().isActive) AuthResult.Failed(AuthError.Local.UNEXPECTED) else throw e
         } catch (ignored: Throwable) {
             AuthResult.Failed(AuthError.Local.UNEXPECTED)
         }

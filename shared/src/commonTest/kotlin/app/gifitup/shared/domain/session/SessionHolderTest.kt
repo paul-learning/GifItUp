@@ -9,9 +9,11 @@ import app.gifitup.shared.domain.auth.AuthResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -219,6 +221,16 @@ class SessionHolderTest {
             loginResult = null
             assertIs<AuthResult.Ok<String>>(holder.withSession { ok() }, "the next call logs in again; nothing is stuck")
             assertEquals(2, logins)
+        }
+
+    @Test
+    fun aTimeoutInsideTheLoginIsAFailureNotAStuckCancellation() =
+        runTest {
+            loginResult = { withTimeout(10) { awaitCancellation() } }
+            val holder = holder()
+            assertEquals(AuthResult.Failed(AuthError.Local.UNEXPECTED), holder.withSession { ok() })
+            loginResult = null
+            assertIs<AuthResult.Ok<String>>(holder.withSession { ok() }, "the next call is not poisoned by the old cancellation")
         }
 
     @Test
