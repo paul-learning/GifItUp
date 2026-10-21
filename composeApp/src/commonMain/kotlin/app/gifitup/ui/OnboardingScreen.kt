@@ -34,6 +34,7 @@ internal fun OnboardingScreen(
     holder: OnboardingStateHolder,
     current: OriginView,
     onOpenSettings: () -> Unit,
+    onInvite: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -48,7 +49,7 @@ internal fun OnboardingScreen(
             is OnboardingState.ChooseUsername -> ChooseUsername(state, holder)
             is OnboardingState.ConfirmServer -> ConfirmServer(state, holder)
             is OnboardingState.FinishPending -> FinishPending(state, holder)
-            is OnboardingState.Done -> Done(state)
+            is OnboardingState.Done -> Done(state, onInvite)
             is OnboardingState.Blocked -> Text(Texts.blocked(state.reason))
             is OnboardingState.Failed -> Text(Texts.error(state.error))
         }
@@ -153,7 +154,11 @@ private fun FinishPending(
 }
 
 @Composable
-private fun Done(state: OnboardingState.Done) {
+private fun Done(
+    state: OnboardingState.Done,
+    onInvite: () -> Unit,
+) {
     Text("Welcome, ${state.username}!", style = MaterialTheme.typography.titleMedium)
+    Button(onClick = onInvite) { Text("Invite a friend") }
     if (state.keyPackagesUploaded == false) Text("Some setup is still pending; it finishes the next time you open the app.")
 }

@@ -1,7 +1,10 @@
 package app.gifitup.ui
 
 import app.gifitup.shared.data.network.ApiError
+import app.gifitup.shared.data.network.Invite
+import app.gifitup.shared.data.network.InviteState
 import app.gifitup.shared.domain.auth.AuthError
+import app.gifitup.shared.presentation.invite.InviteScreenProblem
 import app.gifitup.shared.presentation.onboarding.BlockReason
 import app.gifitup.shared.presentation.onboarding.InviteProblem
 import app.gifitup.shared.presentation.onboarding.UsernameProblem
@@ -27,6 +30,33 @@ internal object Texts {
             BlockReason.RESTORE_BLOCKED -> "This device's data couldn't be opened several times in a row."
             BlockReason.KEY_UNAVAILABLE -> "This device's key can't be used right now."
             BlockReason.STATE_INVALID -> "This device's data is damaged."
+        }
+
+    fun invite(problem: InviteScreenProblem): String =
+        when (problem) {
+            InviteScreenProblem.OPEN_LIMIT -> "You have the most open invites allowed. Revoke one, or wait until one is used or expires."
+            InviteScreenProblem.RATE_LIMITED -> "Too many invites created today. Try again later."
+            InviteScreenProblem.OFFLINE -> "No answer from the server. If an invite was created, it is in the list below."
+            InviteScreenProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
+            InviteScreenProblem.COPY_FAILED -> "Couldn't copy. Select the link and copy it by hand."
+            InviteScreenProblem.FAILED -> "Something went wrong. Try again."
+        }
+
+    fun copied(clearsClipboard: Boolean): String =
+        if (clearsClipboard) {
+            "Copied. The link is removed from the clipboard when you leave this screen."
+        } else {
+            "Copied. The link stays on the clipboard until you copy something else."
+        }
+
+    /** One line per invite: its state, when it expires, who used it. Plain text from closed values and a validated username. */
+    fun inviteRow(invite: Invite): String =
+        when (invite.status) {
+            InviteState.OPEN -> "Open, expires ${invite.expiryText()}"
+            InviteState.USED -> "Used by ${invite.usedBy ?: "an account that was deleted"}"
+            InviteState.EXPIRED -> "Expired"
+            InviteState.REVOKED -> "Revoked"
+            InviteState.UNKNOWN -> "Not usable"
         }
 
     fun settings(problem: ServerSettingsProblem): String =

@@ -36,6 +36,7 @@ class CreateInviteStateHolderTest {
     private val clipboard = FakeClipboard()
 
     private class FakeClipboard : SensitiveClipboard {
+        override val clearsCopied = true
         val copies = mutableListOf<String>()
         var clears = 0
         var accepts = true

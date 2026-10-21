@@ -23,6 +23,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * content. A platform that can't do that says so by doing nothing; the screen tells the user.
  */
 interface SensitiveClipboard {
+    /** False where [clearCopied] can't remove an entry (the web): the screen then says the link stays on the clipboard. */
+    val clearsCopied: Boolean
+
     /** Puts [text] on the clipboard; false if the platform refused. */
     suspend fun copy(text: String): Boolean
 
