@@ -7,3 +7,10 @@ style:
   MaxLineLength:
     # Keep in sync with max_line_length in .editorconfig (ktlint).
     maxLineLength: 140
+  ForbiddenImport:
+    # Domain purity (ARCH-M0-6, CLAUDE.md "Layering"): shared's domain code imports only the Kotlin standard library,
+    # kotlinx.coroutines and shared's own domain and data packages. An allow-list, so a new framework or platform
+    # import fails here instead of slipping past a list of known ones.
+    active: true
+    includes: ['**/shared/src/commonMain/kotlin/app/gifitup/shared/domain/**']
+    forbiddenPatterns: '^(?!kotlin\.|kotlinx\.coroutines\.|app\.gifitup\.shared\.(domain|data)\.)'

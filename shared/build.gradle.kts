@@ -6,6 +6,7 @@ plugins {
 kotlin {
     jvmToolchain(21)
 
+    // The dev CLI (:cli) and the end-to-end test (:e2e) run on the JVM; jvmTest is also the fast host test run.
     jvm()
     android {
         namespace = "app.gifitup.shared"
