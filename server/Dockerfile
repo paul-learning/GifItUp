@@ -2,7 +2,7 @@
 # `./gradlew :server:installDist`. The Java build runs in the workflow's verified Gradle step (dependency
 # verification, locks, wrapper checksum), not inside Docker, so this is a single runtime stage.
 # Distroless: no shell, no package manager, non-root by default (compose additionally pins UID 10001).
-FROM gcr.io/distroless/java21-debian13:nonroot@sha256:51c242e7ddaba3666d47115a76a19cfa5076b2ad3ed6077b30d7bac689d98fa1
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:27ea9d33a1329dfa96a787e447f5caaf62ff2e21e496ca501fcb56ba3cedd5af
 
 ARG REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/paul-learning/GifItUp" \
