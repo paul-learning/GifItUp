@@ -40,6 +40,10 @@ dependencies {
     // Composition root builds the MlsClient factory (ADR-0004, ADR-0007); also brings the .so files.
     implementation(projects.mls)
     implementation(libs.androidx.activity.compose)
+    // The HTTP engine the composition root hands to the shared API client (ADR-0013); HttpURLConnection, no OkHttp.
+    implementation(libs.ktor.client.android)
+    // AppGraph's engine type is Ktor's; the shared UI uses it, so the app module sees it too.
+    implementation(libs.ktor.client.core)
 }
 
 // No APK is written before the .so files passed the test-panic and build-path scan (ADR-0007, #67 SEC-12).

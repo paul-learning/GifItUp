@@ -5,6 +5,8 @@ import app.gifitup.AppGraph
 import app.gifitup.mls.UniffiMlsClientFactory
 import app.gifitup.mls.storage.KeystoreKeySupplier
 import app.gifitup.mls.storage.fileDeviceStorage
+import io.ktor.client.engine.android.Android
+import java.security.SecureRandom
 
 /**
  * Builds the device storage and the app graph once per process, so an Activity that is recreated (rotation, process
@@ -14,7 +16,13 @@ import app.gifitup.mls.storage.fileDeviceStorage
 class GifItUpApp : Application() {
     val graph: AppGraph by lazy {
         val storage = fileDeviceStorage(filesDirForState(), KeystoreKeySupplier())
-        AppGraph(mlsClientFactory = { UniffiMlsClientFactory }, deviceStorage = storage)
+        val random = SecureRandom()
+        AppGraph(
+            mlsClientFactory = { UniffiMlsClientFactory },
+            deviceStorage = storage,
+            engine = { Android.create() },
+            random = { size -> ByteArray(size).also(random::nextBytes) },
+        )
     }
 
     /** `noBackupFilesDir`: never part of a backup, even if the manifest's backup flags change. */
