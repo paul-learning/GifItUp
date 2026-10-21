@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -120,6 +121,15 @@ private fun Navigation(
 ) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
+    var shownOrigin by remember { mutableStateOf(current.origin) }
+    // Once the new origin has loaded (not before, #131 SEC-25): a new onboarding entry replaces the old one, and popping
+    // the old one clears its ViewModel, which closes the old origin's engine, API and session (#131 SEC-23).
+    LaunchedEffect(current.origin) {
+        if (current.origin != shownOrigin) {
+            shownOrigin = current.origin
+            nav.navigate(ROUTE_ONBOARDING) { popUpTo(ROUTE_ONBOARDING) { inclusive = true } }
+        }
+    }
     NavHost(navController = nav, startDestination = ROUTE_ONBOARDING) {
         composable(ROUTE_ONBOARDING) {
             // One ViewModel per origin: a new server gets a new flow with its own engine, API and session.
@@ -136,12 +146,7 @@ private fun Navigation(
         composable(ROUTE_SETTINGS) {
             val holder =
                 remember {
-                    ServerSettingsStateHolder(scope, services.setting) {
-                        // A new onboarding entry: popping the old one clears its ViewModel, which closes the old
-                        // origin's engine, API and session (#131 SEC-23).
-                        nav.navigate(ROUTE_ONBOARDING) { popUpTo(ROUTE_ONBOARDING) { inclusive = true } }
-                        onOriginChanged()
-                    }
+                    ServerSettingsStateHolder(scope, services.setting, onOriginChanged)
                 }
             SettingsScreen(holder, current.origin, services.setting.default) {
                 // Only from Settings: a second tap must not pop the start destination and leave an empty back stack.
