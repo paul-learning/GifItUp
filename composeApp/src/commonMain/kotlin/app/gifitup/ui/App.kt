@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -121,7 +122,9 @@ private fun Navigation(
 ) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
-    var shownOrigin by remember { mutableStateOf(current.origin) }
+    var shownOrigin by rememberSaveable {
+        mutableStateOf(current.origin)
+    } // survives a rotation like the back stack (#131 SEC-26); not a secret
     // Once the new origin has loaded (not before, #131 SEC-25): a new onboarding entry replaces the old one, and popping
     // the old one clears its ViewModel, which closes the old origin's engine, API and session (#131 SEC-23).
     LaunchedEffect(current.origin) {
