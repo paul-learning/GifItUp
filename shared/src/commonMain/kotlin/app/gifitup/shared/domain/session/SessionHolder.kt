@@ -43,7 +43,13 @@ class SessionHolder(
     /** Bumped by [clear]: a login that was started before it must not hand out its session afterwards. */
     private var generation = 0
 
-    suspend fun <T> withSession(call: suspend (Session) -> ApiResult<T>): AuthResult<T> {
+    suspend fun <T> withSession(call: suspend (Session) -> ApiResult<T>): AuthResult<T> = withSessionResult { call(it).toAuth() }
+
+    /**
+     * [withSession] for a use case that already answers with an [AuthResult] (create, list and revoke invite): the
+     * same rules, and the repeat after a `401` is decided on the call's own answer only, never on the login's.
+     */
+    suspend fun <T> withSessionResult(call: suspend (Session) -> AuthResult<T>): AuthResult<T> {
         val first = attempt(call)
         return if (first.unauthorized) retryAfterLogin(first.used, call) else first.result
     }
@@ -77,7 +83,7 @@ class SessionHolder(
         val unauthorized: Boolean,
     )
 
-    private suspend fun <T> attempt(call: suspend (Session) -> ApiResult<T>): Attempt<T> =
+    private suspend fun <T> attempt(call: suspend (Session) -> AuthResult<T>): Attempt<T> =
         when (val login = ensureSession()) {
             is AuthResult.Failed -> {
                 Attempt(login, used = null, unauthorized = false)
@@ -85,13 +91,14 @@ class SessionHolder(
 
             is AuthResult.Ok -> {
                 val result = call(login.value)
-                Attempt(result.toAuth(), login.value, unauthorized = result is ApiResult.Failed && result.error == ApiError.UNAUTHORIZED)
+                val unauthorized = result is AuthResult.Failed && result.error == AuthError.Api(ApiError.UNAUTHORIZED)
+                Attempt(result, login.value, unauthorized)
             }
         }
 
     private suspend fun <T> retryAfterLogin(
         rejected: Session?,
-        call: suspend (Session) -> ApiResult<T>,
+        call: suspend (Session) -> AuthResult<T>,
     ): AuthResult<T> {
         mutex.withLock { if (session === rejected) session = null }
         return attempt(call).result
