@@ -166,6 +166,16 @@ class CreateInviteStateHolder(
         if (copied) clipboard.clearCopied()
     }
 
+    /**
+     * The app stopped (background, screen off, rotation): the link leaves the screen and memory, but the clipboard is
+     * left alone, because the user is most likely on the way to paste it into a messenger. The entry is removed at the
+     * next create, revoke or [leave] (best effort, see [SensitiveClipboard]).
+     */
+    fun stopped() {
+        visit++
+        flow.update { it.copy(shown = null) }
+    }
+
     private fun dropShown() {
         val copied = flow.value.copied
         flow.update { it.copy(shown = null, copied = false) }

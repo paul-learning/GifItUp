@@ -9,6 +9,7 @@ import app.gifitup.shared.presentation.onboarding.BlockReason
 import app.gifitup.shared.presentation.onboarding.InviteProblem
 import app.gifitup.shared.presentation.onboarding.UsernameProblem
 import app.gifitup.shared.presentation.settings.ServerSettingsProblem
+import kotlin.time.Instant
 
 /** Fixed texts for closed codes: the UI never shows server text or an exception message (ADR-0006 A8). */
 internal object Texts {
@@ -38,13 +39,13 @@ internal object Texts {
             InviteScreenProblem.RATE_LIMITED -> "Too many invites created today. Try again later."
             InviteScreenProblem.OFFLINE -> "No answer from the server. If an invite was created, it is in the list below."
             InviteScreenProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
-            InviteScreenProblem.COPY_FAILED -> "Couldn't copy. Select the link and copy it by hand."
+            InviteScreenProblem.COPY_FAILED -> "Couldn't copy. Try again, or revoke this invite and create a new one."
             InviteScreenProblem.FAILED -> "Something went wrong. Try again."
         }
 
     fun copied(clearsClipboard: Boolean): String =
         if (clearsClipboard) {
-            "Copied. The link is removed from the clipboard when you leave this screen."
+            "Copied. When you leave this screen, GifItUp tries to remove the link from the clipboard; the system may not allow it."
         } else {
             "Copied. The link stays on the clipboard until you copy something else."
         }
@@ -52,7 +53,7 @@ internal object Texts {
     /** One line per invite: its state, when it expires, who used it. Plain text from closed values and a validated username. */
     fun inviteRow(invite: Invite): String =
         when (invite.status) {
-            InviteState.OPEN -> "Open, expires ${invite.expiryText()}"
+            InviteState.OPEN -> "Open, expires ${Instant.fromEpochSeconds(invite.expiresAt)}"
             InviteState.USED -> "Used by ${invite.usedBy ?: "an account that was deleted"}"
             InviteState.EXPIRED -> "Expired"
             InviteState.REVOKED -> "Revoked"

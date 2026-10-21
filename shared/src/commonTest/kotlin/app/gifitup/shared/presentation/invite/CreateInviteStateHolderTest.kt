@@ -138,6 +138,22 @@ class CreateInviteStateHolderTest {
         }
 
     @Test
+    fun stoppingDropsTheLinkButLeavesTheClipboardForThePaste() =
+        runTest {
+            server.on("/invites", created(), listed("open"))
+            val holder = holder()
+            settle(holder, holder::create)
+            holder.copy()
+            advanceUntilIdle()
+            holder.stopped()
+            assertNull(holder.state.value.shown)
+            assertEquals(0, clipboard.clears, "the user is on the way to paste it")
+
+            holder.leave()
+            assertEquals(1, clipboard.clears, "removed when the screen is really left")
+        }
+
+    @Test
     fun leavingWithoutCopyingLeavesTheClipboardAlone() =
         runTest {
             server.on("/invites", created(), listed("open"))

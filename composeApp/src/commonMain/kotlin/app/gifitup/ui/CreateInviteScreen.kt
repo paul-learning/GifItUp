@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,7 +22,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import app.gifitup.shared.data.network.Invite
 import app.gifitup.shared.data.network.InviteState
 import app.gifitup.shared.presentation.invite.CreateInviteStateHolder
 import app.gifitup.shared.presentation.invite.InviteScreenState
@@ -31,9 +29,9 @@ import kotlin.time.Instant
 
 /**
  * Renders the invite state and sends the user's actions to the holder; it decides nothing (ADR-0013). While the screen
- * is shown the window is protected from screen capture. The link leaves memory and the clipboard when the screen is
- * left, and also when the app stops (goes to the background or the screen turns off): a stolen unlocked phone or the
- * recents list must not offer a live invite (#17 plan review SEC-8, #142 SEC-1).
+ * is shown the window is protected from screen capture. The link leaves memory and (best effort) the clipboard when
+ * the screen is left. When the app only stops (background, screen off, rotation) it leaves the screen and memory but
+ * not the clipboard: the user is probably going to paste it (#17 plan review SEC-8, #142 SEC-1, #143 SEC-1).
  */
 @Composable
 internal fun CreateInviteScreen(
@@ -47,7 +45,7 @@ internal fun CreateInviteScreen(
     LaunchedEffect(holder) { holder.refresh() }
     DisposableEffect(holder, lifecycle) {
         screen.protect(true)
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) holder.leave() }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) holder.stopped() }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
@@ -66,7 +64,7 @@ internal fun CreateInviteScreen(
         state.problem?.let { Text(Texts.invite(it), color = MaterialTheme.colorScheme.error) }
         state.shown?.let { shown ->
             Text("Your new invite (expires ${Instant.fromEpochSeconds(shown.expiresAt)}):")
-            SelectionContainer { Text(shown.link) }
+            Text(shown.link) // not selectable: only the Copy button sets the sensitive, labelled clipboard entry (#143 SEC-2)
             Button(onClick = holder::copy) { Text("Copy link") }
             if (state.copied) Text(Texts.copied(clearsClipboard))
         }
@@ -86,13 +84,11 @@ private fun Invites(
     invites.forEach { invite ->
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(Texts.inviteRow(invite))
-            if (invite.status ==
-                InviteState.OPEN
-            ) {
+            if (invite.status.isOpen()) {
                 TextButton(onClick = { holder.revoke(invite.inviteId) }, enabled = !state.busy) { Text("Revoke") }
             }
         }
     }
 }
 
-internal fun Invite.expiryText(): String = Instant.fromEpochSeconds(expiresAt).toString()
+private fun InviteState.isOpen() = this == InviteState.OPEN
