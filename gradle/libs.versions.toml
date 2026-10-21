@@ -7,8 +7,9 @@ androidx-activity = "1.13.0"
 kotlinx-serialization = "1.11.0"
 ktor = "3.6.0"
 logback = "1.6.5"
-# The slf4j-api version Ktor 3.6 resolves to; the dev CLI pins its no-op provider to it (#79 PR B).
-slf4j = "2.0.19"
+# The version of the dev CLI's no-op slf4j provider (#79 PR B). It pulls slf4j-api to the same version in the CLI only;
+# the other modules keep the slf4j-api 2.0.19 that Ktor 3.6 resolves to.
+slf4j = "2.0.20"
 postgresql = "42.7.14"
 hikaricp = "7.1.0"
 flyway = "13.10.3"
