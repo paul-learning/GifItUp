@@ -36,7 +36,7 @@ Everything else in M1 below that this slice doesn't need comes after it.
 - Client: onboarding (redeem invite → choose username → generate keys → register), secure local key storage (Android Keystore / browser IndexedDB plus wrapping). (#16, #17)
 - Client: contacts list (users from the same invite tree). (#18)
 - Build logic: convention plugins, detekt 2.x when stable (#34, moved from M0).
-- Follow-ups from the M0 reviews: deny-list gaps, SSH key handling, Android hardening, threat-model updates, protocol-versioning and presentation-layer ADRs, cleanups (#52–#58).
+- Follow-ups from the M0 reviews (#52–#58): still open are SSH key handling (#53) and Android hardening (#54); the deny-list gaps, threat-model updates, protocol-versioning and presentation-layer ADRs and the cleanups are done.
 - 🏛️ Architecture review M1 · 🛡️ Security review M1 — #19, #20
 
 ## M2 — Encrypted GIF messaging MVP ⬜ → first friends alpha
