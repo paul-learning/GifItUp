@@ -137,11 +137,16 @@ private fun Navigation(
             val holder =
                 remember {
                     ServerSettingsStateHolder(scope, services.setting) {
-                        nav.popBackStack()
+                        // A new onboarding entry: popping the old one clears its ViewModel, which closes the old
+                        // origin's engine, API and session (#131 SEC-23).
+                        nav.navigate(ROUTE_ONBOARDING) { popUpTo(ROUTE_ONBOARDING) { inclusive = true } }
                         onOriginChanged()
                     }
                 }
-            SettingsScreen(holder, current.origin, services.setting.default) { nav.popBackStack() }
+            SettingsScreen(holder, current.origin, services.setting.default) {
+                // Only from Settings: a second tap must not pop the start destination and leave an empty back stack.
+                if (nav.currentDestination?.route == ROUTE_SETTINGS) nav.popBackStack()
+            }
         }
     }
 }
