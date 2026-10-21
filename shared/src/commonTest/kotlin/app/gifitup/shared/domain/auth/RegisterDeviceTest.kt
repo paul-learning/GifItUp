@@ -76,6 +76,45 @@ class RegisterDeviceTest {
         }
 
     @Test
+    fun aPendingRegistrationIsFinishedWithoutAnInviteCodeAndTheRealCodeIsNeverSent() =
+        runTest {
+            server.on("/accounts", dropped)
+            assertIs<AuthResult.Failed>(register("ann", INVITE))
+            val key = keys.key!!.copyOf()
+            server.requests.clear()
+
+            assertEquals(DEVICE_ID, assertIs<AuthResult.Ok<Session>>(register.resume()).value.deviceId)
+
+            val request = registerRequests().single()
+            assertEquals(RegisterDevice.RESUME_PLACEHOLDER, request.inviteCode)
+            assertEquals("ann", request.username)
+            assertEquals(listOf("/auth/challenge", "/accounts"), server.requests.map { it.path }, "a fresh challenge first")
+            assertEquals(key.toList(), keys.key!!.toList(), "same key")
+            assertEquals(DEVICE_ID, identities.identity!!.deviceId)
+        }
+
+    @Test
+    fun resumeNeedsAPendingIdentity() =
+        runTest {
+            assertEquals(AuthResult.Failed(AuthError.Local.NOT_REGISTERED), register.resume())
+            assertIs<AuthResult.Ok<Session>>(register("ann", INVITE))
+            server.requests.clear()
+            assertEquals(AuthResult.Failed(AuthError.Local.ALREADY_REGISTERED), register.resume())
+            assertEquals(emptyList(), server.requests)
+        }
+
+    @Test
+    fun aResumeThatTheServerRefusesKeepsTheIdentityForTheUser() =
+        runTest {
+            server.on("/accounts", dropped)
+            register("ann", INVITE)
+            server.on("/accounts", error(HttpStatusCode.Forbidden, "invite_invalid"), error(HttpStatusCode.Forbidden, "invite_invalid"))
+            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.INVITE_INVALID)), register.resume())
+            assertEquals("ann", identities.identity!!.username, "the placeholder refusal never discards a key")
+            assertNull(identities.identity!!.deviceId)
+        }
+
+    @Test
     fun aRefusalOnAResumeIsRetriedOnceAfterADelay() =
         runTest {
             server.on("/accounts", dropped, error(HttpStatusCode.Conflict, "username_unavailable"))
