@@ -33,6 +33,9 @@ enum class ApiError {
 
     /** Upload: the device would hold more KeyPackages than the server allows. */
     KEY_PACKAGE_LIMIT,
+
+    /** Create invite: already 5 open invites (ADR-0010; the daily cap of 20 is `RATE_LIMITED`). */
+    INVITE_LIMIT,
     SERVER_ERROR,
     MALFORMED_RESPONSE,
     NETWORK,
@@ -75,3 +78,27 @@ class ClaimedKeyPackage(
     val deviceId: String,
     val keyPackage: ByteArray?,
 )
+
+/** A new invite as the server answered. [link] is untrusted: the client checks it before anyone sees it (ADR-0013). */
+class CreatedInviteAnswer(
+    val inviteId: String,
+    val link: String,
+    val expiresAt: Long,
+) {
+    override fun toString(): String = "CreatedInviteAnswer(inviteId=$inviteId, expiresAt=$expiresAt)"
+}
+
+/** One of the member's own invites (ADR-0010). Times are Unix seconds; [usedBy] is the username that redeemed it. */
+data class Invite(
+    val inviteId: String,
+    val createdAt: Long,
+    val expiresAt: Long,
+    val status: InviteState,
+    val usedBy: String?,
+)
+
+/**
+ * An invite's state as the app sees it; the wire enum stays in `protocol`, which the UI never imports. [UNKNOWN] is a
+ * state a newer server sends that this build doesn't know (ADR-0006): shown as "not usable".
+ */
+enum class InviteState { OPEN, USED, EXPIRED, REVOKED, UNKNOWN }

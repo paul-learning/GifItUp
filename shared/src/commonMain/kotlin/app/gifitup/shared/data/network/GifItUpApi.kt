@@ -4,8 +4,12 @@ import app.gifitup.protocol.ApiErrorCode
 import app.gifitup.protocol.ChallengeResponse
 import app.gifitup.protocol.ClaimKeyPackagesRequest
 import app.gifitup.protocol.ClaimKeyPackagesResponse
+import app.gifitup.protocol.CreateInviteResponse
 import app.gifitup.protocol.DeviceListResponse
 import app.gifitup.protocol.ErrorResponse
+import app.gifitup.protocol.InviteInfo
+import app.gifitup.protocol.InviteListResponse
+import app.gifitup.protocol.InviteStatus
 import app.gifitup.protocol.KeyPackageStatusResponse
 import app.gifitup.protocol.LoginRequest
 import app.gifitup.protocol.PROTOCOL_VERSION
@@ -50,6 +54,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * A [Session] belongs to the endpoint that issued it: using it with another one is a programming error and throws
  * before anything is sent, so a token never travels to a different origin or port (#94 SEC-13).
  */
+@Suppress("TooManyFunctions") // One function per endpoint; splitting would split one HTTP boundary.
 class GifItUpApi(
     engine: HttpClientEngine,
     val endpoint: ApiEndpoint,
@@ -167,6 +172,61 @@ class GifItUpApi(
         ) { bytes -> decode(ClaimKeyPackagesResponse.serializer(), bytes)?.let(::readClaimed) }
     }
 
+    /**
+     * `POST /invites`: a new invite of the session's account (ADR-0010). Only the id is checked here, so the caller can
+     * revoke an invite whose other fields it refuses (`CreateInvite`); the link and time are checked there.
+     */
+    suspend fun createInvite(session: Session): ApiResult<CreatedInviteAnswer> =
+        exchange(Route.CREATE_INVITE, body = null, session) { bytes ->
+            decode(CreateInviteResponse.serializer(), bytes)
+                ?.takeIf { UUID.matches(it.inviteId) }
+                ?.let { CreatedInviteAnswer(it.inviteId, it.link, it.expiresAt) }
+        }
+
+    /** `GET /invites`: the account's own invites. */
+    suspend fun listInvites(session: Session): ApiResult<List<Invite>> =
+        exchange(Route.LIST_INVITES, body = null, session) { bytes ->
+            decode(InviteListResponse.serializer(), bytes)
+                ?.invites
+                ?.takeIf { list -> list.size <= MAX_LISTED_INVITES && list.all(::isValidInvite) }
+                ?.map { Invite(it.inviteId, it.createdAt, it.expiresAt, stateOf(it.status), it.usedBy) }
+        }
+
+    /**
+     * A canonical id, times that a date type can show (created before it expires), and a `usedBy` that is a username
+     * (it is shown to the user) only on a used invite, where it may be null (deleted account), or on a status this build
+     * doesn't know (ADR-0010).
+     */
+    private fun isValidInvite(info: InviteInfo): Boolean =
+        UUID.matches(info.inviteId) &&
+            info.createdAt in 1..info.expiresAt &&
+            info.expiresAt <= MAX_TIME &&
+            when (info.status) {
+                // Null after the invitee's account was deleted (`used_by` is ON DELETE SET NULL); a status this build
+                // doesn't know may carry one too (ADR-0006). Either way only a username.
+                InviteStatus.USED, InviteStatus.UNKNOWN -> info.usedBy?.let(USERNAME::matches) != false
+
+                else -> info.usedBy == null
+            }
+
+    private fun stateOf(status: InviteStatus): InviteState =
+        when (status) {
+            InviteStatus.OPEN -> InviteState.OPEN
+            InviteStatus.USED -> InviteState.USED
+            InviteStatus.EXPIRED -> InviteState.EXPIRED
+            InviteStatus.REVOKED -> InviteState.REVOKED
+            InviteStatus.UNKNOWN -> InviteState.UNKNOWN
+        }
+
+    /** `DELETE /invites/{id}`: revokes an open invite of the account; anything else is `NOT_FOUND` (ADR-0010). */
+    suspend fun revokeInvite(
+        session: Session,
+        inviteId: String,
+    ): ApiResult<Unit> {
+        require(UUID.matches(inviteId)) { "invite ids are canonical UUIDs" }
+        return exchange(Route.REVOKE_INVITE, body = null, session, pathSuffix = "/$inviteId") { }
+    }
+
     override fun close() = client.close()
 
     /** An endpoint: its method, path and the one status that means success. */
@@ -183,6 +243,9 @@ class GifItUpApi(
         UPLOAD_KEY_PACKAGES(HttpMethod.Post, "/key-packages", HttpStatusCode.OK),
         KEY_PACKAGE_STATUS(HttpMethod.Get, "/key-packages/status", HttpStatusCode.OK),
         CLAIM_KEY_PACKAGES(HttpMethod.Post, "/key-packages/claim", HttpStatusCode.OK),
+        CREATE_INVITE(HttpMethod.Post, "/invites", HttpStatusCode.Created),
+        LIST_INVITES(HttpMethod.Get, "/invites", HttpStatusCode.OK),
+        REVOKE_INVITE(HttpMethod.Delete, "/invites", HttpStatusCode.NoContent),
     }
 
     /**
@@ -194,6 +257,7 @@ class GifItUpApi(
         route: Route,
         body: String?,
         session: Session?,
+        pathSuffix: String = "",
         read: (ByteArray) -> T?,
     ): ApiResult<T> {
         require(session == null || session.endpoint.sameAs(endpoint)) { "session belongs to another endpoint" }
@@ -201,7 +265,7 @@ class GifItUpApi(
             client
                 .prepareRequest {
                     method = route.method
-                    url(endpoint.baseUrl + route.path)
+                    url(endpoint.baseUrl + route.path + pathSuffix)
                     header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString())
                     session?.let { header(HttpHeaders.Authorization, "Bearer ${it.token}") }
                     body?.let { setBody(TextContent(it, ContentType.Application.Json)) }
@@ -231,6 +295,12 @@ class GifItUpApi(
         const val MAX_KEY_PACKAGE_BYTES = 2048
         const val MAX_SUITES = 4
         private const val MAX_SUITE_ID = 65_535
+
+        /** The server lists at most this many invites (ADR-0010). */
+        private const val MAX_LISTED_INVITES = 50
+
+        /** 9999-12-31T23:59:59Z: every time from the server is at most this, so formatting it never throws. */
+        internal const val MAX_TIME = 253_402_300_799L
 
         /** A claim returns at most this many devices (ADR-0012). */
         internal const val MAX_CLAIMED_DEVICES = 10
@@ -273,6 +343,7 @@ private fun failure(error: ErrorResponse): ApiResult.Failed =
             ApiErrorCode.NOT_FOUND -> ApiError.NOT_FOUND
             ApiErrorCode.KEY_PACKAGE_INVALID -> ApiError.KEY_PACKAGE_INVALID
             ApiErrorCode.KEY_PACKAGE_LIMIT -> ApiError.KEY_PACKAGE_LIMIT
+            ApiErrorCode.INVITE_LIMIT -> ApiError.INVITE_LIMIT
             else -> ApiError.SERVER_ERROR
         },
     )

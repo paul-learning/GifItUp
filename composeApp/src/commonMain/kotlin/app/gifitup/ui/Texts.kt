@@ -88,6 +88,10 @@ internal object Texts {
                 "The server failed. Try again later."
             }
 
+            ApiError.INVITE_LIMIT -> {
+                "You already have 5 open invites. Revoke one, or wait until one is used or expires."
+            }
+
             ApiError.BAD_REQUEST, ApiError.NOT_FOUND, ApiError.KEY_PACKAGE_INVALID, ApiError.KEY_PACKAGE_LIMIT -> {
                 "The server refused the request."
             }

@@ -31,11 +31,34 @@ data class Invocation(
     val username: String?,
     val remoteTestAccount: Boolean,
     val target: String? = null,
+    val linkFile: Path? = null,
+    val inviteId: String? = null,
 ) {
     companion object {
         private val COMMANDS =
-            setOf("register", "login", "devices", "reset", "keypackages-refill", "keypackages-status", "keypackages-claim")
-        private val VALUE_OPTIONS = setOf("--server", "--state-dir", "--origin", "--username", "--target")
+            setOf(
+                "register",
+                "login",
+                "devices",
+                "reset",
+                "keypackages-refill",
+                "keypackages-status",
+                "keypackages-claim",
+                "invite-create",
+                "invites",
+                "invite-revoke",
+            )
+        private val VALUE_OPTIONS = setOf("--server", "--state-dir", "--origin", "--username", "--target", "--link-file", "--id")
+
+        /** The options that one command needs and no other takes. */
+        private val COMMAND_OPTIONS =
+            mapOf(
+                "register" to "--username",
+                "keypackages-claim" to "--target",
+                "invite-create" to "--link-file",
+                "invite-revoke" to "--id",
+            )
+        private val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
         fun parse(args: List<String>): Invocation {
             val command = args.firstOrNull()?.takeIf { it in COMMANDS } ?: usage()
@@ -51,17 +74,18 @@ data class Invocation(
                 }
                 i++
             }
-            val username = values["--username"]
-            val target = values["--target"]
-            if ((command == "register") != (username != null) || (command == "keypackages-claim") != (target != null)) usage()
+            if (COMMAND_OPTIONS.any { (owner, option) -> (command == owner) != (option in values) }) usage()
+            if (values["--id"]?.let(UUID::matches) == false) usage()
             return Invocation(
                 command = command,
                 server = values["--server"] ?: usage(),
                 stateDir = Path.of(values["--state-dir"] ?: usage()),
                 origin = values["--origin"],
-                username = username,
+                username = values["--username"],
                 remoteTestAccount = remote,
-                target = target,
+                target = values["--target"],
+                linkFile = values["--link-file"]?.let { Path.of(it) },
+                inviteId = values["--id"],
             )
         }
 
@@ -77,6 +101,9 @@ data class Invocation(
   keypackages-refill           fill this device's KeyPackage pool on the server if it is below the server's mark
   keypackages-status           how many KeyPackages the server holds for this device
   keypackages-claim --target <name>   claim one KeyPackage per device of another member (consumes them; never repeated)
+  invite-create --link-file <file>    create an invite; its link goes to <file> (new, owner-only), never to the screen
+  invites                      list this account's invites
+  invite-revoke --id <invite id>      revoke one of this account's open invites
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
 Only test origins (*.invalid, *.test, localhost) unless --remote-test-account and a cli_ username are given.
 Every command logs in and out again; the server allows 10 logins per device per hour."""
@@ -172,10 +199,14 @@ class Cli(
         val refill = RefillKeyPackages(api, mls, state.identities, state.keys, lock)
         val claim = ClaimKeyPackages(api, mls, state.identities, state.keys, lock)
         val keyPackages = KeyPackageCommands(api, refill, claim, out) { report(it) { } }
+        val invites = InviteCommands(api, out) { report(it) { } }
         return when (invocation.command) {
             "keypackages-refill" -> keyPackages.refill(session)
             "keypackages-status" -> keyPackages.status(session)
             "keypackages-claim" -> keyPackages.claim(session, checkNotNull(invocation.target))
+            "invite-create" -> invites.create(session, checkNotNull(invocation.linkFile))
+            "invites" -> invites.list(session)
+            "invite-revoke" -> invites.revoke(session, checkNotNull(invocation.inviteId))
             else -> deviceCommand(invocation.command, api, session)
         }
     }
@@ -262,6 +293,7 @@ fun message(error: AuthError): String =
         is AuthError.Local -> localMessage(error)
     }
 
+@Suppress("CyclomaticComplexMethod") // One fixed line per closed code.
 private fun apiMessage(error: ApiError): String =
     when (error) {
         ApiError.BAD_REQUEST -> "the server refused the request as malformed"
@@ -274,6 +306,7 @@ private fun apiMessage(error: ApiError): String =
         ApiError.NOT_FOUND -> "no such member"
         ApiError.KEY_PACKAGE_INVALID -> "the server refused a KeyPackage as invalid"
         ApiError.KEY_PACKAGE_LIMIT -> "this device already holds the most KeyPackages the server allows"
+        ApiError.INVITE_LIMIT -> "too many open invites; revoke one or wait until one is used or expires"
         ApiError.SERVER_ERROR -> "the server failed"
         ApiError.MALFORMED_RESPONSE -> "the server's answer broke the protocol"
         ApiError.NETWORK -> "no answer from the server (network error or timeout)"
