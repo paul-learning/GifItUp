@@ -15,7 +15,12 @@ val generateBuildDefaults by tasks.registering {
     outputs.dir(out)
     doLast {
         val value = origin.get()
-        require(Regex("^https://[a-z0-9.-]+(:[1-9][0-9]{0,4})?$").matches(value)) {
+        // The app's own canonical-origin rule (ApiEndpoint.isCanonicalOrigin), so a build never ships an origin the app
+        // would refuse at start (#131 SEC-19).
+        val label = "[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+        val match = Regex("^https://$label(?:\\.$label)*(?::([1-9][0-9]{0,4}))?$").matchEntire(value)
+        val port = match?.groupValues?.get(1)?.toIntOrNull()
+        require(match != null && value.length <= 256 && (port == null || (port <= 65_535 && port != 443))) {
             "gifitup.defaultOrigin must be a canonical https origin"
         }
         val file = out.get().file("app/gifitup/BuildDefaults.kt").asFile

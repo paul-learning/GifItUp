@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -17,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.presentation.onboarding.OnboardingState
 import app.gifitup.shared.presentation.onboarding.OnboardingStateHolder
@@ -30,13 +32,16 @@ import app.gifitup.shared.presentation.onboarding.OriginView
 internal fun OnboardingScreen(
     state: OnboardingState,
     holder: OnboardingStateHolder,
+    current: OriginView,
     onOpenSettings: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        originOf(state)?.let { OriginBanner(it) }
+        // On every screen while the server is not the default; on the steps that send to it, always (ADR-0013).
+        val shown = originOf(state) ?: current.takeIf { it.custom }
+        shown?.let { OriginBanner(it) }
         when (state) {
             OnboardingState.Starting, OnboardingState.Registering -> CircularProgressIndicator()
             is OnboardingState.EnterInvite -> EnterInvite(state, holder, onOpenSettings)
@@ -73,7 +78,14 @@ private fun EnterInvite(
 ) {
     var text by remember { mutableStateOf("") }
     Text("Paste the invite link or code a friend sent you.", style = MaterialTheme.typography.titleMedium)
-    OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("Invite link or code") }, singleLine = true)
+    // No autocorrect and a password-type keyboard, so keyboard apps don't learn the code (#131 SEC-22). Not masked.
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = it },
+        label = { Text("Invite link or code") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
+    )
     state.problem?.let { Text(Texts.invite(it), color = MaterialTheme.colorScheme.error) }
     // Attacker-chosen text: shown as plain text only, never as a link (#129 SEC-18).
     state.otherOrigin?.let { Text("It is for: $it") }
