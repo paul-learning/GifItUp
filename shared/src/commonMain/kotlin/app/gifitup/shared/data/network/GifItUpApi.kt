@@ -194,17 +194,17 @@ class GifItUpApi(
 
     /**
      * A canonical id, times that a date type can show (created before it expires), and a `usedBy` that is a username
-     * (it is shown to the user) on a used invite only, or on a status this build doesn't know (ADR-0010).
+     * (it is shown to the user) only on a used invite, where it may be null (deleted account), or on a status this build
+     * doesn't know (ADR-0010).
      */
     private fun isValidInvite(info: InviteInfo): Boolean =
         UUID.matches(info.inviteId) &&
             info.createdAt in 1..info.expiresAt &&
             info.expiresAt <= MAX_TIME &&
             when (info.status) {
-                InviteStatus.USED -> info.usedBy?.let(USERNAME::matches) == true
-
-                // A status this build doesn't know may carry one (ADR-0006): still only a username.
-                InviteStatus.UNKNOWN -> info.usedBy?.let(USERNAME::matches) != false
+                // Null after the invitee's account was deleted (`used_by` is ON DELETE SET NULL); a status this build
+                // doesn't know may carry one too (ADR-0006). Either way only a username.
+                InviteStatus.USED, InviteStatus.UNKNOWN -> info.usedBy?.let(USERNAME::matches) != false
 
                 else -> info.usedBy == null
             }

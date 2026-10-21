@@ -3,6 +3,7 @@ package app.gifitup.cli
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Invite
+import app.gifitup.shared.data.network.InviteState
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
@@ -108,7 +109,12 @@ internal class InviteCommands(
     private fun describe(invite: Invite): String {
         val created = Instant.ofEpochSecond(invite.createdAt)
         val expires = Instant.ofEpochSecond(invite.expiresAt)
-        val usedBy = invite.usedBy?.let { "  used by $it" }.orEmpty()
+        val usedBy =
+            when {
+                invite.usedBy != null -> "  used by ${invite.usedBy}"
+                invite.status == InviteState.USED -> "  used by a deleted account"
+                else -> ""
+            }
         return "${invite.inviteId}  ${invite.status.name.lowercase()}  created $created  expires $expires$usedBy"
     }
 }

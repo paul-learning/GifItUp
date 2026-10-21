@@ -117,11 +117,14 @@ class InvitesTest {
                 "/invites",
                 json(
                     """{"invites":[{"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"used","usedBy":"ben"},""" +
-                        """{"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"frozen","usedBy":null}]}""",
+                        """{"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"frozen","usedBy":null},""" +
+                        // Used by an account that was deleted since (used_by is ON DELETE SET NULL): no username.
+                        """{"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"used","usedBy":null}]}""",
                 ),
             )
             val list = assertIs<AuthResult.Ok<List<Invite>>>(ListInvites(api)(session)).value
-            assertEquals(listOf(InviteState.USED, InviteState.UNKNOWN), list.map { it.status })
+            assertEquals(listOf(InviteState.USED, InviteState.UNKNOWN, InviteState.USED), list.map { it.status })
+            assertEquals(null, list[2].usedBy)
             assertEquals("ben", list[0].usedBy)
             assertEquals(
                 HttpMethod.Get,
@@ -130,12 +133,11 @@ class InvitesTest {
                     .data.method,
             )
             // Any bad entry refuses the whole list: a bad id, a usedBy that isn't a username (it is printed and shown) or
-            // sits on an invite that isn't used, a missing usedBy, times that can't be shown or are out of order.
+            // sits on an invite that isn't used, times that can't be shown or are out of order.
             listOf(
                 """"inviteId":"x","createdAt":1,"expiresAt":2,"status":"used","usedBy":"ben"""",
                 """"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"used","usedBy":"Ben\u001b[2J"""",
                 """"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"open","usedBy":"ben"""",
-                """"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"used","usedBy":null""",
                 """"inviteId":"$id","createdAt":3,"expiresAt":2,"status":"open","usedBy":null""",
                 """"inviteId":"$id","createdAt":1,"expiresAt":253402300800,"status":"open","usedBy":null""",
             ).forEach { fields ->
