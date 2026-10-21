@@ -50,7 +50,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 - Client: chat list + conversation screen UI (GIF grid, timestamps, sender, caption input and caption below the GIF). (#25)
 - Key fingerprints in contact/chat info and in-chat "member/device added" notices, which mitigate the first-contact MITM risk (#31).
 - Cross-platform interop test: an Android client and a Web client in the same group (CI). (#26)
-- Release: Android APK through GitHub Releases, web app served by Caddy, alpha with friends.Before it, ask the friends which Android versions they run and decide `minSdk` (kept at 26 for now, owner decision on #54; 28 would drop Android 8). (#27)
+- Release: Android APK through GitHub Releases, web app served by Caddy, alpha with friends. Before it, ask the friends which Android versions they run and decide `minSdk` (kept at 26 for now, owner decision on #54; 28 would drop Android 8). (#27)
 - 🏛️ Architecture review M2 · 🛡️ Security review M2 — #28, #29
 
 ## M3 — Hardening & everyday use ⬜
