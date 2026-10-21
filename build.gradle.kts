@@ -36,7 +36,7 @@ allprojects {
         // ktor-client-core 3.6.0 declares a ws version that a ws advisory covers (#135; fixed in ws 8.21.0). Dependabot
         // can't update kotlin-js-store/wasm/yarn.lock (no package.json: Kotlin generates it), so the version is pinned
         // here (catalog: npm-ws). On every Ktor bump, check the ws it declares and drop the pin once that is past the
-        // advisory (docs/dependencies.md, "npm").
+        // advisory (#139, docs/dependencies.md, "npm").
         the<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootExtension>().resolution("ws", libs.versions.npm.ws.get())
     }
     plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin> {
