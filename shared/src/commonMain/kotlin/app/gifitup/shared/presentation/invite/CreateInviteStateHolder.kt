@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The platform's clipboard for a live invite link (ADR-0013, #17 plan review SEC-8). The platform marks the entry
@@ -72,6 +73,8 @@ data class InviteScreenState(
  * [SessionHolder], so a rejected session is renewed once. The new link comes from [CreateInvite], which accepts only
  * a link for the app's own origin and revokes any other.
  *
+ * The state is updated on the caller's single-threaded dispatcher (a `viewModelScope`); the copy check is atomic anyway.
+ *
  * The link lives in [state] until the user creates another one, revokes it, or the screen is left ([leave]); then it
  * is dropped from memory and, if it was copied, removed from the clipboard. A create that was started before the
  * screen was left drops its answer: nobody sees the link, and the invite shows in the list as open.
@@ -114,14 +117,26 @@ class CreateInviteStateHolder(
     fun copy() {
         val shown = flow.value.shown ?: return
         scope.launch {
-            val copied = clipboard.copy(shown.link)
-            if (flow.value.shown === shown) {
-                flow.update { it.copy(copied = copied, problem = if (copied) it.problem else InviteScreenProblem.COPY_FAILED) }
-            } else if (copied) {
-                clipboard.clearCopied() // the link was dropped while the platform copied it
+            val copied = safeCopy(shown.link)
+            var stillShown = false
+            flow.update {
+                stillShown = it.shown === shown
+                if (stillShown) it.copy(copied = copied, problem = if (copied) it.problem else InviteScreenProblem.COPY_FAILED) else it
             }
+            if (!stillShown && copied) clipboard.clearCopied() // the link was dropped while the platform copied it
         }
     }
+
+    /** A platform failure is a refusal, not a crash; only our own cancellation goes on. */
+    @Suppress("TooGenericExceptionCaught") // Anything but cancellation becomes COPY_FAILED; no message is kept.
+    private suspend fun safeCopy(text: String): Boolean =
+        try {
+            clipboard.copy(text)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Throwable) {
+            false
+        }
 
     fun revoke(inviteId: String) =
         act {

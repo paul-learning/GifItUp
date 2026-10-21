@@ -39,8 +39,10 @@ class CreateInviteStateHolderTest {
         val copies = mutableListOf<String>()
         var clears = 0
         var accepts = true
+        var throws = false
 
         override suspend fun copy(text: String): Boolean {
+            if (throws) error("the platform failed")
             if (accepts) copies += text
             return accepts
         }
@@ -262,6 +264,52 @@ class CreateInviteStateHolderTest {
                     ?.single()
                     ?.status,
             )
+        }
+
+    @Test
+    fun aFailedRevokeKeepsTheShownLinkAndSaysSo() =
+        runTest {
+            server.on("/invites", created(), listed("open"), listed("open"))
+            server.on("/invites/$id", error(HttpStatusCode.InternalServerError, "server_error"))
+            val holder = holder()
+            settle(holder, holder::create)
+            settle(holder) { holder.revoke(id) }
+            assertEquals(
+                link,
+                holder.state.value.shown
+                    ?.link,
+                "the invite is still open, so its link stays",
+            )
+            assertEquals(InviteScreenProblem.FAILED, holder.state.value.problem)
+        }
+
+    @Test
+    fun aFailedRefreshIsAProblemAndKeepsTheOldList() =
+        runTest {
+            server.on("/invites", listed("open"))
+            val holder = holder()
+            settle(holder, holder::refresh)
+            server.on("/invites", FakeAuthServer.dropped)
+            settle(holder, holder::refresh)
+            assertEquals(InviteScreenProblem.OFFLINE, holder.state.value.problem)
+            assertEquals(
+                1,
+                holder.state.value.invites
+                    ?.size,
+            )
+        }
+
+    @Test
+    fun aClipboardThatThrowsIsACopyProblemNotACrash() =
+        runTest {
+            server.on("/invites", created(), listed("open"))
+            val holder = holder()
+            settle(holder, holder::create)
+            clipboard.throws = true
+            holder.copy()
+            advanceUntilIdle()
+            assertEquals(InviteScreenProblem.COPY_FAILED, holder.state.value.problem)
+            assertFalse(holder.state.value.copied)
         }
 
     @Test

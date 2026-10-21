@@ -17,7 +17,8 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The logged-in session of one app instance, in memory only (ADR-0009: 24 hours, no refresh; never stored, never in
- * saved UI state, never logged). Calls go through [withSession]:
+ * saved UI state, never logged). Calls go through [withSession], or [withSessionResult] for a use case that answers
+ * with an [AuthResult] (the same rules):
  * - The first call, and any call after the session ran out (with a safety margin for clock skew), logs in with a fresh
  *   challenge. Logins are single-flight and run in the holder's own [scope], so a cancelled caller does not cancel the
  *   login the others wait for, and the waiters get the same typed result instead of starting more logins.
