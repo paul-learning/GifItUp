@@ -23,9 +23,10 @@ class CreatedInvite(
 /**
  * Creates an invite to share (ADR-0010, ADR-0013, #17 plan review SEC-8). The server's `link` is checked with the strict
  * parser against the app's own origin: anything but exactly `<origin>/invite#<code>` (a look-alike host, an extra
- * path, another code shape) is never shown; the just-created invite is revoked, best effort, so it doesn't sit in
- * the account's limits, and the answer is `MALFORMED_RESPONSE`. Never repeated automatically: a lost answer means an
- * invite may exist that the user never saw; it shows in [ListInvites] and can be revoked there.
+ * path, another code shape), or an expiry a date can't show, is never shown; the just-created invite is revoked, best
+ * effort, so it doesn't hold one of the 5 open slots (it still counts toward the 20 a day, ADR-0010), and the answer
+ * is `MALFORMED_RESPONSE`. Never repeated automatically: a lost answer means an invite may exist that the user never
+ * saw; it shows in [ListInvites] and can be revoked there.
  */
 class CreateInvite(
     private val api: GifItUpApi,
@@ -38,16 +39,13 @@ class CreateInvite(
 
             is ApiResult.Ok -> {
                 val answer = created.value
-                when (val parsed = InviteLinks.parse(answer.link, api.endpoint.origin)) {
-                    is InviteInput.Link -> {
-                        val link = InviteLinks.build(api.endpoint.origin, parsed.code)
-                        AuthResult.Ok(CreatedInvite(answer.inviteId, parsed.code, answer.expiresAt, link))
-                    }
-
-                    else -> {
-                        api.revokeInvite(session, answer.inviteId)
-                        AuthResult.Failed(AuthError.Api(ApiError.MALFORMED_RESPONSE))
-                    }
+                val parsed = InviteLinks.parse(answer.link, api.endpoint.origin)
+                if (parsed is InviteInput.Link && answer.expiresAt in 1..GifItUpApi.MAX_TIME) {
+                    val link = InviteLinks.build(api.endpoint.origin, parsed.code)
+                    AuthResult.Ok(CreatedInvite(answer.inviteId, parsed.code, answer.expiresAt, link))
+                } else {
+                    api.revokeInvite(session, answer.inviteId)
+                    AuthResult.Failed(AuthError.Api(ApiError.MALFORMED_RESPONSE))
                 }
             }
         }

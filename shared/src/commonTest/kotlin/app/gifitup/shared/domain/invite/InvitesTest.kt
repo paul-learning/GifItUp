@@ -17,6 +17,7 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 
@@ -79,17 +80,33 @@ class InvitesTest {
         }
 
     @Test
-    fun aMalformedCreateAnswerIsRefused() =
+    fun aMalformedCreateAnswerIsRefusedAndRevokedWhenItHasAnId() =
         runTest {
             val session = session()
+            val link = "${FakeAuthServer.ORIGIN}/invite#$code"
+            server.on("/invites/$id", { _ -> respond("", HttpStatusCode.NoContent) })
             listOf(
-                """{"inviteId":"not-a-uuid","link":"x","expiresAt":1}""",
-                """{"inviteId":"$id","link":"x","expiresAt":0}""",
+                """{"inviteId":"$id","link":"$link","expiresAt":0}""",
+                """{"inviteId":"$id","link":"$link","expiresAt":253402300800}""",
                 """{"inviteId":"$id","link":"${"x".repeat(301)}","expiresAt":1}""",
             ).forEach {
+                server.requests.clear()
                 server.on("/invites", json(it, HttpStatusCode.Created))
                 assertEquals(AuthResult.Failed(AuthError.Api(ApiError.MALFORMED_RESPONSE)), CreateInvite(api)(session), it)
+                assertEquals("/invites/$id", server.requests.last().path, "revoked: $it")
+                assertEquals(
+                    HttpMethod.Delete,
+                    server.requests
+                        .last()
+                        .data.method,
+                    it,
+                )
             }
+            // Without a canonical id there is nothing to revoke: refused, and nothing else is sent.
+            server.requests.clear()
+            server.on("/invites", json("""{"inviteId":"not-a-uuid","link":"$link","expiresAt":1}""", HttpStatusCode.Created))
+            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.MALFORMED_RESPONSE)), CreateInvite(api)(session))
+            assertEquals(listOf(HttpMethod.Post), server.requests.map { it.data.method })
         }
 
     @Test
@@ -112,11 +129,24 @@ class InvitesTest {
                     .last()
                     .data.method,
             )
-            // A bad id, and a usedBy that isn't a username (it is printed and shown): the whole list is refused.
-            listOf(""""inviteId":"x","usedBy":null""", """"inviteId":"$id","usedBy":"Ben\u001b[2J"""").forEach { fields ->
-                server.on("/invites", json("""{"invites":[{$fields,"createdAt":1,"expiresAt":2,"status":"used"}]}"""))
+            // Any bad entry refuses the whole list: a bad id, a usedBy that isn't a username (it is printed and shown) or
+            // sits on an invite that isn't used, a missing usedBy, times that can't be shown or are out of order.
+            listOf(
+                """"inviteId":"x","createdAt":1,"expiresAt":2,"status":"used","usedBy":"ben"""",
+                """"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"used","usedBy":"Ben\u001b[2J"""",
+                """"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"open","usedBy":"ben"""",
+                """"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"used","usedBy":null""",
+                """"inviteId":"$id","createdAt":3,"expiresAt":2,"status":"open","usedBy":null""",
+                """"inviteId":"$id","createdAt":1,"expiresAt":253402300800,"status":"open","usedBy":null""",
+            ).forEach { fields ->
+                server.on("/invites", json("""{"invites":[{$fields}]}"""))
                 assertEquals(AuthResult.Failed(AuthError.Api(ApiError.MALFORMED_RESPONSE)), ListInvites(api)(session), fields)
             }
+            val one = """{"inviteId":"$id","createdAt":1,"expiresAt":2,"status":"expired","usedBy":null}"""
+            server.on("/invites", json("""{"invites":[${List(50) { one }.joinToString(",")}]}"""))
+            assertEquals(50, assertIs<AuthResult.Ok<List<Invite>>>(ListInvites(api)(session)).value.size, "the server's 50")
+            server.on("/invites", json("""{"invites":[${List(51) { one }.joinToString(",")}]}"""))
+            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.MALFORMED_RESPONSE)), ListInvites(api)(session), "more than 50")
         }
 
     @Test
@@ -132,6 +162,6 @@ class InvitesTest {
                     .data.method,
             )
             assertEquals(AuthResult.Failed(AuthError.Api(ApiError.NOT_FOUND)), RevokeInvite(api)(session, id))
-            assertEquals(true, runCatching { RevokeInvite(api)(session, "../accounts") }.isFailure, "only canonical ids reach the path")
+            assertFailsWith<IllegalArgumentException>("only canonical ids reach the path") { RevokeInvite(api)(session, "../accounts") }
         }
 }

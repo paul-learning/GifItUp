@@ -2,6 +2,7 @@ package app.gifitup.cli
 
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermissions
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -9,6 +10,11 @@ import kotlin.test.assertFailsWith
 /** The invite link's file: new only, owner-only, the link and a newline. */
 class LinkFileTest {
     private val dir = Files.createTempDirectory("cli-link-")
+
+    @AfterTest
+    fun deleteDir() {
+        dir.toFile().deleteRecursively()
+    }
 
     @Test
     fun theLinkGoesToANewOwnerOnlyFile() {

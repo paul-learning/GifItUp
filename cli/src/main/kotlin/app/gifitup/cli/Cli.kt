@@ -306,7 +306,7 @@ private fun apiMessage(error: ApiError): String =
         ApiError.NOT_FOUND -> "no such member"
         ApiError.KEY_PACKAGE_INVALID -> "the server refused a KeyPackage as invalid"
         ApiError.KEY_PACKAGE_LIMIT -> "this device already holds the most KeyPackages the server allows"
-        ApiError.INVITE_LIMIT -> "too many open invites, or too many created today"
+        ApiError.INVITE_LIMIT -> "too many open invites; revoke one or wait until one is used or expires"
         ApiError.SERVER_ERROR -> "the server failed"
         ApiError.MALFORMED_RESPONSE -> "the server's answer broke the protocol"
         ApiError.NETWORK -> "no answer from the server (network error or timeout)"

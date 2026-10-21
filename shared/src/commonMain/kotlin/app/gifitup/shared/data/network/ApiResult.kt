@@ -34,7 +34,7 @@ enum class ApiError {
     /** Upload: the device would hold more KeyPackages than the server allows. */
     KEY_PACKAGE_LIMIT,
 
-    /** Create invite: too many open invites, or too many created in the last day (ADR-0010). */
+    /** Create invite: already 5 open invites (ADR-0010; the daily cap of 20 is `RATE_LIMITED`). */
     INVITE_LIMIT,
     SERVER_ERROR,
     MALFORMED_RESPONSE,

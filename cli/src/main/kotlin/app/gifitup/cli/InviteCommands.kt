@@ -56,13 +56,16 @@ internal class InviteCommands(
         when (val result = CreateInvite(api)(session)) {
             is AuthResult.Ok -> {
                 val invite = result.value
+                // Built before the write, so nothing can fail between the written link and a success.
+                val line = "invite ${invite.inviteId} created, expires ${Instant.ofEpochSecond(invite.expiresAt)}; link in $linkFile"
                 try {
                     LinkFile.write(channel, invite.link)
                 } catch (e: IOException) {
-                    RevokeInvite(api)(session, invite.inviteId)
-                    throw CliError("couldn't write the link file; the invite was revoked (${e::class.java.simpleName})", EXIT_REFUSED)
+                    val revoked = RevokeInvite(api)(session, invite.inviteId) is AuthResult.Ok
+                    val after = if (revoked) "the invite was revoked" else "revoke it with invite-revoke --id ${invite.inviteId}"
+                    throw CliError("couldn't write the link file (${e::class.java.simpleName}); $after", EXIT_REFUSED)
                 }
-                out.println("invite ${invite.inviteId} created, expires ${Instant.ofEpochSecond(invite.expiresAt)}; link in $linkFile")
+                out.println(line)
                 EXIT_OK
             }
 
@@ -132,7 +135,8 @@ internal object LinkFile {
         channel: FileChannel,
         link: String,
     ) {
-        channel.write(ByteBuffer.wrap((link + "\n").encodeToByteArray()))
+        val bytes = ByteBuffer.wrap((link + "\n").encodeToByteArray())
+        while (bytes.hasRemaining()) channel.write(bytes)
         channel.force(true)
     }
 }

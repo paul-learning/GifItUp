@@ -172,11 +172,14 @@ class GifItUpApi(
         ) { bytes -> decode(ClaimKeyPackagesResponse.serializer(), bytes)?.let(::readClaimed) }
     }
 
-    /** `POST /invites`: a new invite of the session's account (ADR-0010). The answer's link is checked by the caller. */
+    /**
+     * `POST /invites`: a new invite of the session's account (ADR-0010). Only the id is checked here, so the caller can
+     * revoke an invite whose other fields it refuses (`CreateInvite`); the link and time are checked there.
+     */
     suspend fun createInvite(session: Session): ApiResult<CreatedInviteAnswer> =
         exchange(Route.CREATE_INVITE, body = null, session) { bytes ->
             decode(CreateInviteResponse.serializer(), bytes)
-                ?.takeIf { UUID.matches(it.inviteId) && it.expiresAt > 0 && it.link.length <= MAX_LINK_LENGTH }
+                ?.takeIf { UUID.matches(it.inviteId) }
                 ?.let { CreatedInviteAnswer(it.inviteId, it.link, it.expiresAt) }
         }
 
@@ -185,16 +188,26 @@ class GifItUpApi(
         exchange(Route.LIST_INVITES, body = null, session) { bytes ->
             decode(InviteListResponse.serializer(), bytes)
                 ?.invites
-                ?.takeIf { list -> list.all(::isValidInvite) }
+                ?.takeIf { list -> list.size <= MAX_LISTED_INVITES && list.all(::isValidInvite) }
                 ?.map { Invite(it.inviteId, it.createdAt, it.expiresAt, stateOf(it.status), it.usedBy) }
         }
 
-    /** A canonical id, positive times, and a `usedBy` that is a username (it is shown to the user) or absent. */
+    /**
+     * A canonical id, times that a date type can show (created before it expires), and a `usedBy` that is a username
+     * (it is shown to the user) on a used invite only, or on a status this build doesn't know (ADR-0010).
+     */
     private fun isValidInvite(info: InviteInfo): Boolean =
         UUID.matches(info.inviteId) &&
-            info.createdAt > 0 &&
-            info.expiresAt > 0 &&
-            info.usedBy.let { it == null || USERNAME.matches(it) }
+            info.createdAt in 1..info.expiresAt &&
+            info.expiresAt <= MAX_TIME &&
+            when (info.status) {
+                InviteStatus.USED -> info.usedBy?.let(USERNAME::matches) == true
+
+                // A status this build doesn't know may carry one (ADR-0006): still only a username.
+                InviteStatus.UNKNOWN -> info.usedBy?.let(USERNAME::matches) != false
+
+                else -> info.usedBy == null
+            }
 
     private fun stateOf(status: InviteStatus): InviteState =
         when (status) {
@@ -283,8 +296,11 @@ class GifItUpApi(
         const val MAX_SUITES = 4
         private const val MAX_SUITE_ID = 65_535
 
-        /** An invite link is `<origin>/invite#<22 chars>`; origins are at most 256 characters (ApiEndpoint). */
-        private const val MAX_LINK_LENGTH = 300
+        /** The server lists at most this many invites (ADR-0010). */
+        private const val MAX_LISTED_INVITES = 50
+
+        /** 9999-12-31T23:59:59Z: every time from the server is at most this, so formatting it never throws. */
+        internal const val MAX_TIME = 253_402_300_799L
 
         /** A claim returns at most this many devices (ADR-0012). */
         internal const val MAX_CLAIMED_DEVICES = 10
