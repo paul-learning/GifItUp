@@ -60,12 +60,26 @@ tasks.matching { it.name == "packageDebug" || it.name == "packageRelease" }.conf
  * `check` instead of passing review unnoticed. Allow-lists, not deny-lists: the one manifest and the one copy of each
  * resource are the only ones allowed to exist (a build-type manifest or an `xml-v31` copy would override them), the
  * backup and transfer rules must exclude every storage domain and may include none, and the network config may name
- * no cleartext and no user certificate authority. The merged manifest is not checked (it needs the Android SDK).
+ * no cleartext and no user certificate authority. The build file's own settings are read through the Android DSL: no
+ * build type but `debug` may be debuggable, and this build file may not use the Android DSL words that relocate a
+ * source set's manifest or resources (the check looks for them as text, so it stays best effort; a relocated file
+ * would escape the scan). The merged manifest is not checked (it needs the Android SDK), nor
+ * is a library's manifest (the manifest merger lets the app's attributes win). A new kind of section in the backup rules
+ * (Android 16 added `<cross-platform-transfer>` for iOS) fails the check on purpose: it needs a deliberate decision.
  */
 abstract class VerifyManifestHardening : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val sourceDir: DirectoryProperty
+
+    /** The names of the build types whose `isDebuggable` is true. */
+    @get:Input
+    abstract val debuggableBuildTypes: ListProperty<String>
+
+    /** This build file, scanned for the words that move a manifest or resource directory out of `src/`. */
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val buildScript: RegularFileProperty
 
     @get:OutputFile
     abstract val marker: RegularFileProperty
@@ -78,7 +92,17 @@ abstract class VerifyManifestHardening : DefaultTask() {
         if (manifests.map { it.relativeTo(src).path.replace('\\', '/') } != listOf("main/AndroidManifest.xml")) {
             problems += "only src/main may have an AndroidManifest.xml (another one can override the attributes): $manifests"
         }
-        val application = parse(src.resolve("main/AndroidManifest.xml")).getElementsByTagName("application").item(0) as Element
+        debuggableBuildTypes.get().filter { it != "debug" }.forEach { problems += "build type '$it' is debuggable; only 'debug' may be" }
+        // The pattern is built from pieces, so this very file doesn't match it.
+        val relocating = Regex("source" + "Sets|src" + "File|src" + "Dir")
+        relocating.findAll(buildScript.get().asFile.readText()).map { it.value }.toSet().forEach {
+            problems += "build.gradle.kts uses '$it', which can move a manifest or resource directory out of the scanned src/"
+        }
+        val application = parse(src.resolve("main/AndroidManifest.xml")).getElementsByTagName("application").item(0) as? Element
+        if (application == null) {
+            problems += "AndroidManifest.xml has no <application>"
+            throw GradleException("Android hardening check failed:\n - " + problems.joinToString("\n - "))
+        }
         mapOf(
             "allowBackup" to "false",
             "fullBackupContent" to "false",
@@ -91,25 +115,23 @@ abstract class VerifyManifestHardening : DefaultTask() {
         }
         if (application.hasAttributeNS(ANDROID_NS, "debuggable")) problems += "<application> must not set android:debuggable"
 
-        resources(src, "network_security_config.xml").forEach { problems += checkNetworkConfig(parse(it), it.name) }
-        resources(src, "data_extraction_rules.xml").forEach { problems += checkExtractionRules(parse(it), it.name) }
+        resources(src, "network_security_config.xml", problems).forEach { problems += checkNetworkConfig(parse(it), it.name) }
+        resources(src, "data_extraction_rules.xml", problems).forEach { problems += checkExtractionRules(parse(it), it.name) }
         if (problems.isNotEmpty()) throw GradleException("Android hardening check failed:\n - " + problems.joinToString("\n - "))
         marker.get().asFile.apply { parentFile.mkdirs() }.writeText("ok\n")
     }
 
-    /** Every copy of [name] in any source set or `xml*` qualifier directory; exactly the main one must exist. */
+    /** The one copy of [name] to check; none (and a problem) unless the main one is the only copy in any source set or `xml*` directory. */
     private fun resources(
         src: File,
         name: String,
+        problems: MutableList<String>,
     ): List<File> {
         val all = src.walkTopDown().filter { it.name == name && it.parentFile.name.startsWith("xml") }.toList()
         val main = src.resolve("main/res/xml/$name")
-        if (all !=
-            listOf(main)
-        ) {
-            throw GradleException("$name must exist once, as src/main/res/xml/$name (a variant copy overrides it): $all")
-        }
-        return all
+        if (all == listOf(main)) return all
+        problems += "$name must exist once, as src/main/res/xml/$name (a variant copy overrides it): $all"
+        return emptyList()
     }
 
     private fun checkNetworkConfig(
@@ -189,6 +211,8 @@ abstract class VerifyManifestHardening : DefaultTask() {
 val verifyManifestHardening =
     tasks.register<VerifyManifestHardening>("verifyManifestHardening") {
         sourceDir.set(layout.projectDirectory.dir("src"))
+        debuggableBuildTypes.set(provider { android.buildTypes.filter { it.isDebuggable }.map { it.name } })
+        buildScript.set(layout.projectDirectory.file("build.gradle.kts"))
         marker.set(layout.buildDirectory.file("manifest-hardening.ok"))
     }
 

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- No app data leaves the device via Android backup or device transfer (keys/MLS state live here). The device_*
      domains are the device-protected storage; the app doesn't use it, and they are excluded all the same. A build
-     check (verifyManifestHardening, #54) fails if a domain is missing or an <include> appears. -->
+     check (verifyManifestHardening, #54) fails if a domain is missing or an <include> appears, and on a third kind of
+     section (newer Android versions add <cross-platform-transfer> for iOS; its default isn't covered by these rules, so
+     adding an iOS client needs a deliberate decision and a change to the check). -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="root" />
