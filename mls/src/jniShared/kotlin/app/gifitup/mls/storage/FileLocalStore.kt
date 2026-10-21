@@ -30,8 +30,9 @@ import java.nio.file.StandardOpenOption
 class FileLocalStore internal constructor(
     private val dir: File,
     private val moveIntoPlace: (from: Path, to: Path) -> Unit,
+    private val syncDirectory: (Path) -> Unit,
 ) : LocalStore {
-    constructor(dir: File) : this(dir, ::atomicMove)
+    constructor(dir: File) : this(dir, ::atomicMove, ::forceDirectory)
 
     private val file = File(dir, FILE_NAME)
     private val temp = File(dir, TEMP_NAME)
@@ -86,14 +87,8 @@ class FileLocalStore internal constructor(
             }
         }
 
-    /**
-     * Makes a rename or delete durable when this returns (POSIX; Android is Linux). Windows can't open a directory as a
-     * channel, and a move or delete there is all there is, so the JVM tests on a Windows dev machine skip it (#136). The
-     * check is on the OS, not on a file-system feature, so Android always syncs.
-     */
-    private fun syncDir() {
-        if (syncsDirectory) FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) }
-    }
+    /** Makes a rename or delete durable when this returns. Always on in the app; only a test seam replaces it (#136). */
+    private fun syncDir() = syncDirectory(dir.toPath())
 
     private fun <T> mapIo(block: () -> T): T =
         try {
@@ -112,9 +107,6 @@ class FileLocalStore internal constructor(
         private const val VERSION: Byte = 1
         private const val MAX_FILE_BYTES = 16L * 1024 * 1024
         private const val MAX_KEY_BYTES = 0xFFFF
-
-        /** False only on Windows (see [syncDir]). */
-        internal val syncsDirectory: Boolean = !System.getProperty("os.name").orEmpty().startsWith("Windows")
 
         /** `version(1) || count(4) || count × (keyLength(2) || key || valueLength(4) || value)`, keys sorted. */
         fun encode(entries: Map<String, ByteArray>): ByteArray {
@@ -160,12 +152,18 @@ class FileLocalStore internal constructor(
             return entries
         }
 
-        private fun atomicMove(
+        internal fun atomicMove(
             from: Path,
             to: Path,
         ) {
             Files.move(from, to, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         }
+
+        /**
+         * fsyncs a directory (POSIX; Android is Linux). Windows can't open a directory as a channel, so the JVM tests on
+         * a Windows dev machine pass a no-op instead (#136); the app always uses this.
+         */
+        internal fun forceDirectory(dir: Path) = FileChannel.open(dir, StandardOpenOption.READ).use { it.force(true) }
 
         private fun damaged(): Nothing = throw LocalStateException(DAMAGED)
 

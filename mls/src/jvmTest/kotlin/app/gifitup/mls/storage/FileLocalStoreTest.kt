@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 /** The Android file store on the JVM: it is plain files (ADR-0011). */
 class FileLocalStoreTest {
     private val dir = Files.createTempDirectory("gifitup-store").toFile().resolve("state")
-    private val store = FileLocalStore(dir)
+    private val store = FileLocalStore(dir, move, hostSync)
     private val file = File(dir, FileLocalStore.FILE_NAME)
 
     @AfterTest
@@ -28,10 +28,24 @@ class FileLocalStoreTest {
     private fun names() = dir.list().orEmpty().sorted()
 
     @Test
-    fun theDirectoryIsSyncedEverywhereButWindows() {
-        // Linux CI (like Android) must keep the sync; only a Windows dev machine skips it (#136).
-        val windows = System.getProperty("os.name").startsWith("Windows")
-        assertEquals(!windows, FileLocalStore.syncsDirectory)
+    fun everyRenameAndDeleteIsFollowedByADirectorySync() =
+        runTest {
+            val synced = mutableListOf<String>()
+            val recording = FileLocalStore(dir, move) { synced += names().joinToString() }
+            recording.putAll(mapOf("a" to byteArrayOf(1)))
+            assertEquals(listOf(FileLocalStore.FILE_NAME), synced, "synced after the rename, with only the file left")
+            recording.deleteAll()
+            assertEquals(listOf(FileLocalStore.FILE_NAME, ""), synced, "synced after the delete")
+            recording.deleteAll()
+            assertEquals(2, synced.size, "nothing deleted, nothing to sync")
+        }
+
+    private companion object {
+        val move: (java.nio.file.Path, java.nio.file.Path) -> Unit = { from, to -> FileLocalStore.atomicMove(from, to) }
+
+        /** The real fsync, except on a Windows dev machine, where a directory can't be opened (#136). */
+        val hostSync: (java.nio.file.Path) -> Unit =
+            if (System.getProperty("os.name").startsWith("Windows")) { _ -> } else { dir -> FileLocalStore.forceDirectory(dir) }
     }
 
     @Test
@@ -44,7 +58,7 @@ class FileLocalStoreTest {
             assertNull(store.get("a"))
             assertContentEquals(byteArrayOf(2, 3), store.get("b"))
             assertContentEquals(byteArrayOf(), store.get("c"))
-            assertContentEquals(byteArrayOf(2, 3), FileLocalStore(dir).get("b"), "a new instance reads it from disk")
+            assertContentEquals(byteArrayOf(2, 3), FileLocalStore(dir, move, hostSync).get("b"), "a new instance reads it from disk")
         }
 
     /** The store keeps no history: one file after any number of writes, and no temp file (ADR-0011, #16 SEC-3). */
@@ -73,7 +87,7 @@ class FileLocalStoreTest {
         runTest {
             store.putAll(mapOf("a" to byteArrayOf(1)))
             val before = file.readBytes()
-            val failing = FileLocalStore(dir) { _, _ -> throw java.io.IOException("rename failed") }
+            val failing = FileLocalStore(dir, { _, _ -> throw java.io.IOException("rename failed") }, hostSync)
             assertEquals(STORAGE, assertFailsWith<LocalStateException> { failing.putAll(mapOf("a" to byteArrayOf(2))) }.problem)
             assertEquals(listOf(FileLocalStore.FILE_NAME), names())
             assertContentEquals(before, file.readBytes())
