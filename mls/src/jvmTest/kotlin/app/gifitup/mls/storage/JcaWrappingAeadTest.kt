@@ -121,10 +121,10 @@ class JcaWrappingAeadTest {
             val dir = Files.createTempDirectory("gifitup-android").toFile()
             try {
                 val origin = "https://e2e.invalid"
-                val storage = fileDeviceStorage(dir.resolve("state"), keys)
+                val storage = fileDeviceStorage(hostStore(dir.resolve("state")), keys)
                 val snapshotKey = ByteArray(32) { 7 }
                 storage.snapshotKeys(origin).save(snapshotKey)
-                val restarted = fileDeviceStorage(dir.resolve("state"), keys)
+                val restarted = fileDeviceStorage(hostStore(dir.resolve("state")), keys)
                 assertContentEquals(snapshotKey, restarted.snapshotKeys(origin).load())
                 assertEquals(
                     KEY_UNAVAILABLE,

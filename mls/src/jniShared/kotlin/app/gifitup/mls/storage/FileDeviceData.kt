@@ -21,9 +21,14 @@ internal class FileDeviceData(
 fun fileDeviceStorage(
     dir: File,
     keys: WrappingKeySupplier,
+): DeviceStorage = fileDeviceStorage(FileLocalStore(dir), keys)
+
+/** The same over a given store: the JVM tests pass one without the directory sync on a Windows host (#136). */
+internal fun fileDeviceStorage(
+    store: FileLocalStore,
+    keys: WrappingKeySupplier,
 ): DeviceStorage {
     val aead = JcaWrappingAead(keys)
-    val store = FileLocalStore(dir)
     return DeviceStorage(store, FileDeviceData(store, aead)) { origin, identities ->
         EnvelopeSnapshotKeyStore(aead, store, identities, origin)
     }
