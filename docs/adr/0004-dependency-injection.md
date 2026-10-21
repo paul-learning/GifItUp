@@ -20,10 +20,17 @@ CLAUDE.md requires constructor injection and no global mutable state. We need to
 Use **manual constructor injection** (option 1).
 - Classes receive dependencies through constructors only. No service locator and no `object` singletons holding state.
 - Each entry point has one composition root that builds the graph: `androidApp`, the wasm `main()` in `composeApp`, and `server`'s `Application.module()`.
-- Platform-specific implementations (e.g. the `MlsClient` actual) are created in the platform's composition root and passed down as interfaces from `domain`.
+- Platform-specific implementations (e.g. the `MlsClient` actual) are created in the platform's composition root and passed down as interfaces (see *Amendments*: they live in `data`, not `domain`).
 
 ## Consequences
 - No new dependency. The wiring is plain Kotlin that the reviewers can read.
 - Composition roots will grow. If wiring becomes painful (rough threshold: the graph no longer fits comfortably in one file per entry point, or session scoping gets error-prone), revisit with a new ADR. Koin is the likely candidate.
-- ViewModels need a small factory per screen in `presentation`, built from the composition root.
+- ViewModels need a small factory per screen, built from the composition root (where they live: see *Amendments*).
 - No metadata or security impact.
+
+## Amendments
+- **2026-10-21 (#57, ARCH-M0-5 of the M0 architecture review):** where the presentation layer lives was left open here and is decided in ADR-0013 (#17).
+  - **State holders** are plain Kotlin classes in `:shared` (`app.gifitup.shared.presentation`) that take a `CoroutineScope`, so they run and are tested on the JVM without androidx.
+  - **androidx `ViewModel`** wrappers and `navigation-compose` live in `composeApp` only. They are built from the composition root (`AppGraph` and the platform entry points) and hand the state holder its scope.
+  - **Screens** render state and send events; they hold no logic (`CLAUDE.md`, *Periodic reviews*).
+  - **Interfaces from data:** the platform interfaces (`MlsClient`, the storage seams) are declared in `:shared`'s `data` package, and use cases in `domain` call `data` directly (owner decision on #133, 2026-10-21; `shared/README.md`).
