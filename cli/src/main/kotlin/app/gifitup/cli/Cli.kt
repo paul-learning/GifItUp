@@ -15,6 +15,8 @@ import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.LogOut
 import app.gifitup.shared.domain.auth.RegisterDevice
 import app.gifitup.shared.domain.auth.TestAccountGuard
+import app.gifitup.shared.domain.keypackages.ClaimKeyPackages
+import app.gifitup.shared.domain.keypackages.RefillKeyPackages
 import io.ktor.client.engine.HttpClientEngine
 import java.io.PrintStream
 import java.nio.file.Path
@@ -28,10 +30,12 @@ data class Invocation(
     val origin: String?,
     val username: String?,
     val remoteTestAccount: Boolean,
+    val target: String? = null,
 ) {
     companion object {
-        private val COMMANDS = setOf("register", "login", "devices", "reset")
-        private val VALUE_OPTIONS = setOf("--server", "--state-dir", "--origin", "--username")
+        private val COMMANDS =
+            setOf("register", "login", "devices", "reset", "keypackages-refill", "keypackages-status", "keypackages-claim")
+        private val VALUE_OPTIONS = setOf("--server", "--state-dir", "--origin", "--username", "--target")
 
         fun parse(args: List<String>): Invocation {
             val command = args.firstOrNull()?.takeIf { it in COMMANDS } ?: usage()
@@ -48,7 +52,8 @@ data class Invocation(
                 i++
             }
             val username = values["--username"]
-            if ((command == "register") != (username != null)) usage()
+            val target = values["--target"]
+            if ((command == "register") != (username != null) || (command == "keypackages-claim") != (target != null)) usage()
             return Invocation(
                 command = command,
                 server = values["--server"] ?: usage(),
@@ -56,6 +61,7 @@ data class Invocation(
                 origin = values["--origin"],
                 username = username,
                 remoteTestAccount = remote,
+                target = target,
             )
         }
 
@@ -68,6 +74,9 @@ data class Invocation(
   login                        log in and out again (checks the device still works)
   devices                      list the account's devices
   reset                        discard a pending registration (never a registered one)
+  keypackages-refill           fill this device's KeyPackage pool on the server if it is below the server's mark
+  keypackages-status           how many KeyPackages the server holds for this device
+  keypackages-claim --target <name>   claim one KeyPackage per device of another member (consumes them; never repeated)
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
 Only test origins (*.invalid, *.test, localhost) unless --remote-test-account and a cli_ username are given.
 Every command logs in and out again; the server allows 10 logins per device per hour."""
@@ -107,7 +116,7 @@ class Cli(
         return when (invocation.command) {
             "register" -> register(invocation, api, register)
             "reset" -> report(register.discardPending()) { out.println("pending registration discarded") }
-            else -> loggedIn(invocation, api, state) { session -> afterLogin(invocation.command, api, session) }
+            else -> loggedIn(invocation, api, state) { session -> afterLogin(invocation, api, state, session) }
         }
     }
 
@@ -132,6 +141,8 @@ class Cli(
     ): Int {
         val stored = state.identities.load()
         if (stored != null) guard(api, stored.username, invocation.remoteTestAccount)
+        // A claim consumes the target's KeyPackages and spends their budget: a real member is off limits too (#123 CR-2).
+        invocation.target?.let { guard(api, it, invocation.remoteTestAccount) }
         val login = LogIn(api, guarded(), state.identities, state.keys, lock)()
         if (login !is AuthResult.Ok) return report(login) { }
         return try {
@@ -152,6 +163,24 @@ class Cli(
     }
 
     private suspend fun afterLogin(
+        invocation: Invocation,
+        api: GifItUpApi,
+        state: StateDir,
+        session: Session,
+    ): Int {
+        val mls = guarded()
+        val refill = RefillKeyPackages(api, mls, state.identities, state.keys, lock)
+        val claim = ClaimKeyPackages(api, mls, state.identities, state.keys, lock)
+        val keyPackages = KeyPackageCommands(api, refill, claim, out) { report(it) { } }
+        return when (invocation.command) {
+            "keypackages-refill" -> keyPackages.refill(session)
+            "keypackages-status" -> keyPackages.status(session)
+            "keypackages-claim" -> keyPackages.claim(session, checkNotNull(invocation.target))
+            else -> deviceCommand(invocation.command, api, session)
+        }
+    }
+
+    private suspend fun deviceCommand(
         command: String,
         api: GifItUpApi,
         session: Session,

@@ -54,6 +54,7 @@ class EndToEndTest {
             val used = createInvite(dbEnv)
             walkingSkeleton(cli, used)
             refusals(cli, used, createInvite(dbEnv))
+            keyPackages(cli, createInvite(dbEnv))
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
@@ -174,6 +175,54 @@ class EndToEndTest {
         assertEquals(0, retried.exit, "the same invite with the right origin: exit code")
     }
 
+    /**
+     * The KeyPackage directory with real KeyPackages from the crate (#14, ADR-0012): the server's strict reader accepts
+     * what the crate makes, a claim hands one out and deletes it, the pool runs empty, and the limits and the single
+     * "no such member" answer hold. `e2e_ann` and `e2e_carol` were registered by the steps before.
+     */
+    private fun keyPackages(
+        cli: Cli,
+        daveInvite: String,
+    ) {
+        val ann = work.resolve("state-ann")
+        val carol = work.resolve("state-carol-2")
+
+        fun ok(
+            command: String,
+            state: Path,
+            vararg args: String,
+        ): String {
+            val finished = cli.run(command, state, *args)
+            assertEquals(0, finished.exit, "$command exit code")
+            return finished.stdout.trim()
+        }
+        assertEquals("uploaded 50, 50 available on the server", ok("keypackages-refill", ann))
+        assertEquals("50 available on the server (low-water mark 20)", ok("keypackages-status", ann))
+        assertEquals("uploaded 0, 50 available on the server", ok("keypackages-refill", ann), "above the mark nothing is created")
+
+        // Each claim hands out one KeyPackage that the crate accepts and removes it from the pool.
+        repeat(2) { n ->
+            val line = ok("keypackages-claim", carol, "--target", "e2e_ann")
+            assertTrue(CLAIMED_USABLE.matches(line), "claim ${n + 1}: one crate-valid KeyPackage for e2e_ann")
+            assertTrue("${49 - n} available" in ok("keypackages-status", ann), "claim ${n + 1} deleted its KeyPackage")
+        }
+        val third = cli.run("keypackages-claim", carol, "--target", "e2e_ann")
+        assertEquals(EXIT_SERVER, third.exit, "a third claim of one pair in a day: exit code")
+        assertTrue("gifitup-cli: rate limited" in third.stderr, "a third claim: 429")
+
+        // An unknown username and one's own look the same.
+        listOf("e2e_nobody", "e2e_carol").forEach {
+            val missing = cli.run("keypackages-claim", carol, "--target", it)
+            assertEquals(EXIT_SERVER, missing.exit, "claim of $it: exit code")
+            assertTrue("gifitup-cli: no such member" in missing.stderr, "claim of $it: the one answer")
+        }
+
+        // A member who never uploaded: the device is listed, without a KeyPackage.
+        val dave = work.resolve("state-dave")
+        assertEquals(0, cli.run("register", dave, "--username", "e2e_dave", stdin = daveInvite).exit, "register dave")
+        assertTrue(CLAIMED_EMPTY.matches(ok("keypackages-claim", carol, "--target", "e2e_dave")), "an empty pool")
+    }
+
     private fun assertNoSecretInOutput() {
         val processOutput = processes.capturedOutput()
         (processOutput + ("postgres" to EndToEndDatabase.serverLog())).forEach { (name, text) ->
@@ -224,6 +273,8 @@ class EndToEndTest {
         const val POLL_MILLIS = 200L
         const val EXIT_SERVER = 1
         const val UUID_LENGTH = 36
+        val CLAIMED_USABLE = Regex("^[0-9a-f-]{36} {2}crate-valid, not authenticated \\(credential e2e_ann\\)$")
+        val CLAIMED_EMPTY = Regex("^[0-9a-f-]{36} {2}empty \\(no KeyPackage left\\)$")
         val DEVICE_LINE = Regex("^registered e2e_ann as device ([0-9a-f-]{36})$")
     }
 }
