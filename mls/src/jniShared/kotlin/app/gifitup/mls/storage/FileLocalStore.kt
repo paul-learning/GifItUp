@@ -86,8 +86,14 @@ class FileLocalStore internal constructor(
             }
         }
 
-    /** Makes a rename or delete durable when this returns (POSIX; Android is Linux). */
-    private fun syncDir() = FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) }
+    /**
+     * Makes a rename or delete durable when this returns (POSIX; Android is Linux). Windows can't open a directory as a
+     * channel, and a move or delete there is all there is, so the JVM tests on a Windows dev machine skip it (#136). The
+     * check is on the OS, not on a file-system feature, so Android always syncs.
+     */
+    private fun syncDir() {
+        if (syncsDirectory) FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) }
+    }
 
     private fun <T> mapIo(block: () -> T): T =
         try {
@@ -106,6 +112,9 @@ class FileLocalStore internal constructor(
         private const val VERSION: Byte = 1
         private const val MAX_FILE_BYTES = 16L * 1024 * 1024
         private const val MAX_KEY_BYTES = 0xFFFF
+
+        /** False only on Windows (see [syncDir]). */
+        internal val syncsDirectory: Boolean = !System.getProperty("os.name").orEmpty().startsWith("Windows")
 
         /** `version(1) || count(4) || count × (keyLength(2) || key || valueLength(4) || value)`, keys sorted. */
         fun encode(entries: Map<String, ByteArray>): ByteArray {

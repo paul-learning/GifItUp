@@ -28,6 +28,13 @@ class FileLocalStoreTest {
     private fun names() = dir.list().orEmpty().sorted()
 
     @Test
+    fun theDirectoryIsSyncedEverywhereButWindows() {
+        // Linux CI (like Android) must keep the sync; only a Windows dev machine skips it (#136).
+        val windows = System.getProperty("os.name").startsWith("Windows")
+        assertEquals(!windows, FileLocalStore.syncsDirectory)
+    }
+
+    @Test
     fun roundTripsEntriesAndNullDeletes() =
         runTest {
             assertNull(store.get("a"))
