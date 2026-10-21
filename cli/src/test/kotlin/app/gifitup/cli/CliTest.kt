@@ -19,6 +19,10 @@ class CliTest {
         listOf("keypackages-refill", "keypackages-status").forEach { assertEquals(it, Invocation.parse(listOf(it) + base).command) }
         val claim = Invocation.parse(listOf("keypackages-claim") + base + listOf("--target", "ben"))
         assertEquals("ben", claim.target)
+        assertEquals(Path.of("/tmp/link"), Invocation.parse(listOf("invite-create") + base + listOf("--link-file", "/tmp/link")).linkFile)
+        assertEquals("invites", Invocation.parse(listOf("invites") + base).command)
+        val revoke = Invocation.parse(listOf("invite-revoke") + base + listOf("--id", ID))
+        assertEquals(ID, revoke.inviteId)
     }
 
     @Test
@@ -39,6 +43,12 @@ class CliTest {
                 listOf("keypackages-claim") + base + listOf("--target", "ben", "--target", "cat"),
                 listOf("keypackages-refill") + base + listOf("--target", "ben"), // a target only for claim
                 listOf("login") + base + listOf("--target", "ben"),
+                listOf("invite-create") + base, // no link file: the code never goes to the screen
+                listOf("invites") + base + listOf("--link-file", "/tmp/link"), // a link file only for invite-create
+                listOf("invite-revoke") + base, // no id
+                listOf("invite-revoke") + base + listOf("--id", ID.uppercase()), // ids are canonical
+                listOf("invite-revoke") + base + listOf("--id", "../devices"), // never a path
+                listOf("invites") + base + listOf("--id", ID),
             )
         cases.forEach { assertEquals(EXIT_USAGE, assertFailsWith<CliError>("$it") { Invocation.parse(it) }.exit) }
     }
@@ -55,5 +65,9 @@ class CliTest {
         val messages = errors.map(::message)
         assertEquals(messages.size, messages.toSet().size)
         messages.forEach { assert(it.isNotBlank()) }
+    }
+
+    private companion object {
+        const val ID = "0b6f3c1e-8a3e-4d1c-9a54-3f1a2b4c5d6e"
     }
 }
