@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app talks to its server over https only (the origin setting accepts nothing else, ADR-0013): no cleartext
+     traffic, and only the system's certificate authorities, never user-added ones. A build check
+     (verifyManifestHardening, #54) fails if this changes. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
