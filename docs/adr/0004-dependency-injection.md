@@ -31,6 +31,6 @@ Use **manual constructor injection** (option 1).
 ## Amendments
 - **2026-10-21 (#57, ARCH-M0-5 of the M0 architecture review):** where the presentation layer lives was left open here and is decided in ADR-0013 (#17).
   - **State holders** are plain Kotlin classes in `:shared` (`app.gifitup.shared.presentation`) that take a `CoroutineScope`, so they run and are tested on the JVM without androidx.
-  - **androidx `ViewModel`** wrappers and `navigation-compose` live in `composeApp` only. They are built from the composition root (`AppGraph` and the platform entry points) and hand the state holder its scope.
+  - **androidx `ViewModel`** wrappers and `navigation-compose` live in `composeApp` only. They are built from the composition root (`AppGraph` and the platform entry points) and hand the state holder its scope. A factory never puts the invite code into a route, a route argument, a `SavedStateHandle`, `rememberSaveable` or any other saved state, and there is no `navDeepLink`: the entry point passes it in memory (ADR-0013, *Layers*).
   - **Screens** render state and send events; they hold no logic (`CLAUDE.md`, *Periodic reviews*).
   - **Interfaces from data:** the platform interfaces (`MlsClient`, the storage seams) are declared in `:shared`'s `data` package, and use cases in `domain` call `data` directly (owner decision on #133, 2026-10-21; `shared/README.md`).
