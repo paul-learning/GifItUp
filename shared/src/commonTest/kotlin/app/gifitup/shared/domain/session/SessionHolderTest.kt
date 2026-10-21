@@ -262,7 +262,7 @@ class SessionHolderTest {
         runTest {
             val holder = holder()
             val fresh = session()
-            holder.adopt(fresh)
+            holder.adopt(fresh, holder.mark())
             var used: Session? = null
             holder.withSession {
                 used = it
@@ -270,6 +270,17 @@ class SessionHolderTest {
             }
             assertSame(fresh, used)
             assertEquals(0, logins)
+        }
+
+    @Test
+    fun aSessionAdoptedAfterAClearIsIgnored() =
+        runTest {
+            val holder = holder()
+            val mark = holder.mark()
+            holder.clear() // a wipe or an origin change while the registration was still running
+            holder.adopt(session(), mark)
+            holder.withSession { ok() }
+            assertEquals(1, logins, "the late adoption did not bring the old session back")
         }
 
     @Test

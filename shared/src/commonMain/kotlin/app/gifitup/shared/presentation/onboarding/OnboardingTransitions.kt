@@ -26,6 +26,18 @@ internal class OnboardingTransitions(
         }
     }
 
+    /** A storage failure is a state, never an exception that leaves the flow stuck on a busy screen (#130 CR-2). */
+    suspend fun safely(block: suspend () -> OnboardingState): OnboardingState =
+        try {
+            block()
+        } catch (e: LocalStateException) {
+            when (e.problem) {
+                LocalStateException.Problem.KEY_UNAVAILABLE -> OnboardingState.Blocked(BlockReason.KEY_UNAVAILABLE)
+                LocalStateException.Problem.DAMAGED -> OnboardingState.Blocked(BlockReason.STATE_INVALID)
+                LocalStateException.Problem.STORAGE -> OnboardingState.Failed(AuthError.Local.STORAGE_FAILED)
+            }
+        }
+
     suspend fun firstState(): OnboardingState {
         val identity = readIdentity()
         return when {
@@ -36,7 +48,7 @@ internal class OnboardingTransitions(
             identity is Read.Found && identity.identity.deviceId != null -> {
                 OnboardingState.Done(
                     identity.identity.username,
-                    keyPackagesUploaded = true,
+                    keyPackagesUploaded = null,
                 )
             }
 

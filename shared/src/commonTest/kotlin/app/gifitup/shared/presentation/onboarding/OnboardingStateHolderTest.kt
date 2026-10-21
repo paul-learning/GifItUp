@@ -44,12 +44,15 @@ class OnboardingStateHolderTest {
     private val lock = DeviceLock()
     private val code = "AAAAAAAAAAAAAAAAAAAAAQ"
 
-    private fun TestScope.holder(failingIdentities: Boolean = false): OnboardingStateHolder {
+    private fun TestScope.holder(
+        failingIdentities: Boolean = false,
+        settingDefault: String = FakeAuthServer.ORIGIN,
+    ): OnboardingStateHolder {
         val api = server.api()
         val store = if (failingIdentities) damagedIdentities() else identities
         return OnboardingStateHolder(
             scope = this,
-            origin = ServerOriginSetting(InMemoryLocalStore(), store, lock, FakeAuthServer.ORIGIN),
+            origin = ServerOriginSetting(InMemoryLocalStore(), store, lock, settingDefault),
             identities = store,
             register = RegisterDevice(api, unguarded(), identities, keys, random, lock) {},
             refill = RefillKeyPackages(api, unguarded(), identities, keys, lock),
@@ -161,7 +164,7 @@ class OnboardingStateHolderTest {
 
             val done = assertIs<OnboardingState.Done>(holder.state.value)
             assertEquals("ann", done.username)
-            assertTrue(done.keyPackagesUploaded)
+            assertEquals(true, done.keyPackagesUploaded)
             assertEquals(listOf("/auth/challenge", "/accounts", "/key-packages/status", "/key-packages"), server.requests.map { it.path })
             assertEquals(code, registerRequests().single().inviteCode)
             settle(holder::confirmRegistration)
@@ -175,7 +178,7 @@ class OnboardingStateHolderTest {
             val holder = holder()
             toConfirm(holder)
             settleRegistration(holder, holder::confirmRegistration)
-            assertFalse(assertIs<OnboardingState.Done>(holder.state.value).keyPackagesUploaded)
+            assertEquals(false, assertIs<OnboardingState.Done>(holder.state.value).keyPackagesUploaded)
         }
 
     @Test
@@ -267,12 +270,90 @@ class OnboardingStateHolderTest {
             identities.identity = StoredIdentity(FakeAuthServer.ORIGIN, "ann", byteArrayOf(1), deviceId = "d")
             val registered = holder()
             settle(registered::start)
-            assertEquals("ann", assertIs<OnboardingState.Done>(registered.state.value).username)
+            val done = assertIs<OnboardingState.Done>(registered.state.value)
+            assertEquals("ann", done.username)
+            assertNull(done.keyPackagesUploaded, "nothing was checked at start")
 
             val damaged = holder(failingIdentities = true)
             settle(damaged::start)
             assertEquals(BlockReason.STATE_INVALID, assertIs<OnboardingState.Blocked>(damaged.state.value).reason)
             assertEquals(emptyList(), server.requests)
+        }
+
+    @Test
+    fun anInviteIsOnlyTakenOnTheInviteStep() =
+        runTest {
+            val holder = holder()
+            toConfirm(holder)
+            settle { holder.submitInvite("${FakeAuthServer.ORIGIN}/invite#AAAAAAAAAAAAAAAAAAAAAA") }
+            assertIs<OnboardingState.ConfirmServer>(holder.state.value, "a stray call changes nothing")
+
+            server.on("/accounts", dropped)
+            settleRegistration(holder, holder::confirmRegistration)
+            assertIs<OnboardingState.FinishPending>(holder.state.value)
+            settle { holder.submitInvite("AAAAAAAAAAAAAAAAAAAAAA") }
+            assertIs<OnboardingState.FinishPending>(holder.state.value, "the pending identity still decides")
+        }
+
+    @Test
+    fun aDoubleTapStartsOneRegistration() =
+        runTest {
+            queueKeyPackages()
+            val holder = holder()
+            toConfirm(holder)
+            holder.confirmRegistration()
+            holder.confirmRegistration()
+            settleRegistration(holder) { }
+            assertEquals(1, registerRequests().size)
+        }
+
+    @Test
+    fun nothingIsSentIfTheConfirmedServerIsNotTheOneTheRequestWouldGoTo() =
+        runTest {
+            // The setting says another origin than the API was built for: the confirmed server is not the real target.
+            val holder = holder(settingDefault = "https://other.example")
+            settle(holder::start)
+            settle { holder.submitInvite(code) }
+            settle { holder.changeUsername("ann") }
+            settle(holder::submitUsername)
+            assertEquals("https://other.example", assertIs<OnboardingState.ConfirmServer>(holder.state.value).origin.origin)
+            settleRegistration(holder, holder::confirmRegistration)
+            assertIs<OnboardingState.EnterInvite>(holder.state.value)
+            assertEquals(emptyList(), server.requests)
+            assertEquals(emptyList(), random.sizes)
+        }
+
+    @Test
+    fun aStorageFailureAfterARegistrationEndsInAStateNotAStuckScreen() =
+        runTest {
+            server.on("/accounts", dropped)
+            val failing =
+                object : app.gifitup.shared.data.storage.IdentityStore {
+                    var broken = false
+
+                    override suspend fun load(): StoredIdentity? {
+                        if (broken) throw LocalStateException(LocalStateException.Problem.STORAGE)
+                        return identities.load()
+                    }
+
+                    override suspend fun save(identity: StoredIdentity) = identities.save(identity)
+
+                    override suspend fun clear() = identities.clear()
+                }
+            val api = server.api()
+            val holder =
+                OnboardingStateHolder(
+                    scope = this,
+                    origin = ServerOriginSetting(InMemoryLocalStore(), identities, lock, FakeAuthServer.ORIGIN),
+                    identities = failing,
+                    register = RegisterDevice(api, unguarded(), failing, keys, random, lock) { failing.broken = true },
+                    refill = RefillKeyPackages(api, unguarded(), identities, keys, lock),
+                    sessions = SessionHolder({ LogIn(api, unguarded(), identities, keys, lock)() }, this) { 0L },
+                )
+            toConfirm(holder)
+            failing.broken = true
+            settleRegistration(holder, holder::confirmRegistration)
+            assertEquals(AuthError.Local.STORAGE_FAILED, assertIs<OnboardingState.Failed>(holder.state.value).error)
         }
 
     private companion object {

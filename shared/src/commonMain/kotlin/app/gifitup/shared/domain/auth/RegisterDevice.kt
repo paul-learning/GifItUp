@@ -47,6 +47,9 @@ class RegisterDevice(
     private val lock: DeviceLock,
     private val wait: suspend (Duration) -> Unit = { delay(it) },
 ) {
+    /** The origin this use case sends to (`api.endpoint.origin`): the screens compare it with what the user confirmed. */
+    val origin: String get() = api.endpoint.origin
+
     suspend operator fun invoke(
         username: String,
         inviteCode: String,

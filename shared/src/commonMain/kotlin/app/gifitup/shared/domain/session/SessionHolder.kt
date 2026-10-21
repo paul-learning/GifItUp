@@ -48,9 +48,18 @@ class SessionHolder(
         return if (first.unauthorized) retryAfterLogin(first.used, call) else first.result
     }
 
-    /** Keeps a session the caller just got (registration logs in as part of it), so the next call needs no second login. */
-    suspend fun adopt(fresh: Session) {
-        mutex.withLock { session = fresh }
+    /** Marks "now" for [adopt]: take it before the work that yields the session (registration). */
+    suspend fun mark(): Int = mutex.withLock { generation }
+
+    /**
+     * Keeps a session the caller just got (registration logs in as part of it), so the next call needs no second login.
+     * Ignored if [clear] ran since [since] was taken: a wipe or an origin change in between must not be undone.
+     */
+    suspend fun adopt(
+        fresh: Session,
+        since: Int,
+    ) {
+        mutex.withLock { if (generation == since) session = fresh }
     }
 
     /** A login still in flight finishes into the void: its result is not kept. */

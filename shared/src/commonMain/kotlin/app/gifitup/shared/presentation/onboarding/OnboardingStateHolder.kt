@@ -52,10 +52,11 @@ class OnboardingStateHolder(
 
     /** Decides the first screen from what the device already holds. */
     fun start() {
-        scope.launch { flow.value = transitions.firstState() }
+        scope.launch { flow.value = transitions.safely { transitions.firstState() } }
     }
 
     fun submitInvite(text: String) {
+        if (flow.value !is OnboardingState.EnterInvite) return
         scope.launch {
             val current = transitions.currentOrigin() ?: return@launch
 
@@ -99,26 +100,40 @@ class OnboardingStateHolder(
     }
 
     fun confirmRegistration() {
-        val confirm = flow.value as? OnboardingState.ConfirmServer ?: return
-        val code = invite ?: return
-        flow.value = OnboardingState.Registering
-        scope.launch { afterRegistration(register(confirm.username, code.reveal()), confirm.username) }
+        val confirm = flow.value as? OnboardingState.ConfirmServer
+        val code = invite
+        // One claim: a double tap finds the state already changed and does nothing.
+        if (confirm == null || code == null || !flow.compareAndSet(confirm, OnboardingState.Registering)) return
+        scope.launch {
+            val mark = sessions.mark()
+            val current = transitions.currentOrigin()?.origin
+            if (current != confirm.origin.origin || current != register.origin) {
+                // The server the user confirmed is not the one the request would go to: nothing is sent.
+                invite = null
+                flow.value = transitions.safely { transitions.enterInviteState(InviteProblem.NOT_AN_INVITE) }
+            } else {
+                afterRegistration(register(confirm.username, code.reveal()), confirm.username, mark)
+            }
+        }
     }
 
     fun finishPending() {
         val pending = flow.value as? OnboardingState.FinishPending ?: return
-        flow.value = OnboardingState.Registering
-        scope.launch { afterRegistration(register.resume(), pending.username) }
+        if (!flow.compareAndSet(pending, OnboardingState.Registering)) return
+        scope.launch { afterRegistration(register.resume(), pending.username, sessions.mark()) }
     }
 
     /** Irreversible: the earlier attempt may still have created the account. Only with the user's confirmation. */
     fun discardPending(confirmed: Boolean) {
-        if (!confirmed || flow.value !is OnboardingState.FinishPending) return
+        val pending = flow.value as? OnboardingState.FinishPending ?: return
+        if (!confirmed || !flow.compareAndSet(pending, OnboardingState.Registering)) return
         scope.launch {
             flow.value =
-                when (val result = register.discardPending()) {
-                    is AuthResult.Ok -> transitions.enterInviteState()
-                    is AuthResult.Failed -> transitions.failureState(result.error)
+                transitions.safely {
+                    when (val result = register.discardPending()) {
+                        is AuthResult.Ok -> transitions.enterInviteState()
+                        is AuthResult.Failed -> transitions.failureState(result.error)
+                    }
                 }
         }
     }
@@ -126,11 +141,14 @@ class OnboardingStateHolder(
     private suspend fun afterRegistration(
         result: AuthResult<Session>,
         name: String,
+        mark: Int,
     ) {
         val next =
-            when (result) {
-                is AuthResult.Ok -> finishWith(result.value, name)
-                is AuthResult.Failed -> transitions.stateAfterFailedRegistration(result.error, name)
+            transitions.safely {
+                when (result) {
+                    is AuthResult.Ok -> finishWith(result.value, name, mark)
+                    is AuthResult.Failed -> transitions.stateAfterFailedRegistration(result.error, name)
+                }
             }
         // A taken username leaves the invite unused (ADR-0009): keep the code for the next try. Every other end drops it.
         if (next !is OnboardingState.ChooseUsername) invite = null
@@ -140,8 +158,9 @@ class OnboardingStateHolder(
     private suspend fun finishWith(
         session: Session,
         name: String,
+        mark: Int,
     ): OnboardingState {
-        sessions.adopt(session)
+        sessions.adopt(session, mark)
         val uploaded = refill(session) is AuthResult.Ok
         return OnboardingState.Done(name, uploaded)
     }

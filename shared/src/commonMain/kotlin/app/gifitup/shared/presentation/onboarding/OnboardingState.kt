@@ -68,10 +68,13 @@ sealed interface OnboardingState {
         val lastError: AuthError?,
     ) : OnboardingState
 
-    /** Registered. [keyPackagesUploaded] is false if the upload failed: the next start fills the pool (RefillKeyPackages). */
+    /**
+     * Registered. [keyPackagesUploaded] is false if the upload just failed (the next start fills the pool with
+     * `RefillKeyPackages`), and null when the device was registered earlier and nothing was checked now.
+     */
     class Done(
         val username: String,
-        val keyPackagesUploaded: Boolean,
+        val keyPackagesUploaded: Boolean?,
     ) : OnboardingState
 
     class Blocked(
