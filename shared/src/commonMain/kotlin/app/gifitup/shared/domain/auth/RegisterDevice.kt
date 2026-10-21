@@ -50,13 +50,30 @@ class RegisterDevice(
     suspend operator fun invoke(
         username: String,
         inviteCode: String,
-    ): AuthResult<Session> =
+    ): AuthResult<Session> = guarded { registerWith(username, inviteCode) }
+
+    /**
+     * Finishes a pending registration without asking for the invite code again (#17 plan review, SEC-4): after a lost
+     * reply, a reload or a restart the code is gone on purpose, but the server treats a request with the same key and
+     * username as a login and needs no invite (ADR-0009, step 4). The request still has to be well formed, so it
+     * carries [RESUME_PLACEHOLDER]: a syntactically valid code that is not a real invite. If the first attempt never
+     * reached the server, the placeholder is refused as an unknown invite (`INVITE_INVALID`) and the identity stays for
+     * the user to discard. Needs a pending identity: none is `NOT_REGISTERED`, a registered one `ALREADY_REGISTERED`.
+     */
+    suspend fun resume(): AuthResult<Session> =
+        guarded {
+            val stored = identities.load()
+            when {
+                stored == null -> failed(AuthError.Local.NOT_REGISTERED)
+                stored.deviceId != null -> failed(AuthError.Local.ALREADY_REGISTERED)
+                else -> registerWith(stored.username, RESUME_PLACEHOLDER)
+            }
+        }
+
+    private suspend fun guarded(block: suspend () -> AuthResult<Session>): AuthResult<Session> =
         lock.holding {
             try {
-                when (val start = prepare(username, inviteCode)) {
-                    is Start.Refused -> failed(start.error)
-                    is Start.Ready -> start.client.use { register(it, start.resumed, inviteCode) }
-                }
+                block()
             } catch (e: MlsException) {
                 e.toAuthFailure()
             } catch (e: LocalStateException) {
@@ -64,6 +81,15 @@ class RegisterDevice(
             } catch (ignored: RestoreBlockedException) {
                 failed(AuthError.Local.RESTORE_BLOCKED)
             }
+        }
+
+    private suspend fun registerWith(
+        username: String,
+        inviteCode: String,
+    ): AuthResult<Session> =
+        when (val start = prepare(username, inviteCode)) {
+            is Start.Refused -> failed(start.error)
+            is Start.Ready -> start.client.use { register(it, start.resumed, inviteCode) }
         }
 
     /**
@@ -178,6 +204,9 @@ class RegisterDevice(
         /** "A few seconds" (ADR-0009): long enough for the first attempt's transaction to finish. */
         val TRANSIENT_RETRY_DELAY = 3.seconds
         private val TRANSIENT_ON_RESUME = setOf(ApiError.INVITE_INVALID, ApiError.USERNAME_UNAVAILABLE)
+
+        /** 22 canonical base64url characters, never a real invite (a real one is 16 random bytes): see [resume]. */
+        const val RESUME_PLACEHOLDER = "AAAAAAAAAAAAAAAAAAAAAA"
 
         /** Answers to a first attempt after which the server holds no account for its new key; see the class doc. */
         private val DEFINITE_REFUSALS = setOf(ApiError.BAD_REQUEST, ApiError.INVITE_INVALID, ApiError.USERNAME_UNAVAILABLE)

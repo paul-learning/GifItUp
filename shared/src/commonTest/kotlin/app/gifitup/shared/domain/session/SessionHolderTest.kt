@@ -258,6 +258,21 @@ class SessionHolderTest {
         }
 
     @Test
+    fun anAdoptedSessionIsUsedWithoutAnotherLogin() =
+        runTest {
+            val holder = holder()
+            val fresh = session()
+            holder.adopt(fresh)
+            var used: Session? = null
+            holder.withSession {
+                used = it
+                ok()
+            }
+            assertSame(fresh, used)
+            assertEquals(0, logins)
+        }
+
+    @Test
     fun theSessionNeverPrintsItsToken() =
         runTest {
             val s = session()
