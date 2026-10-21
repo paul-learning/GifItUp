@@ -55,7 +55,7 @@ Runbook: `docs/ops/deploy.md`.
 
 ### Endpoints (all need a session; the account is always the session's)
 - **`POST /invites`** → `201 {inviteId, link, expiresAt}` with `Cache-Control: no-store`. `409 invite_limit` at 5 open, `429 rate_limited` after 20 in 24 h.
-- **`GET /invites`** → `{invites: [{inviteId, createdAt, expiresAt, status, usedBy}]}`, the caller's own only. `status` is a growable enum (`open`, `used`, `expired`, `revoked`); `usedBy` is the created account's username, set only for `used`. Never a code or hash. Also `no-store`.
+- **`GET /invites`** → `{invites: [{inviteId, createdAt, expiresAt, status, usedBy}]}`, the caller's own only. `status` is a growable enum (`open`, `used`, `expired`, `revoked`); `usedBy` is the created account's username, set only for `used`, and `null` on a `used` invite whose account was deleted since (`used_by` is `ON DELETE SET NULL`), so a client never assumes a used invite has a name. Never a code or hash. Also `no-store`.
 - **`DELETE /invites/{id}`** → `204` for the caller's own open invite. Someone else's, an admin invite, a used, revoked, expired or unknown one: all one `404 not_found`, so ids can't be probed. An id that isn't a lowercase canonical UUID is a `400`.
 - Admin invites (`created_by` NULL) belong to nobody: they never appear in a list and can't be revoked through the API (#13 SEC-52a); only the admin CLI touches them.
 - Logs: only `event=invite_created`, no id, code, link or account.

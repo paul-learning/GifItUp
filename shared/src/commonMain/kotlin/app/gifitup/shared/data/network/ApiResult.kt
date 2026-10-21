@@ -88,7 +88,10 @@ class CreatedInviteAnswer(
     override fun toString(): String = "CreatedInviteAnswer(inviteId=$inviteId, expiresAt=$expiresAt)"
 }
 
-/** One of the member's own invites (ADR-0010). Times are Unix seconds; [usedBy] is the username that redeemed it. */
+/**
+ * One of the member's own invites (ADR-0010). Times are Unix seconds; [usedBy] is the username that redeemed it, or
+ * null on a used invite whose account was deleted since.
+ */
 data class Invite(
     val inviteId: String,
     val createdAt: Long,

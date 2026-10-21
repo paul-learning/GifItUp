@@ -130,6 +130,37 @@ class SessionHolderTest {
         }
 
     @Test
+    fun aUseCaseAnswerIsHandledLikeAnApiAnswer() =
+        runTest {
+            val holder = holder()
+            var calls = 0
+            val result =
+                holder.withSessionResult {
+                    calls++
+                    if (calls == 1) AuthResult.Failed(AuthError.Api(ApiError.UNAUTHORIZED)) else AuthResult.Ok("ok")
+                }
+            assertEquals("ok", assertIs<AuthResult.Ok<String>>(result).value)
+            assertEquals(2, calls)
+            assertEquals(2, logins, "a fresh login for the retry")
+
+            // Any other failure, local ones too, is returned as it is and never repeated.
+            listOf(AuthError.Api(ApiError.INVITE_LIMIT), AuthError.Api(ApiError.NETWORK), AuthError.Local.STORAGE_FAILED).forEach { error ->
+                calls = 0
+                assertEquals(AuthResult.Failed(error), holder.withSessionResult<String> { AuthResult.Failed(error).also { calls++ } })
+                assertEquals(1, calls, "$error is not repeated")
+            }
+            loginResult = { AuthResult.Failed(AuthError.Api(ApiError.UNAUTHORIZED)) }
+            holder.clear()
+            calls = 0
+            assertEquals(
+                AuthResult.Failed(AuthError.Api(ApiError.UNAUTHORIZED)),
+                holder.withSessionResult<String> { AuthResult.Ok("never").also { calls++ } },
+                "a login's own 401 is not a rejected call",
+            )
+            assertEquals(0, calls)
+        }
+
+    @Test
     fun nothingButAnUnauthorizedAnswerIsRepeated() =
         runTest {
             val holder = holder()
