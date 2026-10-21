@@ -33,6 +33,10 @@ allprojects {
     }
     plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnPlugin> {
         the<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootEnvSpec>().downloadBaseUrl.set(null as String?)
+        // ktor-client-core 3.6.0 declares ws 8.20.1 (WebSockets on Node.js), which a ws advisory covers (fixed in 8.21.0).
+        // Dependabot can't update kotlin-js-store/wasm/yarn.lock (no package.json: Kotlin generates it), so the version
+        // is pinned here. Drop the pin once Ktor's own ws is not affected.
+        the<org.jetbrains.kotlin.gradle.targets.wasm.yarn.WasmYarnRootExtension>().resolution("ws", libs.versions.npm.ws.get())
     }
     plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin> {
         the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
