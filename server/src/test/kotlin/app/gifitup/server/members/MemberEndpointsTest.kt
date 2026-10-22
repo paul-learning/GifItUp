@@ -156,15 +156,15 @@ class MemberEndpointsTest {
     @Test
     fun listsTheInviterFirstThenTheInviteesByUsernameWithTheirDevices() =
         membersTest {
-            val root = member("root")
-            val ana = member("ana", root)
+            val rita = member("rita")
+            val ana = member("ana", rita)
             member("zed", ana)
             val bob = member("bob", ana)
             val answer = members(ana)
             assertFalse(answer.more)
-            assertEquals(listOf("root", "bob", "zed"), answer.members.map { it.username })
+            assertEquals(listOf("rita", "bob", "zed"), answer.members.map { it.username })
             assertEquals(listOf(MemberRelation.INVITER, MemberRelation.INVITEE, MemberRelation.INVITEE), answer.members.map { it.relation })
-            assertEquals(accountId("root").toString(), answer.members[0].accountId)
+            assertEquals(accountId("rita").toString(), answer.members[0].accountId)
             val device = answer.members[1].devices.single()
             assertContentEquals(bob.device.publicKey, Base64Url.decode(device.signatureKey, 32))
         }
@@ -172,21 +172,21 @@ class MemberEndpointsTest {
     @Test
     fun anAccountWithoutAnInviterOrInviteesGetsAnEmptyList() =
         membersTest {
-            val root = member("root")
-            assertEquals(MembersResponse(emptyList(), more = false), members(root))
+            val rita = member("rita")
+            assertEquals(MembersResponse(emptyList(), more = false), members(rita))
         }
 
     @Test
     fun onlyDirectNeighboursAreListedNeverGrandparentsSiblingsOrGrandchildren() =
         membersTest {
-            val root = member("root")
-            val ana = member("ana", root)
-            val ben = member("ben", root)
+            val rita = member("rita")
+            val ana = member("ana", rita)
+            val ben = member("ben", rita)
             val cat = member("cat", ana)
             val dan = member("dan", cat)
-            assertEquals(listOf("ana", "ben"), members(root).members.map { it.username })
-            assertEquals(listOf("root", "cat"), members(ana).members.map { it.username })
-            assertEquals(listOf("root"), members(ben).members.map { it.username })
+            assertEquals(listOf("ana", "ben"), members(rita).members.map { it.username })
+            assertEquals(listOf("rita", "cat"), members(ana).members.map { it.username })
+            assertEquals(listOf("rita"), members(ben).members.map { it.username })
             assertEquals(listOf("ana", "dan"), members(cat).members.map { it.username })
             assertEquals(listOf("cat"), members(dan).members.map { it.username })
         }
@@ -194,9 +194,9 @@ class MemberEndpointsTest {
     @Test
     fun aDeletedInviterIsJustNoInviter() =
         membersTest {
-            val root = member("root")
-            val ana = member("ana", root)
-            admin("DELETE FROM gifitup.accounts WHERE username = 'root'")
+            val rita = member("rita")
+            val ana = member("ana", rita)
+            admin("DELETE FROM gifitup.accounts WHERE username = 'rita'")
             assertEquals(emptyList(), members(ana).members)
         }
 
@@ -209,28 +209,28 @@ class MemberEndpointsTest {
     @Test
     fun aListOverTheLimitIsCutDeterministicallyAndSaysSo() =
         membersTest {
-            val root = member("root")
-            val rootId = accountId("root")
+            val rita = member("rita")
+            val ritaId = accountId("rita")
             repeat(MemberService.LIMIT + 1) { n ->
                 val name = "user" + n.toString().padStart(3, '0')
                 admin(
                     "INSERT INTO gifitup.accounts (id, username, created_at, invited_by, joined_via_admin) " +
-                        "VALUES ('${UUID.randomUUID()}', '$name', now(), '$rootId', false)",
+                        "VALUES ('${UUID.randomUUID()}', '$name', now(), '$ritaId', false)",
                 )
             }
-            val first = members(root)
+            val first = members(rita)
             assertTrue(first.more)
             assertEquals(MemberService.LIMIT, first.members.size)
             assertEquals("user000", first.members.first().username)
             assertEquals("user199", first.members.last().username)
-            assertEquals(first, members(root), "the same cut on every request")
+            assertEquals(first, members(rita), "the same cut on every request")
         }
 
     @Test
     fun theInviterSurvivesTheCutWhenTheCallerHasTooManyInvitees() =
         membersTest {
-            val root = member("root")
-            val ana = member("ana", root)
+            val rita = member("rita")
+            val ana = member("ana", rita)
             val anaId = accountId("ana")
             repeat(MemberService.LIMIT + 1) { n ->
                 val name = "user" + n.toString().padStart(3, '0')
@@ -242,15 +242,15 @@ class MemberEndpointsTest {
             val answer = members(ana)
             assertTrue(answer.more)
             assertEquals(MemberService.LIMIT, answer.members.size)
-            assertEquals("root", answer.members.first().username, "the inviter is never the one that is cut")
+            assertEquals("rita", answer.members.first().username, "the inviter is never the one that is cut")
             assertEquals(MemberRelation.INVITER, answer.members.first().relation)
         }
 
     @Test
     fun aMemberWithManyDevicesShowsTheOldestTen() =
         membersTest {
-            val root = member("root")
-            val ana = member("ana", root)
+            val rita = member("rita")
+            val ana = member("ana", rita)
             val anaId = accountId("ana")
             repeat(11) { n ->
                 val key = ByteArray(32) { (n + 1).toByte() }.joinToString("") { "%02x".format(it) }
@@ -261,7 +261,7 @@ class MemberEndpointsTest {
                         )}', now())",
                 )
             }
-            val devices = members(root).members.single().devices
+            val devices = members(rita).members.single().devices
             assertEquals(10, devices.size)
             assertContentEquals(
                 ana.device.publicKey,
