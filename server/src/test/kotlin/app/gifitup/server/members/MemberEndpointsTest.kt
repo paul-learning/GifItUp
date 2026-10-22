@@ -227,6 +227,26 @@ class MemberEndpointsTest {
         }
 
     @Test
+    fun theInviterSurvivesTheCutWhenTheCallerHasTooManyInvitees() =
+        membersTest {
+            val root = member("root")
+            val ana = member("ana", root)
+            val anaId = accountId("ana")
+            repeat(MemberService.LIMIT + 1) { n ->
+                val name = "user" + n.toString().padStart(3, '0')
+                admin(
+                    "INSERT INTO gifitup.accounts (id, username, created_at, invited_by, joined_via_admin) " +
+                        "VALUES ('${UUID.randomUUID()}', '$name', now(), '$anaId', false)",
+                )
+            }
+            val answer = members(ana)
+            assertTrue(answer.more)
+            assertEquals(MemberService.LIMIT, answer.members.size)
+            assertEquals("root", answer.members.first().username, "the inviter is never the one that is cut")
+            assertEquals(MemberRelation.INVITER, answer.members.first().relation)
+        }
+
+    @Test
     fun aMemberWithManyDevicesShowsTheOldestTen() =
         membersTest {
             val root = member("root")
