@@ -34,8 +34,8 @@ private const val SIGNATURE_KEY_BYTES = 32
 /**
  * The checked list, or null (the whole answer is refused, ADR-0014): at most [MAX_MEMBERS] members with at most
  * [MAX_DEVICES_PER_MEMBER] devices each, canonical UUIDs, the username rule, canonical base64url 32-byte keys, and
- * at most one inviter, every account id, username, device id and key appearing once in the whole answer. An unknown relation is kept as
- * [MemberRelationship.UNKNOWN].
+ * at most one inviter, every account id, username, device id and key appearing once in the whole answer. An unknown
+ * relation is kept as [MemberRelationship.UNKNOWN].
  */
 internal fun readMembers(response: MembersResponse): MemberList? {
     val read = response.members.takeIf { it.size <= MAX_MEMBERS }?.map(::readMember)
