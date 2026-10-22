@@ -59,6 +59,15 @@ sealed interface AuthError {
         /** The device's storage failed to read or write; can be transient (#108 SEC-13). */
         STORAGE_FAILED,
 
+        /**
+         * The contact book can't be used: missing, damaged, another identity's, or a write failed (ADR-0014). Nothing is
+         * pinned and no claimed KeyPackage is handed on.
+         */
+        CONTACTS_UNAVAILABLE,
+
+        /** The contact is blocked (a key, a name or a device changed, ADR-0014); see the contact book for why. */
+        CONTACT_BLOCKED,
+
         /** Something outside the closed cases failed on this device (a bug or a platform error); nothing is kept of it. */
         UNEXPECTED,
     }

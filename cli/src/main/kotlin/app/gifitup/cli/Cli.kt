@@ -15,7 +15,9 @@ import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.LogOut
 import app.gifitup.shared.domain.auth.RegisterDevice
 import app.gifitup.shared.domain.auth.TestAccountGuard
-import app.gifitup.shared.domain.contacts.ListMembers
+import app.gifitup.shared.domain.contacts.AcceptContact
+import app.gifitup.shared.domain.contacts.ContactBookAccess
+import app.gifitup.shared.domain.contacts.RefreshContacts
 import app.gifitup.shared.domain.keypackages.ClaimKeyPackages
 import app.gifitup.shared.domain.keypackages.RefillKeyPackages
 import io.ktor.client.engine.HttpClientEngine
@@ -34,6 +36,7 @@ data class Invocation(
     val target: String? = null,
     val linkFile: Path? = null,
     val inviteId: String? = null,
+    val account: String? = null,
 ) {
     companion object {
         private val COMMANDS =
@@ -49,8 +52,10 @@ data class Invocation(
                 "invites",
                 "invite-revoke",
                 "contacts",
+                "contacts-accept",
             )
-        private val VALUE_OPTIONS = setOf("--server", "--state-dir", "--origin", "--username", "--target", "--link-file", "--id")
+        private val VALUE_OPTIONS =
+            setOf("--server", "--state-dir", "--origin", "--username", "--target", "--link-file", "--id", "--account")
 
         /** The options that one command needs and no other takes. */
         private val COMMAND_OPTIONS =
@@ -59,6 +64,7 @@ data class Invocation(
                 "keypackages-claim" to "--target",
                 "invite-create" to "--link-file",
                 "invite-revoke" to "--id",
+                "contacts-accept" to "--account",
             )
         private val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -77,7 +83,7 @@ data class Invocation(
                 i++
             }
             if (COMMAND_OPTIONS.any { (owner, option) -> (command == owner) != (option in values) }) usage()
-            if (values["--id"]?.let(UUID::matches) == false) usage()
+            if (!idsAreCanonical(values)) usage()
             return Invocation(
                 command = command,
                 server = values["--server"] ?: usage(),
@@ -88,8 +94,12 @@ data class Invocation(
                 target = values["--target"],
                 linkFile = values["--link-file"]?.let { Path.of(it) },
                 inviteId = values["--id"],
+                account = values["--account"],
             )
         }
+
+        private fun idsAreCanonical(values: Map<String, String>): Boolean =
+            listOf("--id", "--account").all { option -> values[option]?.let(UUID::matches) != false }
 
         private fun usage(): Nothing = throw CliError(USAGE, EXIT_USAGE)
 
@@ -106,7 +116,8 @@ data class Invocation(
   invite-create --link-file <file>    create an invite; its link goes to <file> (new, owner-only), never to the screen
   invites                      list this account's invites
   invite-revoke --id <invite id>      revoke one of this account's open invites
-  contacts                     list the inviter and the invitees of this account (the server's statement)
+  contacts                     refresh the contact book from the server's member list and print it
+  contacts-accept --account <account id>   TEST ACCOUNTS ONLY: accept a blocked contact's new key blindly, without any check
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
 Only test origins (*.invalid, *.test, localhost) unless --remote-test-account and a cli_ username are given.
 Every command logs in and out again; the server allows 10 logins per device per hour."""
@@ -200,10 +211,14 @@ class Cli(
     ): Int {
         val mls = guarded()
         val refill = RefillKeyPackages(api, mls, state.identities, state.keys, lock)
-        val claim = ClaimKeyPackages(api, mls, state.identities, state.keys, lock)
+        val access = ContactBookAccess(state.contacts) { Instant.now().epochSecond }
+        val claim = ClaimKeyPackages(api, mls, state.identities, state.keys, lock, access)
         val keyPackages = KeyPackageCommands(api, refill, claim, out) { report(it) { } }
         val invites = InviteCommands(api, out) { report(it) { } }
-        val contacts = ContactCommands(ListMembers(api), out) { report(it) { } }
+        val contacts =
+            ContactCommands(RefreshContacts(api, mls, state.identities, state.keys, lock, access), AcceptContact(access), access, out) {
+                report(it) { }
+            }
         return when (invocation.command) {
             "keypackages-refill" -> keyPackages.refill(session)
             "keypackages-status" -> keyPackages.status(session)
@@ -212,6 +227,7 @@ class Cli(
             "invites" -> invites.list(session)
             "invite-revoke" -> invites.revoke(session, checkNotNull(invocation.inviteId))
             "contacts" -> contacts.list(session)
+            "contacts-accept" -> contacts.accept(checkNotNull(invocation.account))
             else -> deviceCommand(invocation.command, api, session)
         }
     }
@@ -317,6 +333,7 @@ private fun apiMessage(error: ApiError): String =
         ApiError.NETWORK -> "no answer from the server (network error or timeout)"
     }
 
+@Suppress("CyclomaticComplexMethod") // One fixed line per closed code.
 private fun localMessage(error: AuthError.Local): String =
     when (error) {
         AuthError.Local.INVALID_USERNAME -> "the username must be 3-32 of a-z, 0-9 and _"
@@ -330,6 +347,8 @@ private fun localMessage(error: AuthError.Local): String =
         AuthError.Local.KEY_UNAVAILABLE -> "the state dir's key can't be used"
         AuthError.Local.RESTORE_BLOCKED -> "the last restores failed; this can't happen in the CLI"
         AuthError.Local.STORAGE_FAILED -> "the state dir couldn't be read or written"
+        AuthError.Local.CONTACTS_UNAVAILABLE -> "the state dir's contact book is missing, damaged or can't be written; nothing was pinned"
+        AuthError.Local.CONTACT_BLOCKED -> "blocked: a key, a name or a device of this contact changed; see contacts"
         AuthError.Local.UNEXPECTED -> "an unexpected error on this device"
     }
 

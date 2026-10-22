@@ -12,9 +12,23 @@ class RecordIdentityStore(
 ) : IdentityStore {
     override suspend fun load(): StoredIdentity? = store.get(KEY)?.let(::decode)
 
-    override suspend fun save(identity: StoredIdentity) = store.putAll(mapOf(KEY to encode(identity)))
+    /**
+     * Writes the identity and, in the same atomic write, an empty contact record if there is none (ADR-0014): a missing
+     * record next to an identity then means something deleted it, not a fresh start. An existing record is never
+     * touched, so a damaged one stays damaged (unavailable) instead of becoming an empty book.
+     */
+    override suspend fun save(identity: StoredIdentity) {
+        val contacts =
+            if (store.get(RecordContactStore.KEY) == null) {
+                mapOf(RecordContactStore.KEY to ContactRecordCodec.empty(identity.origin, identity.username))
+            } else {
+                emptyMap()
+            }
+        store.putAll(mapOf(KEY to encode(identity)) + contacts)
+    }
 
-    override suspend fun clear() = store.putAll(mapOf(KEY to null))
+    /** The contact book belongs to the identity: it goes with it. */
+    override suspend fun clear() = store.putAll(mapOf(KEY to null, RecordContactStore.KEY to null))
 
     internal companion object {
         const val KEY = "identity"

@@ -57,6 +57,7 @@ class EndToEndTest {
             keyPackages(cli, createInvite(dbEnv))
             invites(cli)
             contacts(cli)
+            trust(cli, dbEnv)
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
@@ -269,9 +270,10 @@ class EndToEndTest {
     }
 
     /**
-     * The member list (#18, ADR-0014): an inviter sees the account that joined with their invite, and that account
-     * sees its inviter first; a root account has no inviter. `e2e_erin` joined with `e2e_dave`'s invite in the step
-     * before. A request without a session can't be sent through the CLI (it always logs in): that 401 is a server test.
+     * The member list (#18, ADR-0014): an inviter lists the account that joined with their invite, and that account
+     * lists its inviter; the list pins nothing (both are unconfirmed); a root account has no inviter. `e2e_erin` joined
+     * with `e2e_dave`'s invite in the step before. A request without a session can't be sent through the CLI (it
+     * always logs in): that 401 is a server test.
      */
     private fun contacts(cli: Cli) {
         fun lines(state: String) =
@@ -286,9 +288,64 @@ class EndToEndTest {
                     it.isNotBlank()
                 }
         val dave = lines("state-dave").single()
-        assertTrue(CONTACT_LINE.matches(dave) && dave.contains("  e2e_erin  invitee  devices 1"), "dave sees erin as an invitee")
+        assertTrue(CONTACT_LINE.matches(dave) && dave.contains("  e2e_erin  unconfirmed  devices 1"), "dave lists erin, not yet pinned")
         val erin = lines("state-erin").single()
-        assertTrue(CONTACT_LINE.matches(erin) && erin.contains("  e2e_dave  inviter  devices 1"), "erin sees dave as the inviter")
+        assertTrue(CONTACT_LINE.matches(erin) && erin.contains("  e2e_dave  unconfirmed  devices 1"), "erin lists dave, not yet pinned")
+    }
+
+    /**
+     * Trust on first use (#18, ADR-0014): a claim pins the key; the admin deletes the account and the name is registered
+     * again (a new account id); the next claim is blocked as a reassigned username, the old account is gone, and the
+     * blind dev-CLI accept lets the claim through; a damaged contact book refuses claims. Fresh accounts, so the
+     * login limit of the earlier steps doesn't apply.
+     */
+    private fun trust(
+        cli: Cli,
+        dbEnv: Map<String, String>,
+    ) {
+        val gina = work.resolve("state-gina")
+        val hank = work.resolve("state-hank")
+        val gina2 = work.resolve("state-gina2")
+        assertEquals(0, cli.run("register", gina, "--username", "e2e_gina", stdin = createInvite(dbEnv)).exit, "register gina")
+        assertEquals(0, cli.run("keypackages-refill", gina).exit, "gina refills")
+        val hankLink = createdLink(cli, gina, "link-hank")
+        assertEquals(0, cli.run("register", hank, "--username", "e2e_hank", stdin = hankLink).exit, "register hank")
+
+        val first = cli.run("keypackages-claim", hank, "--target", "e2e_gina")
+        assertEquals(0, first.exit, "the first claim: exit code")
+        assertTrue(CLAIMED_USABLE.matches(first.stdout.trim().replace("e2e_gina", "e2e_ann")), "the first claim pins gina")
+
+        val env = dbEnv + ("GIFITUP_PUBLIC_URL" to ORIGIN)
+        val deleted = processes.run("admin", serverEntryPoint("AdminKt") + listOf("delete-account", "e2e_gina"), env, excludeStdout = true)
+        assertEquals(0, deleted.exit, "Admin delete-account")
+        assertEquals(0, cli.run("register", gina2, "--username", "e2e_gina", stdin = createInvite(dbEnv)).exit, "register gina again")
+        assertEquals(0, cli.run("keypackages-refill", gina2).exit, "the new gina refills")
+
+        val blocked = cli.run("keypackages-claim", hank, "--target", "e2e_gina")
+        assertEquals(EXIT_REFUSED, blocked.exit, "a reassigned name: exit code")
+        assertTrue("gifitup-cli: blocked" in blocked.stderr, "a reassigned name: blocked")
+        val book =
+            cli
+                .run("contacts", hank)
+                .stdout
+                .lines()
+                .filter { it.isNotBlank() }
+        assertTrue(book.all(CONTACT_LINE::matches), "contacts lines: $book")
+        val old = book.filter { "  e2e_gina  gone  " in it }
+        val reassigned = book.filter { "  e2e_gina  blocked  " in it && it.endsWith("  username_reassigned") }
+        assertEquals(1, old.size, "the old gina is gone, its pins kept")
+        assertEquals(1, reassigned.size, "the new gina is blocked as a reassigned username")
+
+        val accept = cli.run("contacts-accept", hank, "--account", reassigned.single().substringBefore(' '))
+        assertEquals(0, accept.exit, "contacts-accept: exit code")
+        assertEquals("accepted e2e_gina blindly (test accounts only)", accept.stdout.trim())
+        assertEquals(0, cli.run("keypackages-claim", hank, "--target", "e2e_gina").exit, "after the accept the claim passes")
+
+        // A damaged book is unavailable, never empty: the claim is refused and nothing is pinned again.
+        Files.write(hank.resolve("contacts"), byteArrayOf(1, 2, 3))
+        val unavailable = cli.run("keypackages-claim", hank, "--target", "e2e_gina")
+        assertEquals(EXIT_REFUSED, unavailable.exit, "a damaged book: exit code")
+        assertTrue("gifitup-cli: the state dir's contact book" in unavailable.stderr, "a damaged book: refused")
     }
 
     /** `invite-create` into [fileName] in the work dir; returns the link, whose code then counts as a secret. */
@@ -370,10 +427,10 @@ class EndToEndTest {
         const val EXIT_REFUSED = 3
         const val MAX_OPEN_INVITES = 5
         const val UUID_LENGTH = 36
-        val CLAIMED_USABLE = Regex("^[0-9a-f-]{36} {2}crate-valid, not authenticated \\(credential e2e_ann\\)$")
+        val CLAIMED_USABLE = Regex("^[0-9a-f-]{36} {2}crate-valid, key pinned \\(credential e2e_ann\\)$")
         val CLAIMED_EMPTY = Regex("^[0-9a-f-]{36} {2}empty \\(no KeyPackage left\\)$")
         val CREATED_LINE = Regex("^invite [0-9a-f-]{36} created, expires \\S+; link in \\S+$")
-        val CONTACT_LINE = Regex("^[0-9a-f-]{36}  [a-z0-9_]+  (inviter|invitee)  devices \\d+$")
+        val CONTACT_LINE = Regex("^[0-9a-f-]{36}  [a-z0-9_]+  (ok|unconfirmed|blocked|gone)  devices \\d+(  [a-z_]+)?$")
         val DEVICE_LINE = Regex("^registered e2e_ann as device ([0-9a-f-]{36})$")
     }
 }
