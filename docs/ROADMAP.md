@@ -25,7 +25,7 @@ _Users can join through an invite, devices register keys, and the server can rel
 **Next: walking skeleton.** After #13 and #76, M1 continues with one thin end-to-end slice, in this order:
 1. ✅ Content-format amendments to ADR-0006 (one docs-only PR, #92): optional GIF caption (#80) and the content-format decision from the owner's comment on #24 (message reference/ID, "annotation" types that old clients ignore).
 2. ✅ Dev CLI client + end-to-end test in CI (#79; PRs #94, #95, #102, #103, #104).
-3. Minimal onboarding screen (#17), on the same use cases as the CLI.
+3. ✅ Minimal onboarding screen (#17), on the same use cases as the CLI (PRs #129 to #145: foundation, onboarding logic and screens, the create-invite logic and screen, Android App Links; checked on a phone, Android 15). Web `/invite` hosting and CSP come with #27.
 
 Everything else in M1 below that this slice doesn't need comes after it.
 
@@ -36,7 +36,7 @@ Everything else in M1 below that this slice doesn't need comes after it.
 - Client: onboarding (redeem invite → choose username → generate keys → register), secure local key storage (Android Keystore / browser IndexedDB plus wrapping). (#16, #17)
 - Client: contacts list (users from the same invite tree). (#18)
 - Build logic: convention plugins, detekt 2.x when stable (#34, moved from M0).
-- Follow-ups from the M0 reviews (#52–#58): still open are SSH key handling (#53) and Android hardening (#54); the deny-list gaps, threat-model updates, protocol-versioning and presentation-layer ADRs and the cleanups are done.
+- Follow-ups from the M0 reviews (#52–#58): still open is SSH key handling (#53); Android hardening (#54) is done, with `minSdk` left at 26; the deny-list gaps, threat-model updates, protocol-versioning and presentation-layer ADRs and the cleanups are done.
 - 🏛️ Architecture review M1 · 🛡️ Security review M1 — #19, #20
 
 ## M2 — Encrypted GIF messaging MVP ⬜ → first friends alpha
