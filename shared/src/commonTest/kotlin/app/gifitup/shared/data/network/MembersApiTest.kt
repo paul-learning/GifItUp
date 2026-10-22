@@ -102,6 +102,7 @@ class MembersApiTest {
                     "account id not a UUID" to members(member(1), member(2, accountId = "x")),
                     "upper case account id" to members(member(1, accountId = "ABCDEF01-2222-4333-8444-555555555555")),
                     "bad username" to members(member(1, username = "Ab")),
+                    "two inviters" to members(member(1, relation = "inviter"), member(2, relation = "inviter")),
                     "same account twice" to members(member(1), member(2, accountId = id(1))),
                     "same username twice" to members(member(1), member(2, username = "user1")),
                     "same key twice" to members(member(1), member(2, devices = listOf(device(2, key = key(1))))),
