@@ -36,6 +36,7 @@ class CreateInviteStateHolderTest {
     private val clipboard = FakeClipboard()
 
     private class FakeClipboard : SensitiveClipboard {
+        override val clearsCopied = true
         val copies = mutableListOf<String>()
         var clears = 0
         var accepts = true
@@ -133,6 +134,57 @@ class CreateInviteStateHolderTest {
             holder.leave()
             assertNull(holder.state.value.shown)
             assertFalse(holder.state.value.copied)
+            assertEquals(1, clipboard.clears)
+        }
+
+    @Test
+    fun stoppingDropsTheLinkButLeavesTheClipboardForThePaste() =
+        runTest {
+            server.on("/invites", created(), listed("open"))
+            val holder = holder()
+            settle(holder, holder::create)
+            holder.copy()
+            advanceUntilIdle()
+            holder.stopped()
+            assertNull(holder.state.value.shown)
+            assertEquals(0, clipboard.clears, "the user is on the way to paste it")
+
+            holder.resumed()
+            holder.leave()
+            assertEquals(1, clipboard.clears, "removed when the screen is really left")
+        }
+
+    @Test
+    fun aRotationKeepsTheClipboardUntilTheUserReallyLeaves() =
+        runTest {
+            server.on("/invites", created(), listed("open"))
+            val holder = holder()
+            settle(holder, holder::create)
+            holder.copy()
+            advanceUntilIdle()
+            // The activity stops, the screen is disposed and rebuilt, the lifecycle starts again.
+            holder.stopped()
+            holder.leave()
+            assertEquals(0, clipboard.clears, "a leave while stopped keeps the entry")
+            holder.resumed()
+            holder.leave()
+            assertEquals(1, clipboard.clears, "the next deliberate leave removes it")
+            holder.leave()
+            assertEquals(1, clipboard.clears, "and only once")
+        }
+
+    @Test
+    fun revokingTheCopiedInviteAfterAStopStillTakesItOffTheClipboard() =
+        runTest {
+            server.on("/invites", created(), listed("open"), listed("revoked"))
+            server.on("/invites/$id", { _ -> respond("", HttpStatusCode.NoContent) })
+            val holder = holder()
+            settle(holder, holder::create)
+            holder.copy()
+            advanceUntilIdle()
+            holder.stopped()
+            holder.resumed()
+            settle(holder) { holder.revoke(id) }
             assertEquals(1, clipboard.clears)
         }
 

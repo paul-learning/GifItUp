@@ -22,6 +22,7 @@ class GifItUpApp : Application() {
             deviceStorage = storage,
             engine = { Android.create() },
             random = { size -> ByteArray(size).also(random::nextBytes) },
+            clipboard = AndroidClipboard(this),
         )
     }
 

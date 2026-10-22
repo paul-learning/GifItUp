@@ -50,6 +50,7 @@ fun main() {
                     deviceStorage = it,
                     engine = { Js.create() },
                     random = WebSecureRandom,
+                    clipboard = WebClipboard,
                 )
             }
         ComposeViewport {

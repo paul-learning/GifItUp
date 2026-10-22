@@ -41,11 +41,12 @@ import app.gifitup.shared.presentation.settings.ServerSettingsStateHolder
 fun App(
     graph: AppGraph,
     inbox: InviteInbox = remember { InviteInbox(null) },
+    screen: ScreenProtection = ScreenProtection.None,
 ) {
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             val storage = graph.deviceStorage
-            if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox)
+            if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen)
         }
     }
 }
@@ -64,6 +65,7 @@ private fun Configured(
     graph: AppGraph,
     storage: DeviceStorage,
     inbox: InviteInbox,
+    screen: ScreenProtection,
 ) {
     val setting = remember(storage) { storage.originSetting(BuildDefaults.DEFAULT_ORIGIN) }
     var originVersion by remember { mutableIntStateOf(0) }
@@ -92,6 +94,7 @@ private fun Configured(
                 services = Services(graph, storage, factory, setting),
                 current = OriginView(origin.origin, origin.custom),
                 inbox = inbox,
+                screen = screen,
             ) {
                 // A new server never picks up the link that came with the old one (#131 SEC-14).
                 inbox.drop()
@@ -118,6 +121,7 @@ private fun Navigation(
     services: Services,
     current: OriginView,
     inbox: InviteInbox,
+    screen: ScreenProtection,
     onOriginChanged: () -> Unit,
 ) {
     val nav = rememberNavController()
@@ -144,7 +148,17 @@ private fun Navigation(
             LaunchedEffect(state is OnboardingState.EnterInvite) {
                 if (state is OnboardingState.EnterInvite) inbox.take()?.let(model.holder::submitInvite)
             }
-            OnboardingScreen(state, model.holder, current) { nav.navigate(ROUTE_SETTINGS) }
+            OnboardingScreen(state, model.holder, current, onOpenSettings = { nav.navigate(ROUTE_SETTINGS) }) {
+                nav.navigate(ROUTE_INVITES)
+            }
+        }
+        composable(ROUTE_INVITES) { entry ->
+            // The onboarding entry stays on the back stack below, so its ViewModel (API, session, engine) is the one used.
+            val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
+            val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
+            CreateInviteScreen(model.invites, services.graph.clipboard.clearsCopied, screen) {
+                if (nav.currentDestination?.route == ROUTE_INVITES) nav.popBackStack()
+            }
         }
         composable(ROUTE_SETTINGS) {
             val holder =
@@ -161,3 +175,4 @@ private fun Navigation(
 
 private const val ROUTE_ONBOARDING = "onboarding"
 private const val ROUTE_SETTINGS = "settings"
+private const val ROUTE_INVITES = "invites"
