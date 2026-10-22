@@ -105,6 +105,10 @@ class StateDirTest {
                     Files.readAllBytes(dir.resolve("contacts")),
                     "a save never replaces a damaged book",
                 )
+                Files.delete(dir.resolve("contacts"))
+                state.identities.save(identity)
+                assertIs<ContactLoad.Unavailable>(state.contacts.load(), "nor does it heal a deleted book into an empty one")
+                assertFalse(Files.exists(dir.resolve("contacts")))
             }
         }
 

@@ -96,7 +96,7 @@ class ContactBook(
             reason != null -> block(sighting, known, reason, now)
             known == null -> pinNew(sighting, now)
             known.status == ContactStatus.BLOCKED -> this to Verdict.Blocked(checkNotNull(known.pending).reason)
-            else -> with(known.copy(status = ContactStatus.OK, lastSeen = now)) to Verdict.Usable
+            else -> with(revived(known, now)) to Verdict.Usable
         }
     }
 
@@ -198,6 +198,18 @@ class ContactBook(
         contacts.values.firstOrNull {
             it.accountId != accountId && it.status != ContactStatus.UNCONFIRMED &&
                 it.username == username
+        }
+
+    /** Seen again: a gone account is ok only if no other live account holds its name (SEC-26, CR-5); otherwise it stays gone. */
+    private fun revived(
+        known: Contact,
+        now: Long,
+    ): Contact =
+        if (known.status != ContactStatus.GONE) {
+            known.copy(lastSeen = now)
+        } else {
+            val taken = holderOfName(known.username, known.accountId)?.takeIf { it.status != ContactStatus.GONE } != null
+            known.copy(status = if (taken) ContactStatus.GONE else ContactStatus.OK, lastSeen = now)
         }
 
     private fun with(contact: Contact) = ContactBook(contacts + (contact.accountId to contact))
@@ -306,7 +318,7 @@ class ContactBook(
             }
         return when {
             reason != null -> block(sighting, known, reason, now).first
-            known.status == ContactStatus.GONE -> with(known.copy(status = ContactStatus.OK, lastSeen = now))
+            known.status == ContactStatus.GONE -> with(revived(known, now))
             else -> with(known.copy(lastSeen = now))
         }
     }

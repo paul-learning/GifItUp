@@ -155,10 +155,6 @@ class ContactBookTest {
         val shown = checkNotNull(reassigned.contacts.getValue(id(3)).pending)
         assertEquals(ContactStatus.GONE, reassigned.contacts.getValue(id(1)).status)
         assertEquals(AcceptResult.Accepted, reassigned.accept(id(3), shown).second, "the old holder is gone, so the name can move")
-        // The old holder is live again (it reappeared in a complete list): the name can't have two live holders.
-        val live = reassigned.list(listOf(seen(1, "alice", 1)), complete = false, NOW)
-        assertEquals(ContactStatus.OK, live.contacts.getValue(id(1)).status)
-        assertEquals(AcceptResult.Refused, live.accept(id(3), shown).second)
     }
 
     @Test
@@ -191,6 +187,17 @@ class ContactBookTest {
                 .getValue(id(1))
                 .devices.keys,
         )
+    }
+
+    @Test
+    fun aGoneAccountComesBackOnlyWhileNoOtherLiveAccountHoldsItsName() {
+        val reassigned = pinnedAlice.claimBlocked(seen(3, "alice", 3), TrustConflict.USERNAME_REASSIGNED)
+        val taken = reassigned.accept(id(3), checkNotNull(reassigned.contacts.getValue(id(3)).pending)).first
+        assertEquals(ContactStatus.GONE, taken.contacts.getValue(id(1)).status)
+        val listed = taken.list(listOf(seen(1, "alice", 1), seen(3, "alice2", 3)), complete = false, NOW)
+        assertEquals(ContactStatus.GONE, listed.contacts.getValue(id(1)).status, "carol (id 3) holds alice now: no second live alice")
+        val claimed = taken.claim(seen(1, "alice", 1), NOW).first
+        assertEquals(ContactStatus.GONE, claimed.contacts.getValue(id(1)).status)
     }
 
     @Test
