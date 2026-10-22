@@ -25,7 +25,7 @@ _Users can join through an invite, devices register keys, and the server can rel
 **Next: walking skeleton.** After #13 and #76, M1 continues with one thin end-to-end slice, in this order:
 1. ✅ Content-format amendments to ADR-0006 (one docs-only PR, #92): optional GIF caption (#80) and the content-format decision from the owner's comment on #24 (message reference/ID, "annotation" types that old clients ignore).
 2. ✅ Dev CLI client + end-to-end test in CI (#79; PRs #94, #95, #102, #103, #104).
-3. ✅ Minimal onboarding screen (#17), on the same use cases as the CLI (PRs #129 to #145: foundation, onboarding logic and screens, the create-invite logic and screen, Android App Links; checked on a phone, Android 15). Web `/invite` hosting and CSP come with #27.
+3. ✅ Minimal onboarding screen (#17), on the same use cases as the CLI (PRs #129, #130, #131, #132, #142, #143, #145: foundation, onboarding logic and screens, the create-invite logic and screen, Android App Links; checked on a phone, Android 15). Not built yet: a web page at `/invite` (today the server answers an error page there); it belongs to the web client's hosting and CSP work, #27.
 
 Everything else in M1 below that this slice doesn't need comes after it.
 
