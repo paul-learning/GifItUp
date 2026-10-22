@@ -63,9 +63,11 @@ tasks.matching { it.name == "packageDebug" || it.name == "packageRelease" }.conf
  * no cleartext and no user certificate authority. The build file's own settings are read through the Android DSL: no
  * build type but `debug` may be debuggable, and this build file may not use the Android DSL words that relocate a
  * source set's manifest or resources (the check looks for them as text, so it stays best effort; a relocated file
- * would escape the scan). The merged manifest is not checked (it needs the Android SDK), nor
- * is a library's manifest (the manifest merger lets the app's attributes win). A new kind of section in the backup rules
- * (Android 16 added `<cross-platform-transfer>` for iOS) fails the check on purpose: it needs a deliberate decision.
+ * would escape the scan). The app's own manifest must request exactly one permission, `INTERNET` (without it every
+ * network call fails and the app only says "no answer"), with no `tools:` attribute that could remove it in the merge.
+ * The merged manifest is not checked (it needs the Android SDK), nor is a library's manifest (the manifest merger lets
+ * the app's attributes win, but a library can add a permission). A new kind of section in the backup rules (Android 16
+ * added `<cross-platform-transfer>` for iOS) fails the check on purpose: it needs a deliberate decision.
  */
 abstract class VerifyManifestHardening : DefaultTask() {
     @get:InputDirectory
@@ -91,6 +93,14 @@ abstract class VerifyManifestHardening : DefaultTask() {
         val manifests = src.walkTopDown().filter { it.name == "AndroidManifest.xml" }.toList()
         if (manifests.map { it.relativeTo(src).path.replace('\\', '/') } != listOf("main/AndroidManifest.xml")) {
             problems += "only src/main may have an AndroidManifest.xml (another one can override the attributes): $manifests"
+        }
+        val requests = permissionElements(src.resolve("main/AndroidManifest.xml"))
+        val permissions = requests.map { it.getAttributeNS(ANDROID_NS, "name") }.toSet()
+        if (permissions != setOf(INTERNET)) {
+            problems += "the manifest must request exactly $INTERNET (the app can't reach its server without it), got $permissions"
+        }
+        if (requests.any { e -> (0 until e.attributes.length).any { e.attributes.item(it).namespaceURI == TOOLS_NS } }) {
+            problems += "a permission request must not carry a tools: attribute (tools:node=\"remove\" would drop it in the merge)"
         }
         debuggableBuildTypes.get().filter { it != "debug" }.forEach { problems += "build type '$it' is debuggable; only 'debug' may be" }
         // The pattern is built from pieces, so this very file doesn't match it.
@@ -176,6 +186,10 @@ abstract class VerifyManifestHardening : DefaultTask() {
         return problems
     }
 
+    /** Every `uses-permission*` element of the manifest (the allow-list is the one permission the app needs). */
+    private fun permissionElements(manifest: File): List<Element> =
+        children(parse(manifest)).filter { it.tagName.startsWith("uses-permission") }
+
     private fun children(e: Element): List<Element> =
         (0 until e.childNodes.length).map { e.childNodes.item(it) }.filterIsInstance<Element>()
 
@@ -193,6 +207,8 @@ abstract class VerifyManifestHardening : DefaultTask() {
 
     private companion object {
         const val ANDROID_NS = "http://schemas.android.com/apk/res/android"
+        const val INTERNET = "android.permission.INTERNET"
+        const val TOOLS_NS = "http://schemas.android.com/tools"
         val DOMAINS =
             setOf(
                 "root",
