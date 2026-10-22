@@ -22,7 +22,7 @@ class MemberDeviceRow(
 class MemberRepository {
     /**
      * The caller's inviter (if the caller has one and it still exists) and the accounts the caller invited: the inviter
-     * first (`invited_by` is NULL for a root inviter, so the flag is coalesced: NULL would sort last and read as false), then by username in byte order, ties by id, so the cut at [limit] is the same on every request. At most
+     * first, then by username in byte order, ties by id, so the cut at [limit] is the same on every request. At most
      * [limit] rows. Each member carries its first [MAX_DEVICES] devices, oldest first. Two statements, no per-member
      * query.
      */
@@ -45,6 +45,7 @@ class MemberRepository {
     ): List<Triple<UUID, String, Boolean>> =
         connection
             .prepareStatement(
+                // COALESCE: `invited_by` is NULL for a root inviter, and NULL would sort last and read as false (CR-1).
                 "SELECT a.id, a.username, COALESCE(a.invited_by = ?, FALSE) AS by_caller FROM accounts a " +
                     "WHERE a.invited_by = ? OR a.id = (SELECT invited_by FROM accounts WHERE id = ?) " +
                     "ORDER BY by_caller, a.username COLLATE \"C\", a.id LIMIT ?",
