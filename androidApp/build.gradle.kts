@@ -6,6 +6,17 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+// The host that App Links verify (#17 PR 4): the build's default origin without its scheme, from the same property that
+// composeApp uses (-Pgifitup.defaultOrigin=https://...), so the host is never committed (a public repo). Anything but a
+// plain host (a port, a path, a wildcard) gets a host that no link can match, so App Links stay off rather than guess.
+val appLinkHost =
+    providers.gradleProperty("gifitup.defaultOrigin").orElse("https://gifitup.invalid").map { origin ->
+        Regex("^https://([a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)$")
+            .matchEntire(origin)
+            ?.groupValues
+            ?.get(1) ?: "applinks-disabled.invalid"
+    }
+
 android {
     namespace = "app.gifitup.android"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -16,6 +27,7 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "0.1.0"
+        manifestPlaceholders["appLinkHost"] = appLinkHost.get()
         // crypto/ is built for these ABIs only (:mls, ADR-0007); on any other ABI the app would crash on first
         // use, so it isn't offered there at all. Also keeps unused 32-bit JNA libraries out of the APK.
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
@@ -94,6 +106,7 @@ abstract class VerifyManifestHardening : DefaultTask() {
         if (manifests.map { it.relativeTo(src).path.replace('\\', '/') } != listOf("main/AndroidManifest.xml")) {
             problems += "only src/main may have an AndroidManifest.xml (another one can override the attributes): $manifests"
         }
+        problems += checkIntentFilters(parse(src.resolve("main/AndroidManifest.xml")))
         val requests = permissionElements(src.resolve("main/AndroidManifest.xml"))
         val permissions = requests.map { it.getAttributeNS(ANDROID_NS, "name") }.toSet()
         if (permissions != setOf(INTERNET)) {
@@ -186,6 +199,32 @@ abstract class VerifyManifestHardening : DefaultTask() {
         return problems
     }
 
+    /**
+     * Exactly two intent filters may exist: the launcher, and the invite link (an `https` VIEW of exactly `/invite` on the
+     * build's host placeholder, verified, browsable). Compared as whole shapes, so a second data element, a wildcard host,
+     * a path prefix, another scheme or a new component with a filter all fail (#17 PR 4, plan review SEC-6).
+     */
+    private fun checkIntentFilters(manifest: Element): List<String> {
+        val shapes = all(manifest).filter { it.tagName == "intent-filter" }.map { shape(it) }.sorted()
+        return if (shapes == listOf(APP_LINK_FILTER, LAUNCHER_FILTER).sorted()) {
+            emptyList()
+        } else {
+            listOf("the manifest must hold exactly the launcher filter and the invite App Link filter, got $shapes")
+        }
+    }
+
+    private fun shape(filter: Element): String {
+        fun names(tag: String) = children(filter).filter { it.tagName == tag }.map { it.getAttributeNS(ANDROID_NS, "name") }.sorted()
+        val data =
+            children(filter).filter { it.tagName == "data" }.map { d ->
+                (0 until d.attributes.length).map { d.attributes.item(it) }.map { "${it.localName}=${it.nodeValue}" }.sorted()
+            }
+        return "autoVerify=${filter.getAttributeNS(
+            ANDROID_NS,
+            "autoVerify",
+        )};actions=${names("action")};categories=${names("category")};data=$data"
+    }
+
     /** Every `uses-permission*` element of the manifest (the allow-list is the one permission the app needs). */
     private fun permissionElements(manifest: File): List<Element> =
         children(parse(manifest)).filter { it.tagName.startsWith("uses-permission") }
@@ -208,6 +247,12 @@ abstract class VerifyManifestHardening : DefaultTask() {
     private companion object {
         const val ANDROID_NS = "http://schemas.android.com/apk/res/android"
         const val INTERNET = "android.permission.INTERNET"
+        const val LAUNCHER_FILTER =
+            "autoVerify=;actions=[android.intent.action.MAIN];categories=[android.intent.category.LAUNCHER];data=[]"
+        const val APP_LINK_FILTER =
+            "autoVerify=true;actions=[android.intent.action.VIEW];" +
+                "categories=[android.intent.category.BROWSABLE, android.intent.category.DEFAULT];" +
+                "data=[[host=\${appLinkHost}, path=/invite, scheme=https]]"
         const val TOOLS_NS = "http://schemas.android.com/tools"
         val DOMAINS =
             setOf(
