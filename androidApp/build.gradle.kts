@@ -95,6 +95,10 @@ abstract class VerifyManifestHardening : DefaultTask() {
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val buildScript: RegularFileProperty
 
+    /** Every `manifestPlaceholders` entry of the default config and the build types, as `name=value`. */
+    @get:Input
+    abstract val placeholders: ListProperty<String>
+
     @get:OutputFile
     abstract val marker: RegularFileProperty
 
@@ -107,6 +111,16 @@ abstract class VerifyManifestHardening : DefaultTask() {
             problems += "only src/main may have an AndroidManifest.xml (another one can override the attributes): $manifests"
         }
         problems += checkIntentFilters(parse(src.resolve("main/AndroidManifest.xml")))
+        // The one placeholder is the invite link's host, and a plain host (no wildcard, port or path) at that.
+        val host = Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$")
+        placeholders.get().forEach {
+            val value = it.substringAfter("appLinkHost=", "")
+            if (!it.startsWith("appLinkHost=") ||
+                !host.matches(value)
+            ) {
+                problems += "manifest placeholder '$it' must be appLinkHost=<a plain host>"
+            }
+        }
         val requests = permissionElements(src.resolve("main/AndroidManifest.xml"))
         val permissions = requests.map { it.getAttributeNS(ANDROID_NS, "name") }.toSet()
         if (permissions != setOf(INTERNET)) {
@@ -274,6 +288,15 @@ val verifyManifestHardening =
         sourceDir.set(layout.projectDirectory.dir("src"))
         debuggableBuildTypes.set(provider { android.buildTypes.filter { it.isDebuggable }.map { it.name } })
         buildScript.set(layout.projectDirectory.file("build.gradle.kts"))
+        placeholders.set(
+            provider {
+                (listOf(android.defaultConfig) + android.buildTypes).flatMap {
+                    it.manifestPlaceholders.entries.map { e ->
+                        "${e.key}=${e.value}"
+                    }
+                }
+            },
+        )
         marker.set(layout.buildDirectory.file("manifest-hardening.ok"))
     }
 

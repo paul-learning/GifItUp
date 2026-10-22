@@ -51,7 +51,7 @@ So that tapping `https://<your host>/invite#<code>` opens the app instead of the
 3. **Check it on the phone** (USB debugging on):
    - `adb shell pm get-app-links app.gifitup` should list your host as `verified`. If it says `none` or `1024`, Android couldn't fetch or match the file: re-check part 1 and run `adb shell pm verify-app-links --re-verify app.gifitup`.
    - `adb shell am start -a android.intent.action.VIEW -d "https://<your host>/invite#<a real invite code>"` opens the app with the invite prefilled.
-   - Foreign extras must do nothing: `adb shell am start -n app.gifitup/app.gifitup.android.MainActivity --ei android-support-nav:controller:deepLinkIds 0` must open the normal start screen (#131 SEC-21).
+   - Foreign extras must do nothing: `adb shell am start -n app.gifitup/app.gifitup.android.MainActivity --ei android-support-nav:controller:deepLinkIds 0` must open the normal start screen (#131 SEC-21). The same while the app is open on its start screen, as a new intent for the running activity: `adb shell am start -f 0x20000000 -n app.gifitup/app.gifitup.android.MainActivity --ei android-support-nav:controller:deepLinkIds 0` (that flag is `FLAG_ACTIVITY_SINGLE_TOP`) must leave the screen as it is (#145 SEC-1).
 
 Until the web client serves a page at `/invite` (#27), a link opened where the app isn't installed shows an error page from the server; the code can be pasted into the app instead. A link that reaches the app but is for another server is refused as "not for this server".
 

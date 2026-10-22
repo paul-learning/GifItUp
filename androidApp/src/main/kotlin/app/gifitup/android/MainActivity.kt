@@ -33,6 +33,17 @@ class MainActivity : ComponentActivity() {
         setContent { App(graph, inbox, ScreenProtection(::protectWindow)) }
     }
 
+    /**
+     * A foreign app can deliver an intent to a running instance too (`FLAG_ACTIVITY_SINGLE_TOP`, or an `intent:` link in
+     * a web page): its data and extras are ignored the same way as at creation, and the listeners (Navigation among
+     * them) get a bare intent, so no `deepLinkIds` extra can move the app to another screen (#145 SEC-1). A link
+     * that arrives like this is not offered to the onboarding either; the code can be pasted.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(Intent(Intent.ACTION_MAIN))
+        setIntent(Intent(Intent.ACTION_MAIN))
+    }
+
     /** `FLAG_SECURE`: no screenshots, no screen recording, a blank recents thumbnail (the invite screen, #17 SEC-8). */
     private fun protectWindow(on: Boolean) {
         if (on) {
