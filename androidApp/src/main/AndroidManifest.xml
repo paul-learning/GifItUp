@@ -21,6 +21,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Invite links (ADR-0013, #17 PR 4): exactly https://<host>/invite, verified against the host's
+                 /.well-known/assetlinks.json. The host is the build's default origin, never committed (a public repo):
+                 -Pgifitup.defaultOrigin, see androidApp/build.gradle.kts. A build check (verifyManifestHardening) fails
+                 on any other filter that takes data. The fragment (the code) is not matched, only the path. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="${appLinkHost}"
+                    android:path="/invite" />
+            </intent-filter>
         </activity>
     </application>
 

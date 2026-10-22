@@ -19,5 +19,16 @@ gifitup.example.com {
 		-Server
 		-Via
 	}
-	reverse_proxy gifitup-server:8080
+	# Android App Links (ADR-0013, #17 PR 4): Android fetches this one file over https, with no redirect, to verify that
+	# the app may open https://<host>/invite. Answered here, not by the server: it is static and public. Replace the
+	# fingerprint on the VM with the SHA-256 of the release signing certificate (docs/ops/deploy.md, "App Links"); it is
+	# not secret, but it is only known once the release key exists, so it is not committed.
+	handle /.well-known/assetlinks.json {
+		header Content-Type "application/json"
+		header Cache-Control "public, max-age=3600"
+		respond `[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"app.gifitup","sha256_cert_fingerprints":["REPLACE_WITH_RELEASE_SHA256"]}}]` 200
+	}
+	handle {
+		reverse_proxy gifitup-server:8080
+	}
 }
