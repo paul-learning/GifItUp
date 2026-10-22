@@ -63,11 +63,30 @@ class ContactStoreTest {
         }
 
     @Test
-    fun aMissingRecordNextToAnIdentityIsUnavailableNotEmpty() =
+    fun aMissingRecordNextToAnIdentityIsUnavailableAndALaterIdentitySaveDoesNotHealIt() =
         runTest {
             identities.save(ann)
             local.entries.remove(RecordContactStore.KEY)
             assertIs<ContactLoad.Unavailable>(contacts.load())
+            identities.save(StoredIdentity(ann.origin, ann.username, byteArrayOf(2), "8bbdc3b8-7e61-428b-a97f-054194069109"))
+            assertIs<ContactLoad.Unavailable>(contacts.load(), "a refill-style save must not turn a deleted book into an empty one")
+            assertEquals(null, local.entries[RecordContactStore.KEY])
+        }
+
+    @Test
+    fun anIdentityFromBeforeTheBookHasNoRecordAndStaysUnavailable() =
+        runTest {
+            local.putAll(mapOf(RecordIdentityStore.KEY to RecordIdentityStore.encode(ann)))
+            identities.save(ann)
+            assertIs<ContactLoad.Unavailable>(contacts.load())
+        }
+
+    @Test
+    fun theFirstWriteOfAnIdentityReplacesALeftoverRecordOfAnotherOne() =
+        runTest {
+            local.putAll(mapOf(RecordContactStore.KEY to ContactRecordCodec.encode(book(), ann.origin, "bob")))
+            identities.save(ann)
+            assertEquals(0, loaded()?.contacts?.size)
         }
 
     @Test

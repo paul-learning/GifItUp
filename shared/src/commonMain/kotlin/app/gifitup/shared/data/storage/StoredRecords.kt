@@ -13,14 +13,19 @@ class RecordIdentityStore(
     override suspend fun load(): StoredIdentity? = store.get(KEY)?.let(::decode)
 
     /**
-     * Writes the identity and, in the same atomic write, an empty contact record if there is none (ADR-0014): a missing
-     * record next to an identity then means something deleted it, not a fresh start. An existing record is never
-     * touched, so a damaged one stays damaged (unavailable) instead of becoming an empty book.
+     * Writes the identity. The **first** write of an identity (there is no identity record yet) also writes an empty
+     * contact record in the same atomic write (ADR-0014), replacing any leftover of an earlier identity. Later saves
+     * never touch the contact record, so a record that went missing or damaged stays unavailable instead of being
+     * healed into an empty book. An identity from before the contact book has no record; it needs a wipe and a new
+     * registration (alpha, no friends yet).
      */
     override suspend fun save(identity: StoredIdentity) {
+        val first = store.get(KEY) == null
         val contacts =
-            if (store.get(RecordContactStore.KEY) == null) {
-                mapOf(RecordContactStore.KEY to ContactRecordCodec.empty(identity.origin, identity.username))
+            if (first) {
+                mapOf(
+                    RecordContactStore.KEY to ContactRecordCodec.empty(identity.origin, identity.username),
+                )
             } else {
                 emptyMap()
             }

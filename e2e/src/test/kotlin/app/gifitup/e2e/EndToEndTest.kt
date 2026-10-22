@@ -206,7 +206,7 @@ class EndToEndTest {
         // Each claim hands out one KeyPackage that the crate accepts and removes it from the pool.
         repeat(2) { n ->
             val line = ok("keypackages-claim", carol, "--target", "e2e_ann")
-            assertTrue(CLAIMED_USABLE.matches(line), "claim ${n + 1}: one crate-valid KeyPackage for e2e_ann")
+            assertTrue(claimedUsable("e2e_ann").matches(line), "claim ${n + 1}: one crate-valid KeyPackage for e2e_ann")
             assertTrue("${49 - n} available" in ok("keypackages-status", ann), "claim ${n + 1} deleted its KeyPackage")
         }
         val third = cli.run("keypackages-claim", carol, "--target", "e2e_ann")
@@ -313,7 +313,7 @@ class EndToEndTest {
 
         val first = cli.run("keypackages-claim", hank, "--target", "e2e_gina")
         assertEquals(0, first.exit, "the first claim: exit code")
-        assertTrue(CLAIMED_USABLE.matches(first.stdout.trim().replace("e2e_gina", "e2e_ann")), "the first claim pins gina")
+        assertTrue(claimedUsable("e2e_gina").matches(first.stdout.trim()), "the first claim pins gina")
 
         val env = dbEnv + ("GIFITUP_PUBLIC_URL" to ORIGIN)
         val deleted = processes.run("admin", serverEntryPoint("AdminKt") + listOf("delete-account", "e2e_gina"), env, excludeStdout = true)
@@ -427,7 +427,9 @@ class EndToEndTest {
         const val EXIT_REFUSED = 3
         const val MAX_OPEN_INVITES = 5
         const val UUID_LENGTH = 36
-        val CLAIMED_USABLE = Regex("^[0-9a-f-]{36} {2}crate-valid, key pinned \\(credential e2e_ann\\)$")
+
+        fun claimedUsable(name: String) = Regex("^[0-9a-f-]{36} {2}crate-valid, key pinned \\(credential $name\\)$")
+
         val CLAIMED_EMPTY = Regex("^[0-9a-f-]{36} {2}empty \\(no KeyPackage left\\)$")
         val CREATED_LINE = Regex("^invite [0-9a-f-]{36} created, expires \\S+; link in \\S+$")
         val CONTACT_LINE = Regex("^[0-9a-f-]{36}  [a-z0-9_]+  (ok|unconfirmed|blocked|gone)  devices \\d+(  [a-z_]+)?$")

@@ -12,14 +12,17 @@ import kotlin.test.assertTrue
 
 /**
  * [AcceptContact] has no app caller until a fingerprint can be shown (ADR-0014, #18 PR 3/4): an accept in an app
- * without something to compare is a blind click. Only `:cli` (test accounts, which says so) may use it. A text check
- * over the app modules' sources, so wiring it in by mistake fails here.
+ * without something to compare is a blind click. Only `:cli` (test accounts, which says so) may use it. The book's
+ * own `accept` and the result type count too (SEC-25). A text check over the app modules' sources, so wiring it in by
+ * mistake fails here.
  */
 class NoAppAcceptTest {
     private val root: Path =
         generateSequence(Path.of("").toAbsolutePath()) {
             it.parent
         }.first { Files.exists(it.resolve("settings.gradle.kts")) }
+
+    private val unblock = Regex("AcceptContact|AcceptResult|\\.accept\\(")
 
     @Test
     fun noAppModuleReferencesAcceptContact() {
@@ -30,7 +33,7 @@ class NoAppAcceptTest {
                 Files.walk(dir).use { paths ->
                     paths
                         .asSequence()
-                        .filter { it.extension == "kt" && "AcceptContact" in it.readText() }
+                        .filter { it.extension == "kt" && unblock.containsMatchIn(it.readText()) }
                         .map {
                             root
                                 .relativize(

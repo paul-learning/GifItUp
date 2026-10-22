@@ -69,9 +69,9 @@ class StateDir(
         object : IdentityStore {
             override suspend fun load(): StoredIdentity? = readOrNull(identityFile)?.let(::parseIdentity)
 
-            /** Like the app's store (ADR-0014): an empty contact book is created with the identity, never replacing a record. */
+            /** Like the app's store (ADR-0014): the first write of an identity creates the empty book; later saves leave it. */
             override suspend fun save(identity: StoredIdentity) {
-                if (!Files.exists(contactsFile)) {
+                if (!Files.exists(identityFile)) {
                     writeAtomically(contactsFile, ContactRecordCodec.empty(identity.origin, identity.username))
                 }
                 writeAtomically(identityFile, formatIdentity(identity))

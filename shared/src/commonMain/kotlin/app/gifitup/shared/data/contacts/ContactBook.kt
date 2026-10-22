@@ -134,12 +134,27 @@ class ContactBook(
                 this to AcceptResult.Refused
             }
 
+            holderOfName(expected.username, accountId)?.takeIf { it.status != ContactStatus.GONE } != null -> {
+                this to AcceptResult.Refused
+            }
+
             else -> {
-                with(contact.copy(username = expected.username, status = ContactStatus.OK, devices = expected.devices, pending = null)) to
-                    AcceptResult.Accepted
+                with(accepted(contact, expected)) to AcceptResult.Accepted
             }
         }
     }
+
+    /** The observation replaces the pins of the devices it names (by id) and keeps the others: a claim shows only usable ones. */
+    private fun accepted(
+        contact: Contact,
+        expected: Observation,
+    ): Contact =
+        contact.copy(
+            username = expected.username,
+            status = ContactStatus.OK,
+            devices = contact.devices.filterValues { it !in expected.devices.values } + expected.devices,
+            pending = null,
+        )
 
     private fun conflict(
         sighting: Sighting,
@@ -187,13 +202,29 @@ class ContactBook(
 
     private fun with(contact: Contact) = ContactBook(contacts + (contact.accountId to contact))
 
+    /**
+     * Cases where nothing is stored: the book is full, or the key belongs to another account (nothing to accept, and an
+     * entry would block the name for good, SEC-22).
+     */
+    private fun refusedWithoutEntry(
+        known: Contact?,
+        reason: TrustConflict,
+    ): TrustConflict? =
+        when {
+            known != null -> null
+            pinCount >= MAX_PINS -> TrustConflict.BOOK_FULL
+            reason == TrustConflict.KEY_CONFLICT -> reason
+            else -> null
+        }
+
     private fun block(
         sighting: Sighting,
         known: Contact?,
         reason: TrustConflict,
         now: Long,
     ): Pair<ContactBook, Verdict> {
-        if (known == null && pinCount >= MAX_PINS) return this to Verdict.Blocked(TrustConflict.BOOK_FULL)
+        val refused = refusedWithoutEntry(known, reason)
+        if (refused != null) return this to Verdict.Blocked(refused)
         val observed = Observation(reason, sighting.username, sighting.devices)
         val entry =
             (known ?: Contact(sighting.accountId, sighting.username, ContactStatus.BLOCKED, emptyMap(), null, now, now))

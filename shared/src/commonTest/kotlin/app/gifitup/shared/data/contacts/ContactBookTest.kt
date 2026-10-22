@@ -89,9 +89,11 @@ class ContactBookTest {
     }
 
     @Test
-    fun aKeyPinnedToAnotherAccountIsAConflictWhateverTheNameOrDeviceId() {
-        pinnedAlice.claimBlocked(Sighting(id(2), "bob", mapOf(key(1) to id(5))), TrustConflict.KEY_CONFLICT)
-        pinnedAlice.claimBlocked(Sighting(id(2), "alice", mapOf(key(1) to id(1001))), TrustConflict.KEY_CONFLICT)
+    fun aKeyPinnedToAnotherAccountIsAConflictWhateverTheNameOrDeviceIdAndLeavesNoStickyEntry() {
+        val first = pinnedAlice.claimBlocked(Sighting(id(2), "bob", mapOf(key(1) to id(5))), TrustConflict.KEY_CONFLICT)
+        val second = pinnedAlice.claimBlocked(Sighting(id(2), "alice", mapOf(key(1) to id(1001))), TrustConflict.KEY_CONFLICT)
+        assertEquals(setOf(id(1)), first.contacts.keys, "an impostor's key leaves nothing that could block its name for good")
+        assertNull(second.blockedReasonFor("alice"))
     }
 
     @Test
@@ -148,6 +150,35 @@ class ContactBookTest {
     }
 
     @Test
+    fun acceptLetsANameMoveOnlyFromAGoneHolder() {
+        val reassigned = pinnedAlice.claimBlocked(seen(3, "alice", 3), TrustConflict.USERNAME_REASSIGNED)
+        val shown = checkNotNull(reassigned.contacts.getValue(id(3)).pending)
+        assertEquals(ContactStatus.GONE, reassigned.contacts.getValue(id(1)).status)
+        assertEquals(AcceptResult.Accepted, reassigned.accept(id(3), shown).second, "the old holder is gone, so the name can move")
+        // The old holder is live again (it reappeared in a complete list): the name can't have two live holders.
+        val live = reassigned.list(listOf(seen(1, "alice", 1)), complete = false, NOW)
+        assertEquals(ContactStatus.OK, live.contacts.getValue(id(1)).status)
+        assertEquals(AcceptResult.Refused, live.accept(id(3), shown).second)
+    }
+
+    @Test
+    fun acceptKeepsThePinsOfDevicesTheObservationDoesNotName() {
+        val two =
+            ContactBook(
+                mapOf(id(1) to Contact(id(1), "alice", ContactStatus.OK, mapOf(key(1) to id(1001), key(2) to id(1002)), null, 1L, 1L)),
+            )
+        val changed = two.claimBlocked(Sighting(id(1), "alice", mapOf(key(3) to id(1001))), TrustConflict.KEY_CHANGED)
+        val accepted = changed.accept(id(1), checkNotNull(changed.contacts.getValue(id(1)).pending)).first
+        assertEquals(
+            setOf(key(3), key(2)),
+            accepted.contacts
+                .getValue(id(1))
+                .devices.keys,
+            "key 1 replaced, key 2 kept",
+        )
+    }
+
+    @Test
     fun acceptRefusesWhenThePendingObservationChangedAfterItWasShown() {
         val blocked = pinnedAlice.claimBlocked(Sighting(id(1), "alice", mapOf(key(2) to id(1001))), TrustConflict.KEY_CHANGED)
         val shown = checkNotNull(blocked.contacts.getValue(id(1)).pending)
@@ -163,12 +194,13 @@ class ContactBookTest {
     }
 
     @Test
-    fun acceptRefusesWhatIsNotBlockedAndAKeyConflict() {
+    fun acceptRefusesWhatIsNotBlockedAndAKeyThatAnotherAccountPinnedMeanwhile() {
         assertEquals(AcceptResult.Refused, pinnedAlice.accept(id(1), Observation(TrustConflict.RENAMED, "x", emptyMap())).second)
         assertEquals(AcceptResult.Refused, pinnedAlice.accept(id(7), Observation(TrustConflict.RENAMED, "x", emptyMap())).second)
-        val conflict = pinnedAlice.claimBlocked(Sighting(id(2), "bob", mapOf(key(1) to id(5))), TrustConflict.KEY_CONFLICT)
-        val shown = checkNotNull(conflict.contacts.getValue(id(2)).pending)
-        assertEquals(AcceptResult.Refused, conflict.accept(id(2), shown).second, "a key can't be pinned to two accounts")
+        val blocked = pinnedAlice.claimBlocked(Sighting(id(1), "alice", mapOf(key(2) to id(1001))), TrustConflict.KEY_CHANGED)
+        val shown = checkNotNull(blocked.contacts.getValue(id(1)).pending)
+        val bobTookIt = blocked.claimOk(seen(2, "bob", 2))
+        assertEquals(AcceptResult.Refused, bobTookIt.accept(id(1), shown).second, "a key can't be pinned to two accounts")
     }
 
     @Test
@@ -189,16 +221,10 @@ class ContactBookTest {
     }
 
     @Test
-    fun aListedUnknownAccountWithAPinnedKeyIsAConflictNotUnconfirmed() {
-        val book = pinnedAlice.list(listOf(seen(2, "mallory", 1)), complete = false, NOW)
-        assertEquals(ContactStatus.BLOCKED, book.contacts.getValue(id(2)).status)
-        assertEquals(
-            TrustConflict.KEY_CONFLICT,
-            book.contacts
-                .getValue(id(2))
-                .pending
-                ?.reason,
-        )
+    fun aListedUnknownAccountWithAPinnedKeyIsDroppedNotUnconfirmed() {
+        val book = pinnedAlice.list(listOf(seen(2, "alice", 1)), complete = false, NOW)
+        assertNull(book.contacts[id(2)], "an impostor's entry would be sticky, unacceptable and would block the name for good")
+        assertNull(book.blockedReasonFor("alice"))
         assertEquals(ContactStatus.OK, book.contacts.getValue(id(1)).status, "the real one is not blocked by an impostor")
     }
 
