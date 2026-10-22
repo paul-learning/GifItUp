@@ -10,7 +10,7 @@ Read this at the start of every session, instead of reading the full docs. It po
 
 ## Now
 - **Milestone:** M1, identity and server plumbing ([milestone 2](https://github.com/paul-learning/GifItUp/milestone/2) lists all open issues).
-- **Walking skeleton:** steps 1 and 2 are done (#92, #79). Step 3 is #17 (minimal onboarding), in progress in four PRs (ADR-0013): the foundation, the onboarding logic, the create-invite logic (API, use cases, dev CLI, e2e) and the onboarding screens are merged; the create-invite screen is merged too (checked on a phone, Android 15); App Links, the last PR, is in review. #16 and #14 are done (ADR-0011, ADR-0012).
+- **Walking skeleton:** all three steps are done (#92, #79, #17; ADR-0013: onboarding, the create-invite screen and Android App Links, checked on a phone). #16 and #14 are done (ADR-0011, ADR-0012). Next in M1: #18 (contacts; plan and plan review first), then the M1 reviews (#19, #20).
 - **Outside the milestone:** #101 (deny agent edits to `gh-rest.sh` and `settings.json`, owner-filed).
 - Keep this section current in the PR that changes it, together with `docs/ROADMAP.md`. It is the brief's only low-tier part: the rest of this file, including what every session reads first, is high tier (`CLAUDE.md`, *Risk tiers*).
 
