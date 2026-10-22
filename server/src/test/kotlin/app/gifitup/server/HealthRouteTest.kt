@@ -18,7 +18,16 @@ class HealthRouteTest {
     @Test
     fun healthReturnsOkWithoutProtocolHeader() =
         testApplication {
-            application { module(testConfig(), AlwaysReady, noDatabaseAuth(), noDatabaseInvites(), noDatabaseKeyPackages()) }
+            application {
+                module(
+                    testConfig(),
+                    AlwaysReady,
+                    noDatabaseAuth(),
+                    noDatabaseInvites(),
+                    noDatabaseKeyPackages(),
+                    noDatabaseMembers(),
+                )
+            }
             val client = createClient { install(ContentNegotiation) { json(ProtocolJson) } }
 
             val response = client.get("/health")
@@ -37,7 +46,16 @@ class HealthRouteTest {
     @Test
     fun healthIsUnavailableWhenNotReady() =
         testApplication {
-            application { module(testConfig(), ReadinessProbe { false }, noDatabaseAuth(), noDatabaseInvites(), noDatabaseKeyPackages()) }
+            application {
+                module(
+                    testConfig(),
+                    ReadinessProbe { false },
+                    noDatabaseAuth(),
+                    noDatabaseInvites(),
+                    noDatabaseKeyPackages(),
+                    noDatabaseMembers(),
+                )
+            }
             val client = createClient { install(ContentNegotiation) { json(ProtocolJson) } }
 
             val response = client.get("/health")
@@ -50,7 +68,16 @@ class HealthRouteTest {
     fun unknownRouteWithoutSessionIsUnauthorizedNotNotFound() =
         testApplication {
             // Deny by default (ADR-0009): a caller without a session can't even tell which paths exist.
-            application { module(testConfig(), AlwaysReady, noDatabaseAuth(), noDatabaseInvites(), noDatabaseKeyPackages()) }
+            application {
+                module(
+                    testConfig(),
+                    AlwaysReady,
+                    noDatabaseAuth(),
+                    noDatabaseInvites(),
+                    noDatabaseKeyPackages(),
+                    noDatabaseMembers(),
+                )
+            }
 
             val response = versionedClient().get("/does-not-exist")
 

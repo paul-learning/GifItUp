@@ -117,6 +117,7 @@ private fun Route.claimRoute(keyPackages: KeyPackageService) {
                 call.noStore() // the response carries KeyPackages
                 call.respond(
                     ClaimKeyPackagesResponse(
+                        outcome.accountId.toString(),
                         outcome.devices.map { ClaimedDevice(it.deviceId.toString(), it.keyPackage?.let(Base64Url::encode)) },
                     ),
                 )

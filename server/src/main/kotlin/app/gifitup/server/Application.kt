@@ -26,6 +26,8 @@ import app.gifitup.server.keypackages.KeyPackageLimits
 import app.gifitup.server.keypackages.KeyPackageService
 import app.gifitup.server.keypackages.keyPackageBodyLimit
 import app.gifitup.server.keypackages.keyPackageRoutes
+import app.gifitup.server.members.MemberService
+import app.gifitup.server.members.memberRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -53,13 +55,14 @@ fun main() {
     val auth = AuthService(database, config.publicOrigin, Challenges(clock), DbInviteRedeemer(), clock)
     val invites = InviteService(database, config.publicOrigin, clock)
     val keyPackages = KeyPackageService(database, clock, KeyPackageLimits(clock))
+    val members = MemberService(database)
     val inviteCleanup = InviteCleanup(database, clock).start()
     val keyPackageCleanup = KeyPackageCleanup(database, clock).start()
     val server =
         embeddedServer(
             Netty,
             configure = { applyTo(this, config) },
-            module = { module(config, readiness, auth, invites, keyPackages) },
+            module = { module(config, readiness, auth, invites, keyPackages, members) },
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
@@ -103,13 +106,15 @@ internal fun applyTo(
 private const val NETTY_HTTP_CODEC = "codec"
 
 /** Composition root of the server (ADR-0004). */
+@Suppress("LongParameterList") // One parameter per service.
 fun Application.module(
     config: ServerConfig,
     readiness: ReadinessProbe,
     auth: AuthService,
     invites: InviteService,
     keyPackages: KeyPackageService,
-) = configure(config, readiness, auth, invites, keyPackages, PUBLIC_PATHS)
+    members: MemberService,
+) = configure(config, readiness, auth, invites, keyPackages, members, PUBLIC_PATHS)
 
 /** [module] with the public paths as a parameter, so tests can make their test-only routes public (#73 CR-5). */
 @Suppress("LongParameterList") // The composition root: one parameter per service.
@@ -119,6 +124,7 @@ internal fun Application.configure(
     auth: AuthService,
     invites: InviteService,
     keyPackages: KeyPackageService,
+    members: MemberService,
     publicPaths: Set<String>,
 ) {
     installErrorHandling()
@@ -133,6 +139,7 @@ internal fun Application.configure(
         authRoutes(auth)
         inviteRoutes(invites)
         keyPackageRoutes(keyPackages)
+        memberRoutes(members)
         // 503 when the database is unreachable, so deploy.sh's health gate covers it and rolls back (ADR-0008).
         get(HEALTH_PATH) {
             val ready = readiness.isReady()

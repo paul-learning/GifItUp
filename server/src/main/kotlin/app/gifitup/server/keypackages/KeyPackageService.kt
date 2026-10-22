@@ -97,6 +97,7 @@ class ClaimedKeyPackage(
 
 sealed interface ClaimOutcome {
     class Claimed(
+        val accountId: UUID,
         val devices: List<ClaimedKeyPackage>,
     ) : ClaimOutcome
 
@@ -212,7 +213,7 @@ class KeyPackageService(
                     }
                 done = true
                 // An empty pool is charged (D7): the tokens stay spent.
-                ClaimOutcome.Claimed(claimed)
+                ClaimOutcome.Claimed(target, claimed)
             } finally {
                 // A failure rolled the transaction back, so nothing was taken: give every token back, once each.
                 if (!done) taken.giveBack()

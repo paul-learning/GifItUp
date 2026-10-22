@@ -15,6 +15,7 @@ import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.LogOut
 import app.gifitup.shared.domain.auth.RegisterDevice
 import app.gifitup.shared.domain.auth.TestAccountGuard
+import app.gifitup.shared.domain.contacts.ListMembers
 import app.gifitup.shared.domain.keypackages.ClaimKeyPackages
 import app.gifitup.shared.domain.keypackages.RefillKeyPackages
 import io.ktor.client.engine.HttpClientEngine
@@ -47,6 +48,7 @@ data class Invocation(
                 "invite-create",
                 "invites",
                 "invite-revoke",
+                "contacts",
             )
         private val VALUE_OPTIONS = setOf("--server", "--state-dir", "--origin", "--username", "--target", "--link-file", "--id")
 
@@ -104,6 +106,7 @@ data class Invocation(
   invite-create --link-file <file>    create an invite; its link goes to <file> (new, owner-only), never to the screen
   invites                      list this account's invites
   invite-revoke --id <invite id>      revoke one of this account's open invites
+  contacts                     list the inviter and the invitees of this account (the server's statement)
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
 Only test origins (*.invalid, *.test, localhost) unless --remote-test-account and a cli_ username are given.
 Every command logs in and out again; the server allows 10 logins per device per hour."""
@@ -200,6 +203,7 @@ class Cli(
         val claim = ClaimKeyPackages(api, mls, state.identities, state.keys, lock)
         val keyPackages = KeyPackageCommands(api, refill, claim, out) { report(it) { } }
         val invites = InviteCommands(api, out) { report(it) { } }
+        val contacts = ContactCommands(ListMembers(api), out) { report(it) { } }
         return when (invocation.command) {
             "keypackages-refill" -> keyPackages.refill(session)
             "keypackages-status" -> keyPackages.status(session)
@@ -207,6 +211,7 @@ class Cli(
             "invite-create" -> invites.create(session, checkNotNull(invocation.linkFile))
             "invites" -> invites.list(session)
             "invite-revoke" -> invites.revoke(session, checkNotNull(invocation.inviteId))
+            "contacts" -> contacts.list(session)
             else -> deviceCommand(invocation.command, api, session)
         }
     }

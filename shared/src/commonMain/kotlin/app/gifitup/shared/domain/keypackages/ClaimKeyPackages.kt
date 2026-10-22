@@ -75,7 +75,7 @@ class ClaimKeyPackages internal constructor(
             client.use { mls, _ ->
                 when (val claimed = api.claimKeyPackages(session, username, SUITES)) {
                     is ApiResult.Failed -> claimed.toAuth()
-                    is ApiResult.Ok -> AuthResult.Ok(claimed.value.map { classify(mls, it, username) })
+                    is ApiResult.Ok -> AuthResult.Ok(claimed.value.devices.map { classify(mls, it, username) })
                 }
             }
         }

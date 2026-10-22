@@ -22,12 +22,18 @@ class KeyPackageApiTest {
     private val server = FakeAuthServer()
     private val api = server.api()
     private val other = "11111111-2222-4333-8444-555555555555"
+    private val account = "aaaaaaaa-2222-4333-8444-555555555555"
 
     private suspend fun session(): Session = assertIs<ApiResult.Ok<Session>>(api.login(DEVICE_ID, ByteArray(56), ByteArray(64))).value
 
     private fun deviceId(n: Int) = "00000000-0000-4000-8000-" + n.toString().padStart(12, '0')
 
-    private fun claimed(vararg devices: String) = json("""{"devices":[${devices.joinToString(",")}]}""")
+    private fun claimed(vararg devices: String) = claimedBy(account, *devices)
+
+    private fun claimedBy(
+        accountId: String,
+        vararg devices: String,
+    ) = json("""{"accountId":"$accountId","devices":[${devices.joinToString(",")}]}""")
 
     private fun device(
         id: String,
@@ -69,10 +75,11 @@ class KeyPackageApiTest {
             val session = session()
             val bytes = byteArrayOf(9, 8, 7)
             server.on("/key-packages/claim", claimed(device(DEVICE_ID, Base64Url.encode(bytes)), device(other, null)))
-            val result = assertIs<ApiResult.Ok<List<ClaimedKeyPackage>>>(api.claimKeyPackages(session, "ben", listOf(1, 2))).value
-            assertEquals(listOf(DEVICE_ID, other), result.map { it.deviceId })
-            assertContentEquals(bytes, result[0].keyPackage)
-            assertNull(result[1].keyPackage)
+            val result = assertIs<ApiResult.Ok<ClaimedKeyPackages>>(api.claimKeyPackages(session, "ben", listOf(1, 2))).value
+            assertEquals(account, result.accountId)
+            assertEquals(listOf(DEVICE_ID, other), result.devices.map { it.deviceId })
+            assertContentEquals(bytes, result.devices[0].keyPackage)
+            assertNull(result.devices[1].keyPackage)
             val sent = ProtocolJson.decodeFromString(ClaimKeyPackagesRequest.serializer(), server.requests.last().body)
             assertEquals(ClaimKeyPackagesRequest("ben", listOf(1, 2)), sent)
         }
@@ -102,8 +109,13 @@ class KeyPackageApiTest {
                     claimed(device(DEVICE_ID, "")),
                     claimed(device(DEVICE_ID, tooBig)),
                     claimed(*Array(11) { device(deviceId(it), good) }), // more than 10 devices
-                    json("""{"devices":[{"deviceId":"$DEVICE_ID"}]}"""),
-                    json("""{"devices":"x"}"""),
+                    json("""{"accountId":"$account","devices":[{"deviceId":"$DEVICE_ID"}]}"""),
+                    json("""{"accountId":"$account","devices":"x"}"""),
+                    // No account id, or one that is not a canonical UUID: refused, never "unknown, so fine" (ADR-0014).
+                    json("""{"devices":[${device(DEVICE_ID, good)}]}"""),
+                    claimedBy("", device(DEVICE_ID, good)),
+                    claimedBy(account.uppercase(), device(DEVICE_ID, good)),
+                    claimedBy("not-a-uuid", device(DEVICE_ID, good)),
                 )
             malformedClaims.forEach {
                 server.on("/key-packages/claim", it)
@@ -159,6 +171,6 @@ class KeyPackageApiTest {
                 "/key-packages/claim",
                 claimed(*Array(10) { device(deviceId(it), big) }),
             )
-            assertEquals(10, assertIs<ApiResult.Ok<List<ClaimedKeyPackage>>>(api.claimKeyPackages(session, "ben", listOf(1))).value.size)
+            assertEquals(10, assertIs<ApiResult.Ok<ClaimedKeyPackages>>(api.claimKeyPackages(session, "ben", listOf(1))).value.devices.size)
         }
 }
