@@ -12,6 +12,7 @@ import app.gifitup.protocol.InviteListResponse
 import app.gifitup.protocol.InviteStatus
 import app.gifitup.protocol.KeyPackageStatusResponse
 import app.gifitup.protocol.LoginRequest
+import app.gifitup.protocol.MembersResponse
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION_HEADER
 import app.gifitup.protocol.ProtocolJson
@@ -159,7 +160,7 @@ class GifItUpApi(
         session: Session,
         username: String,
         ciphersuites: List<Int>,
-    ): ApiResult<List<ClaimedKeyPackage>> {
+    ): ApiResult<ClaimedKeyPackages> {
         require(
             USERNAME.matches(username) && ciphersuites.size in 1..MAX_SUITES && ciphersuites.distinct().size == ciphersuites.size &&
                 ciphersuites.all { it in 1..MAX_SUITE_ID },
@@ -182,6 +183,14 @@ class GifItUpApi(
                 ?.takeIf { UUID.matches(it.inviteId) }
                 ?.let { CreatedInviteAnswer(it.inviteId, it.link, it.expiresAt) }
         }
+
+    /**
+     * `GET /members`: the account's invite neighbours (ADR-0014). The whole answer is refused, not trimmed, if any
+     * part of it breaks the rules in [readMembers]: a partly believed list would let a server shape what the contact
+     * book sees.
+     */
+    suspend fun listMembers(session: Session): ApiResult<MemberList> =
+        exchange(Route.MEMBERS, body = null, session) { bytes -> decode(MembersResponse.serializer(), bytes)?.let(::readMembers) }
 
     /** `GET /invites`: the account's own invites. */
     suspend fun listInvites(session: Session): ApiResult<List<Invite>> =
@@ -234,6 +243,7 @@ class GifItUpApi(
         val method: HttpMethod,
         val path: String,
         val success: HttpStatusCode,
+        val maxBody: Int = MAX_BODY_BYTES,
     ) {
         CHALLENGE(HttpMethod.Post, "/auth/challenge", HttpStatusCode.OK),
         REGISTER(HttpMethod.Post, "/accounts", HttpStatusCode.Created),
@@ -246,6 +256,7 @@ class GifItUpApi(
         CREATE_INVITE(HttpMethod.Post, "/invites", HttpStatusCode.Created),
         LIST_INVITES(HttpMethod.Get, "/invites", HttpStatusCode.OK),
         REVOKE_INVITE(HttpMethod.Delete, "/invites", HttpStatusCode.NoContent),
+        MEMBERS(HttpMethod.Get, "/members", HttpStatusCode.OK, MAX_MEMBERS_BODY_BYTES),
     }
 
     /**
@@ -269,7 +280,7 @@ class GifItUpApi(
                     header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString())
                     session?.let { header(HttpHeaders.Authorization, "Bearer ${it.token}") }
                     body?.let { setBody(TextContent(it, ContentType.Application.Json)) }
-                }.execute { response -> answer(response, route.success, read) }
+                }.execute { response -> answer(response, route.success, route.maxBody, read) }
         } catch (e: CancellationException) {
             throw e
         } catch (ignored: Throwable) {
@@ -282,6 +293,9 @@ class GifItUpApi(
     companion object {
         /** Cap on any response body; every answer of these endpoints is far smaller (#79 SEC-8). */
         const val MAX_BODY_BYTES = 64 * 1024
+
+        /** `GET /members` may carry 200 members with 10 devices each (ADR-0014): about 240 KiB at worst. */
+        internal const val MAX_MEMBERS_BODY_BYTES = 256 * 1024
 
         private const val CONNECT_TIMEOUT_MS = 10_000L
         private const val SOCKET_TIMEOUT_MS = 15_000L
@@ -304,7 +318,7 @@ class GifItUpApi(
 
         /** A claim returns at most this many devices (ADR-0012). */
         internal const val MAX_CLAIMED_DEVICES = 10
-        private val USERNAME = Regex("^[a-z0-9_]{3,32}$")
+        internal val USERNAME = Regex("^[a-z0-9_]{3,32}$")
 
         /** Device ids are lowercase canonical UUIDs (ADR-0009). */
         internal val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -314,9 +328,10 @@ class GifItUpApi(
 private suspend fun <T> answer(
     response: HttpResponse,
     success: HttpStatusCode,
+    maxBody: Int,
     read: (ByteArray) -> T?,
 ): ApiResult<T> {
-    val bytes = response.readCapped()
+    val bytes = response.readCapped(maxBody)
     val result =
         when {
             bytes == null -> null
@@ -348,17 +363,25 @@ private fun failure(error: ErrorResponse): ApiResult.Failed =
         },
     )
 
-/** Every device is listed once with a canonical id; a KeyPackage is canonical base64url of 1..2,048 bytes, or null. */
-private fun readClaimed(response: ClaimKeyPackagesResponse): List<ClaimedKeyPackage>? {
+/**
+ * The account id is a canonical UUID, every device is listed once with a canonical id; a KeyPackage is canonical
+ * base64url of 1..2,048 bytes, or null.
+ */
+private fun readClaimed(response: ClaimKeyPackagesResponse): ClaimedKeyPackages? {
     val devices = response.devices
     val decoded = devices.map { device -> device.keyPackage?.let { Base64Url.decode(it, 1..GifItUpApi.MAX_KEY_PACKAGE_BYTES) } }
     val valid =
-        devices.size <= GifItUpApi.MAX_CLAIMED_DEVICES &&
+        GifItUpApi.UUID.matches(response.accountId) &&
+            devices.size <= GifItUpApi.MAX_CLAIMED_DEVICES &&
             devices.map { it.deviceId }.distinct().size == devices.size &&
             devices.indices.all { i ->
                 GifItUpApi.UUID.matches(devices[i].deviceId) && (devices[i].keyPackage == null || decoded[i] != null)
             }
-    return if (valid) devices.indices.map { ClaimedKeyPackage(devices[it].deviceId, decoded[it]) } else null
+    return if (valid) {
+        ClaimedKeyPackages(response.accountId, devices.indices.map { ClaimedKeyPackage(devices[it].deviceId, decoded[it]) })
+    } else {
+        null
+    }
 }
 
 /** A session token is 32 random bytes (ADR-0009). */
@@ -374,9 +397,8 @@ private fun readSession(
                 it.expiresAt > 0
         }?.let { Session(it.deviceId, it.sessionToken, it.expiresAt, endpoint) }
 
-/** The body, or null if it is larger than [GifItUpApi.MAX_BODY_BYTES] (by header or by content). */
-private suspend fun HttpResponse.readCapped(): ByteArray? {
-    val max = GifItUpApi.MAX_BODY_BYTES
+/** The body, or null if it is larger than [max] (by header or by content). */
+private suspend fun HttpResponse.readCapped(max: Int): ByteArray? {
     if ((contentLength() ?: 0) > max) return null
     return bodyAsChannel().readRemaining(max + 1L).readByteArray().takeIf { it.size <= max }
 }

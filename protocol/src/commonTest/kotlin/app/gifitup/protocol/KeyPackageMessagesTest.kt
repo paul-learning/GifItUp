@@ -42,13 +42,15 @@ class KeyPackageMessagesTest {
     fun claimResponseKeepsAnExplicitNullForADeviceWithoutKeyPackages() {
         val response =
             ClaimKeyPackagesResponse(
+                "123e4567-e89b-12d3-a456-426614174099",
                 listOf(
                     ClaimedDevice("123e4567-e89b-12d3-a456-426614174000", "AAEC"),
                     ClaimedDevice("123e4567-e89b-12d3-a456-426614174001", null),
                 ),
             )
         val json =
-            """{"devices":[{"deviceId":"123e4567-e89b-12d3-a456-426614174000","keyPackage":"AAEC"},""" +
+            """{"accountId":"123e4567-e89b-12d3-a456-426614174099",""" +
+                """"devices":[{"deviceId":"123e4567-e89b-12d3-a456-426614174000","keyPackage":"AAEC"},""" +
                 """{"deviceId":"123e4567-e89b-12d3-a456-426614174001","keyPackage":null}]}"""
         assertEquals(json, ProtocolJson.encodeToString(response))
         assertEquals(response, ProtocolJson.decodeFromString<ClaimKeyPackagesResponse>(json))
@@ -57,9 +59,9 @@ class KeyPackageMessagesTest {
     /** The response has no suite and no remaining count: a client never learns either from the server (ADR-0012). */
     @Test
     fun claimResponseHasNoSuiteAndNoCount() {
-        val json = ProtocolJson.encodeToString(ClaimKeyPackagesResponse(listOf(ClaimedDevice("d", "AAEC"))))
+        val json = ProtocolJson.encodeToString(ClaimKeyPackagesResponse("a", listOf(ClaimedDevice("d", "AAEC"))))
         val top = ProtocolJson.parseToJsonElement(json).jsonObject
-        assertEquals(setOf("devices"), top.keys)
+        assertEquals(setOf("accountId", "devices"), top.keys)
         assertEquals(
             setOf("deviceId", "keyPackage"),
             top
@@ -68,6 +70,11 @@ class KeyPackageMessagesTest {
                 .single()
                 .jsonObject.keys,
         )
+    }
+
+    @Test
+    fun claimResponseWithoutAnAccountIdDoesNotDecode() {
+        assertFailsWith<SerializationException> { ProtocolJson.decodeFromString<ClaimKeyPackagesResponse>("""{"devices":[]}""") }
     }
 
     @Test

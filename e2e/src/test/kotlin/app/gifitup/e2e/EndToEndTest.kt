@@ -56,6 +56,7 @@ class EndToEndTest {
             refusals(cli, used, createInvite(dbEnv))
             keyPackages(cli, createInvite(dbEnv))
             invites(cli)
+            contacts(cli)
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
@@ -267,6 +268,29 @@ class EndToEndTest {
         assertFalse(Files.exists(work.resolve("link-sixth")), "no link file for a refused invite")
     }
 
+    /**
+     * The member list (#18, ADR-0014): an inviter sees the account that joined with their invite, and that account
+     * sees its inviter first; a root account has no inviter. `e2e_erin` joined with `e2e_dave`'s invite in the step
+     * before. A request without a session can't be sent through the CLI (it always logs in): that 401 is a server test.
+     */
+    private fun contacts(cli: Cli) {
+        fun lines(state: String) =
+            cli
+                .run(
+                    "contacts",
+                    work.resolve(state),
+                ).also { assertEquals(0, it.exit, "contacts of $state: exit code") }
+                .stdout
+                .lines()
+                .filter {
+                    it.isNotBlank()
+                }
+        val dave = lines("state-dave").single()
+        assertTrue(CONTACT_LINE.matches(dave) && dave.contains("  e2e_erin  invitee  devices 1"), "dave sees erin as an invitee")
+        val erin = lines("state-erin").single()
+        assertTrue(CONTACT_LINE.matches(erin) && erin.contains("  e2e_dave  inviter  devices 1"), "erin sees dave as the inviter")
+    }
+
     /** `invite-create` into [fileName] in the work dir; returns the link, whose code then counts as a secret. */
     private fun createdLink(
         cli: Cli,
@@ -349,6 +373,7 @@ class EndToEndTest {
         val CLAIMED_USABLE = Regex("^[0-9a-f-]{36} {2}crate-valid, not authenticated \\(credential e2e_ann\\)$")
         val CLAIMED_EMPTY = Regex("^[0-9a-f-]{36} {2}empty \\(no KeyPackage left\\)$")
         val CREATED_LINE = Regex("^invite [0-9a-f-]{36} created, expires \\S+; link in \\S+$")
+        val CONTACT_LINE = Regex("^[0-9a-f-]{36}  [a-z0-9_]+  (inviter|invitee)  devices \\d+$")
         val DEVICE_LINE = Regex("^registered e2e_ann as device ([0-9a-f-]{36})$")
     }
 }

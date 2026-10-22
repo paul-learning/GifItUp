@@ -56,7 +56,7 @@ Constraints: the server is untrusted for content and stays Rust-free (ADR-0007);
 
 ### Client (PR C)
 - Refill: restore through `GuardedMlsFactory` under `DeviceLock`, prune expired, create, **persist the exported state first**, then upload. A KeyPackage is never public without its private key.
-- Claim: claim, then `inspect_key_package(bytes, username)` for each; one that fails is dropped and reported as unusable; the signature key goes to the TOFU record (#18).
+- Claim: claim, then `inspect_key_package(bytes, username)` for each; one that fails is dropped and reported as unusable; the signature key goes to the TOFU record (#18, ADR-0014). The response also carries the claimed `accountId` (ADR-0014): required, and a client that finds it missing or malformed refuses the claim.
 
 ## Consequences
 - **Metadata (CLAUDE.md "new server-visible field").** Stored: KeyPackage bytes (public keys, the username in the credential, the lifetime), suite, upload time and per-device counts. Nothing at rest says who claimed what. Only in memory, in the rate-limit buckets (never at rest, never in a log line): which account claimed from which account, and when. A pair bucket stays in memory for at least 24 hours after its last use, until it has refilled, then it is evicted (the threat model already lists "who is about to add whom"). New: every member can see another member's device ids and, as `null`, whether a device has KeyPackages left; the aggregate 429 above.

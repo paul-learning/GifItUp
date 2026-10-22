@@ -19,6 +19,7 @@ import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.module
 import app.gifitup.server.noDatabaseInvites
 import app.gifitup.server.noDatabaseKeyPackages
+import app.gifitup.server.noDatabaseMembers
 import app.gifitup.server.testConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -77,7 +78,7 @@ class AuthEndpointsTest {
         Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { database ->
             val auth = AuthService(database, origin, Challenges(clock), invites, clock, limits)
             testApplication {
-                application { module(testConfig(), AlwaysReady, auth, noDatabaseInvites(), noDatabaseKeyPackages()) }
+                application { module(testConfig(), AlwaysReady, auth, noDatabaseInvites(), noDatabaseKeyPackages(), noDatabaseMembers()) }
                 Fixture(this, url).block()
             }
         }

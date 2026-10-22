@@ -56,10 +56,13 @@ data class ClaimKeyPackagesRequest(
  * `POST /key-packages/claim` → `200`: at most 10 devices, oldest first (a safety bound; one device per account in
  * v1). The response carries no cipher suite and no count of what is left: the client reads the suite from the bytes
  * and checks every KeyPackage itself (`inspect_key_package`, ADR-0002). Byte fields are canonical base64url, which
- * the client decodes strictly.
+ * the client decodes strictly. [accountId] (ADR-0014) is the claimed account's id, so the client can tell a new device
+ * of a known account from a new account under the same name. It is required: a response without it fails to decode,
+ * and the client's contact check treats that as a refusal, never as "unknown, so fine".
  */
 @Serializable
 data class ClaimKeyPackagesResponse(
+    val accountId: String,
     val devices: List<ClaimedDevice>,
 )
 

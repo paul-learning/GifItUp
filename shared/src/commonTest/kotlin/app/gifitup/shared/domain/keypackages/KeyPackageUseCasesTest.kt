@@ -168,7 +168,10 @@ class KeyPackageUseCasesTest {
             server.on(
                 "/key-packages/claim",
                 json(
-                    """{"devices":[${entry(ids[0], good)},${entry(ids[1], null)},${entry(ids[2], wrongName)},${entry(ids[3], garbage)}]}""",
+                    """{"accountId":"aaaaaaaa-2222-4333-8444-555555555555","devices":[${entry(
+                        ids[0],
+                        good,
+                    )},${entry(ids[1], null)},${entry(ids[2], wrongName)},${entry(ids[3], garbage)}]}""",
                 ),
             )
             val result = assertIs<AuthResult.Ok<List<ClaimedDeviceKey>>>(claim(session, "ben")).value

@@ -29,6 +29,7 @@ import app.gifitup.server.auth.TestDevice
 import app.gifitup.server.auth.authSignContentUnchecked
 import app.gifitup.server.captureLogs
 import app.gifitup.server.db.APP_ROLE
+import app.gifitup.server.db.AccountRepository
 import app.gifitup.server.db.Database
 import app.gifitup.server.db.DatabaseConfig
 import app.gifitup.server.db.InviteRepository
@@ -37,6 +38,7 @@ import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.db.TransactionRunner
 import app.gifitup.server.invites.InviteService
 import app.gifitup.server.module
+import app.gifitup.server.noDatabaseMembers
 import app.gifitup.server.testConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.defaultRequest
@@ -196,7 +198,7 @@ class KeyPackageEndpointsTest {
             val invites = InviteService(db, origin, clock)
             val service = KeyPackageService(db, clock, limits)
             testApplication {
-                application { module(testConfig(), AlwaysReady, auth, invites, service) }
+                application { module(testConfig(), AlwaysReady, auth, invites, service, noDatabaseMembers()) }
                 val client = createClient { defaultRequest { header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString()) } }
                 Fixture(db, client, service, limits).block()
             }
@@ -227,7 +229,10 @@ class KeyPackageEndpointsTest {
             val claimed = claim(ana, "ben")
             assertEquals(HttpStatusCode.OK, claimed.status)
             assertEquals("no-store", claimed.headers["Cache-Control"])
-            val device = ProtocolJson.decodeFromString<ClaimKeyPackagesResponse>(claimed.bodyAsText()).devices.single()
+            val claimedBody = ProtocolJson.decodeFromString<ClaimKeyPackagesResponse>(claimed.bodyAsText())
+            val benId = db.transaction { c -> AccountRepository().findIdByUsername(c, "ben") }
+            assertEquals(benId.toString(), claimedBody.accountId, "the claimed account's id (ADR-0014)")
+            val device = claimedBody.devices.single()
             assertContentEquals(kp, Base64Url.decodeUpTo(assertNotNull(device.keyPackage), 2048))
             assertEquals(0, status(ben).available, "delete on claim")
 

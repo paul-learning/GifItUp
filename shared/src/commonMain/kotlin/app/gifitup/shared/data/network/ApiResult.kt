@@ -73,6 +73,12 @@ data class KeyPackageStatus(
     val lowWaterMark: Int,
 )
 
+/** What a claim returned: the claimed account's id (untrusted, a canonical UUID) and its devices, oldest first. */
+class ClaimedKeyPackages(
+    val accountId: String,
+    val devices: List<ClaimedKeyPackage>,
+)
+
 /** One device of the claimed member; [keyPackage] is null if it had none for the wanted ciphersuites. Untrusted bytes. */
 class ClaimedKeyPackage(
     val deviceId: String,
