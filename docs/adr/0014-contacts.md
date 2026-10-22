@@ -42,7 +42,7 @@ A member needs to see who they can talk to, and the app needs a record of which 
 - **Unblocking a blocked contact is open (SEC-1, owner decision pending):** without a client-computed fingerprint the user has nothing to check, so "I checked this, accept" would be a blind click and the wording would claim more than the user did. Either the crate exposes a local fingerprint, shown with the old and new value side by side (a minimal slice of #31), or v1 has no accept and `BLOCKED` ends until the contact is re-added. In both cases the button says what it does, and the real check is out of band. Settled before PR 2.
 
 ### Not decided here
-How people who are not neighbours find each other and ask to connect, and whether the claim is then restricted to accepted contacts, is a separate issue (owner request, 2026-10-22). A non-neighbour first claimed by name is pinned at first sight with no neighbour context until it decides their trust.
+How people who are not neighbours find each other and ask to connect, and whether the claim is then restricted to accepted contacts, is a separate issue, #147 (owner request, 2026-10-22). A non-neighbour first claimed by name is pinned at first sight with no neighbour context until it decides their trust.
 
 ## Consequences
 - The server gains one read-only endpoint over existing tables and no stored data. The threat model lists the permanent tree edge and the contact book.
