@@ -331,6 +331,39 @@ class ContactsStateHolderTest {
         }
 
     @Test
+    fun theChangeCountSurvivesCancelAndReopenAndChangesBetweenReviews() =
+        runTest {
+            store.book = blockedBob()
+            val holder = opened()
+            holder.review(id(2))
+            idle(holder)
+            assertEquals(0, assertNotNull(holder.state.value.review).changes)
+            holder.cancelReview()
+
+            // The server rotates the observation while no review is open; each review that sees a new one counts it.
+            store.book = store.book!!.claim(Sighting(id(2), "bob", mapOf(key(3) to id(1001))), 3_000L).first
+            holder.review(id(2))
+            idle(holder)
+            val second = assertNotNull(holder.state.value.review)
+            assertEquals(1, second.changes)
+            assertTrue(second.canTrust)
+            holder.cancelReview()
+
+            store.book = store.book!!.claim(Sighting(id(2), "bob", mapOf(key(4) to id(1001))), 4_000L).first
+            holder.review(id(2))
+            idle(holder)
+            val third = assertNotNull(holder.state.value.review)
+            assertEquals(2, third.changes)
+            assertFalse(third.canTrust)
+
+            holder.cancelReview()
+            holder.review(id(2))
+            idle(holder)
+            assertEquals(2, assertNotNull(holder.state.value.review).changes, "cancel and reopen does not reset it")
+            assertFalse(assertNotNull(holder.state.value.review).canTrust)
+        }
+
+    @Test
     fun aRefreshIsIgnoredWhileAReviewIsOpen() =
         runTest {
             store.book = blockedBob()

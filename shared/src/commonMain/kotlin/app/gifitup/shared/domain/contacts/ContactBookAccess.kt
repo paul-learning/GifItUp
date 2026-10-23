@@ -33,7 +33,7 @@ class ContactBookAccess(
 
     suspend fun read(): ContactLoad = lock.withLock { store.load() }
 
-    suspend fun <T> update(change: (book: ContactBook, now: Long) -> Pair<ContactBook, T>): BookUpdate<T> =
+    internal suspend fun <T> update(change: (book: ContactBook, now: Long) -> Pair<ContactBook, T>): BookUpdate<T> =
         lock.withLock {
             when (val loaded = store.load()) {
                 ContactLoad.Unavailable -> {

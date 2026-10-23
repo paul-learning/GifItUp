@@ -5,6 +5,7 @@ import app.gifitup.shared.data.contacts.Contact
 import app.gifitup.shared.data.contacts.ContactBook
 import app.gifitup.shared.data.contacts.ContactStatus
 import app.gifitup.shared.data.contacts.KeyBytes
+import app.gifitup.shared.data.contacts.Observation
 import app.gifitup.shared.data.contacts.TrustConflict
 import app.gifitup.shared.data.crypto.FingerprintEmoji
 import app.gifitup.shared.data.network.ApiError
@@ -62,7 +63,8 @@ class FriendView(
  * The "trust the new key" review of one blocked friend, with everything on it captured when it was opened: the screen
  * renders only this, never a recomputed state, and [trust][ContactsStateHolder.trust] accepts exactly [shown]
  * (ADR-0014, SEC-43). [version] changes whenever the review is rebuilt, so a confirmation tick must not survive it.
- * [changes] counts how often the server changed the observation while the review was open.
+ * [changes] counts the distinct observations the server has shown for this friend in this screen visit, minus one: it
+ * survives cancel and reopen.
  */
 @Suppress("LongParameterList") // One review as the screen renders it; grouping the fields would only rename them.
 class ReviewView internal constructor(
@@ -111,6 +113,13 @@ class ContactsStateHolder(
     /** Bumped by [leave]: an answer for an older visit is dropped. */
     private var visit = 0
 
+    /** The emojis computed in this visit (public data derived from public keys), so a key is worked out once (SEC-52). */
+    private var known = mapOf<KeyBytes, List<FingerprintEmoji>>()
+    private var ownEmojis: List<FingerprintEmoji>? = null
+
+    /** Every distinct pending observation seen per friend in this visit: the count of changes survives cancel and reopen (SEC-51). */
+    private val seen = mutableMapOf<String, MutableSet<Observation>>()
+
     /** Shows the saved list at once, then refreshes it from the server. */
     fun open() =
         act { forVisit ->
@@ -135,6 +144,9 @@ class ContactsStateHolder(
     /** Drops everything, own emojis and an open review included. */
     fun leave() {
         visit++
+        known = emptyMap()
+        ownEmojis = null
+        seen.clear()
         flow.value = FriendsState()
     }
 
@@ -186,7 +198,8 @@ class ContactsStateHolder(
                 val saved =
                     loaded.book.contacts.values
                         .filter { it.status != ContactStatus.UNCONFIRMED }
-                when (val fingerprints = contacts.fingerprints(saved.flatMap { it.devices.keys }.toSet())) {
+                note(loaded.book)
+                when (val fingerprints = fingerprintsFor(saved.flatMap { it.devices.keys }.toSet())) {
                     is AuthResult.Ok -> {
                         val friends =
                             loaded.book.contacts.values
@@ -221,7 +234,8 @@ class ContactsStateHolder(
         }
         val observation = checkNotNull(contact.pending)
         val keys = contact.devices.keys + observation.devices.keys
-        when (val fingerprints = contacts.fingerprints(keys)) {
+        note(book)
+        when (val fingerprints = fingerprintsFor(keys)) {
             is AuthResult.Failed -> {
                 change(forVisit) { it.copy(review = null, problem = FriendsProblem.EMOJIS_FAILED) }
             }
@@ -229,7 +243,7 @@ class ContactsStateHolder(
             is AuthResult.Ok -> {
                 val emojis = fingerprints.value
                 val resulting = book.resultOfAccepting(ref, observation)
-                val changes = (previous?.changes ?: 0) + if (previous != null) 1 else 0
+                val changes = (seen[ref]?.size ?: 1) - 1
                 val review =
                     ReviewView(
                         ref = ref,
@@ -247,6 +261,31 @@ class ContactsStateHolder(
                 change(forVisit) { it.copy(review = review) }
             }
         }
+    }
+
+    /** Remembers the pending observation of every blocked friend, so a server that rotates it is noticed across reviews. */
+    private fun note(book: ContactBook) {
+        book.contacts.values.forEach { contact ->
+            contact.pending?.let { seen.getOrPut(contact.accountId) { mutableSetOf() }.add(it) }
+        }
+    }
+
+    /** One restore for the keys not worked out yet in this visit; none at all when everything is known (SEC-52). */
+    private suspend fun fingerprintsFor(keys: Set<KeyBytes>): AuthResult<Fingerprints> {
+        val missing = keys.filter { it !in known }.toSet()
+        if (missing.isNotEmpty() || ownEmojis == null) {
+            when (val computed = contacts.fingerprints(missing)) {
+                is AuthResult.Failed -> {
+                    return computed
+                }
+
+                is AuthResult.Ok -> {
+                    ownEmojis = computed.value.own
+                    known = known + missing.mapNotNull { key -> computed.value.of(key)?.let { key to it } }
+                }
+            }
+        }
+        return AuthResult.Ok(Fingerprints(checkNotNull(ownEmojis), known.filterKeys { it in keys }))
     }
 
     private fun cells(

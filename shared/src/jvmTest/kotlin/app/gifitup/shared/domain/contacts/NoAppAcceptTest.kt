@@ -13,9 +13,10 @@ import kotlin.test.assertTrue
 /**
  * No app module can trust a contact except through the Friends screen's holder in `:shared`, which only accepts an
  * observation it showed with its emojis (ADR-0014, #18 PR 4). The accept use case, its result type, the reviewed
- * observation, the dev CLI's opt-in and the book's own `accept` are named nowhere in the app modules; the types
- * enforce it (`AcceptContact.reviewed` is internal, `blindly` needs an opt-in), and this text check catches an
- * attempt to route around them.
+ * observation, the dev CLI's opt-in and the book's own `accept` are named nowhere in the app modules. The types
+ * enforce it: the book's `accept`, `claim` and `list`, the access object's `update` and the whole
+ * `ContactsUseCases` bundle are internal to `:shared`, `AcceptContact.reviewed` is internal, and `blindly` needs an
+ * opt-in. This text check is the second line: it catches an attempt to route around them with a new public wrapper.
  */
 class NoAppAcceptTest {
     private val root: Path =
@@ -24,7 +25,10 @@ class NoAppAcceptTest {
         }.first { Files.exists(it.resolve("settings.gradle.kts")) }
 
     private val unblock =
-        Regex("AcceptContact|AcceptResult|ReviewedObservation|BlindAcceptForDevCli|acceptContact|\\.blindly\\(|\\.accept\\(")
+        Regex(
+            "ContactBookAccess|AcceptContact|AcceptResult|ReviewedObservation|BlindAcceptForDevCli|acceptContact|" +
+                "\\.blindly\\(|\\.accept\\(",
+        )
 
     @Test
     fun noAppModuleReferencesAcceptContact() {

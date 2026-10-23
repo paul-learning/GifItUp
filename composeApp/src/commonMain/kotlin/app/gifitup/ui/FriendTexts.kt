@@ -12,14 +12,21 @@ internal object FriendTexts {
     const val OWN_TITLE = "Your emojis"
     const val OWN_HINT =
         "Read these emojis to your friend and ask them to read theirs. Do this on a call or in person, not in a chat."
-    const val ALL_TWELVE = "All 12 emojis and names must match what your friend sees on their own phone."
+
+    fun allTwelve(glyphsAllKnown: Boolean): String =
+        if (glyphsAllKnown) {
+            "All 12 emojis and names must match what your friend sees on their own phone."
+        } else {
+            "All 12 names must match what your friend sees on their own phone."
+        }
+
     const val GLYPH_NOTICE =
         "This device may not draw some of these emojis, and they would all look like the same box. Compare the names, not the pictures."
 
     fun status(status: FriendStatus): String =
         when (status) {
             FriendStatus.SAVED -> "Saved. These are the emojis the app has saved for them. To check, ask your friend to read theirs."
-            FriendStatus.NOT_SAVED -> "Not saved yet. Their emojis are saved when you add them."
+            FriendStatus.NOT_SAVED -> "Not saved yet. The server lists them, but this device has not saved a key for them."
             FriendStatus.CHANGED -> "Something changed. Review it before you trust this friend."
             FriendStatus.GONE -> "Not in your list any more. The saved key is kept."
         }
@@ -69,7 +76,7 @@ internal object FriendTexts {
             }
 
             TrustConflict.BOOK_FULL -> {
-                "Remove nothing; this can't be added."
+                "This friend can't be added."
             }
         }
 

@@ -86,7 +86,7 @@ class ContactBook(
             ?.reason
 
     /** A claim is judged as a whole: any conflict blocks every device in it, and nothing is pinned. */
-    fun claim(
+    internal fun claim(
         sighting: Sighting,
         now: Long,
     ): Pair<ContactBook, Verdict> {
@@ -105,7 +105,7 @@ class ContactBook(
      * an unknown account becomes [ContactStatus.UNCONFIRMED], a known one is checked like a claim, and list-only
      * evidence never marks another account [ContactStatus.GONE] because of a name.
      */
-    fun list(
+    internal fun list(
         entries: List<Sighting>,
         complete: Boolean,
         now: Long,
@@ -116,7 +116,7 @@ class ContactBook(
     }
 
     /** Pins exactly [expected] if it is still the pending observation of [accountId]. */
-    fun accept(
+    internal fun accept(
         accountId: String,
         expected: Observation,
     ): Pair<ContactBook, AcceptResult> {
@@ -160,7 +160,7 @@ class ContactBook(
      * The devices [accountId] would have pinned after [accept] of [expected], or null if that accept would be refused or
      * there is nothing to accept. The review screen shows this set, retained old pins included (ADR-0014).
      */
-    fun resultOfAccepting(
+    internal fun resultOfAccepting(
         accountId: String,
         expected: Observation,
     ): Map<KeyBytes, String>? {

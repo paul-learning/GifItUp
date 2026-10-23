@@ -124,7 +124,7 @@ private fun Review(
                 if (button != null && review.canTrust) {
                     Text("After you trust it, these are saved:", style = MaterialTheme.typography.titleSmall)
                     review.resulting.forEach { EmojiBlock(it, glyphs) }
-                    Text(FriendTexts.ALL_TWELVE)
+                    Text(FriendTexts.allTwelve(allGlyphs))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = confirmed, onCheckedChange = { confirmed = it })
                         Text(FriendTexts.confirmation(allGlyphs))
