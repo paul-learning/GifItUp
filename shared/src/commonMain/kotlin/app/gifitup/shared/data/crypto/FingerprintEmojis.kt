@@ -13,9 +13,10 @@ data class FingerprintEmoji(
  * two and neither can change alone. A different list is a new format (`v2` label in the crate).
  *
  * Rules the entries follow (a test checks the ones that can be checked): one code point, emoji presentation by default
- * (no variation selectors, no joiners), Emoji 4.0 or older so that Android 8 renders them, no people, hands, faces,
- * flags, skin tones, clocks, zodiac signs or colored shapes. Some pairs still look alike on some fonts (a ram and a
- * goat, a rat and a mouse), so the **name is always shown with the emoji** and a comparison counts by name too: a
+ * (no variation selectors, no joiners), Emoji 4.0 or older (a conservative bound for Android 8; which release renders
+ * which Emoji version was not verified), no people, hands, faces, flags, clocks, zodiac signs or colored shapes, and
+ * none that takes a skin-tone modifier (checked against `Emoji_Modifier_Base` when the list was made). Some pairs
+ * still look alike on some fonts (a ram and a goat, a rat and a mouse), so the **name is always shown with the emoji** and a comparison counts by name too: a
  * device without a glyph draws a box, and several boxes look identical.
  */
 object FingerprintEmojis {
@@ -139,10 +140,10 @@ object FingerprintEmojis {
             FingerprintEmoji("🎻", "violin"),
             FingerprintEmoji("🎾", "tennis"),
             FingerprintEmoji("🏀", "basketball"),
-            FingerprintEmoji("🏂", "snowboarder"),
             FingerprintEmoji("🏅", "sports medal"),
             FingerprintEmoji("🏆", "trophy"),
             FingerprintEmoji("🏠", "house"),
+            FingerprintEmoji("🏥", "hospital"),
             FingerprintEmoji("🏯", "japanese castle"),
             FingerprintEmoji("🏰", "castle"),
             FingerprintEmoji("🐀", "rat"),

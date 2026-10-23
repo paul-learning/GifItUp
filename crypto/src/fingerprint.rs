@@ -121,7 +121,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             hex(&digest),
-            "15de3616641790dfc8b8de19fbc8fd048d81a16e15543aa2c0a0b0d97e01160e"
+            "8f60a3f004f4b0b654d36680c7f91fa696d9b9a255d0b24b3da235a83a581b39"
         );
         let entries: Vec<&str> = TABLE.lines().filter(|l| !l.starts_with('#')).collect();
         assert_eq!(entries.len(), 256);
