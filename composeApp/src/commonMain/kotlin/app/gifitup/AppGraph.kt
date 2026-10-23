@@ -14,7 +14,8 @@ import io.ktor.client.engine.HttpClientEngine
  * #108 SEC-22). Both platforms build it in their composition root: the web in `main()`, Android in `GifItUpApp`.
  * [engine] makes the platform's HTTP engine (a new one per server origin; the UI closes it), [random] is the platform
  * CSPRNG for the snapshot key. [clipboard] is where an invite link the user copies goes (the platform marks it
- * sensitive where it can); it must not hold an Activity, since the ViewModels that use it outlive one.
+ * sensitive where it can); it must not hold an Activity, since the ViewModels that use it outlive one. [glyphs] tells the
+ * Friends screen whether the device draws an emoji (ADR-0014).
  */
 class AppGraph(
     val mlsClientFactory: suspend () -> MlsClientFactory,
@@ -22,4 +23,5 @@ class AppGraph(
     val engine: () -> HttpClientEngine,
     val random: SecureRandomSource,
     val clipboard: SensitiveClipboard,
+    val glyphs: GlyphSupport,
 )

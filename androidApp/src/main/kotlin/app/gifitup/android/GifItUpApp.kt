@@ -23,6 +23,7 @@ class GifItUpApp : Application() {
             engine = { Android.create() },
             random = { size -> ByteArray(size).also(random::nextBytes) },
             clipboard = AndroidClipboard(this),
+            glyphs = AndroidGlyphs,
         )
     }
 
