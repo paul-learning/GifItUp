@@ -67,6 +67,11 @@ impl NativeMlsClient {
         })
     }
 
+    /// The fingerprint of a 32-byte signature public key: 12 indices into the app's emoji table (ADR-0014).
+    pub fn fingerprint(&self, signature_key: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.client.fingerprint(&signature_key))
+    }
+
     /// The whole client state, encrypted with the snapshot key.
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
         self.guard.run(|| self.client.export_state())

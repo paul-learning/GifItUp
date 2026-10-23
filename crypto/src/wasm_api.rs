@@ -131,6 +131,13 @@ impl NativeMlsClient {
             .map_err(js_err)
     }
 
+    /// The fingerprint of a 32-byte signature public key: 12 indices into the app's emoji table (ADR-0014).
+    pub fn fingerprint(&self, signature_key: &[u8]) -> Result<Vec<u8>, JsError> {
+        self.guard
+            .run(|| self.client.fingerprint(signature_key))
+            .map_err(js_err)
+    }
+
     /// The whole client state, encrypted with the snapshot key.
     #[wasm_bindgen(js_name = exportState)]
     pub fn export_state(&self) -> Result<Vec<u8>, JsError> {

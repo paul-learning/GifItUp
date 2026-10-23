@@ -64,6 +64,8 @@ internal class UniffiMlsClient(
         expectedUsername: String,
     ): PublicIdentity = call { native.inspectKeyPackage(keyPackage, expectedUsername).toShared() }
 
+    override fun fingerprint(signatureKey: ByteArray): ByteArray = call { native.fingerprint(signatureKey) }
+
     override fun exportState(): ByteArray = call { native.exportState() }
 
     override fun signAuth(

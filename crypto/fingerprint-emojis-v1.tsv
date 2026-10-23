@@ -1,0 +1,259 @@
+# GifItUp key fingerprint emoji table v1 (ADR-0014). Never edit, reorder or extend: a fingerprint is 12 indices into this list,
+# so any change makes two app versions show different emojis for one key. A new table is a new format (v2 label).
+# index<TAB>code point<TAB>name. All Emoji_Presentation, Emoji 4.0 or older, one code point, in ascending code point order.
+0	U+2614	rainy umbrella
+1	U+2615	coffee
+2	U+2693	anchor
+3	U+26A1	high voltage
+4	U+26BD	soccer ball
+5	U+26BE	baseball
+6	U+26F2	fountain
+7	U+26F5	sailboat
+8	U+26FA	tent
+9	U+26FD	fuel pump
+10	U+2728	sparkles
+11	U+2B50	star
+12	U+1F301	foggy
+13	U+1F303	night with stars
+14	U+1F306	cityscape at dusk
+15	U+1F307	sunset
+16	U+1F308	rainbow
+17	U+1F30C	milky way
+18	U+1F32D	hotdog
+19	U+1F32E	taco
+20	U+1F32F	burrito
+21	U+1F330	chestnut
+22	U+1F335	cactus
+23	U+1F337	tulip
+24	U+1F339	rose
+25	U+1F33A	hibiscus
+26	U+1F33B	sunflower
+27	U+1F33E	sheaf of rice
+28	U+1F33F	herb
+29	U+1F341	maple leaf
+30	U+1F342	fallen leaf
+31	U+1F346	eggplant
+32	U+1F347	grapes
+33	U+1F348	melon
+34	U+1F349	watermelon
+35	U+1F34B	lemon
+36	U+1F34C	banana
+37	U+1F34D	pineapple
+38	U+1F351	peach
+39	U+1F352	cherries
+40	U+1F353	strawberry
+41	U+1F354	hamburger
+42	U+1F355	pizza
+43	U+1F358	cracker
+44	U+1F359	riceball
+45	U+1F35B	curry rice
+46	U+1F35D	spaghetti
+47	U+1F35E	bread
+48	U+1F35F	french fries
+49	U+1F360	roasted sweet potato
+50	U+1F362	oden
+51	U+1F363	sushi
+52	U+1F364	fried shrimp
+53	U+1F365	fishcake
+54	U+1F366	soft ice cream
+55	U+1F367	shaved ice
+56	U+1F368	ice cream
+57	U+1F369	doughnut
+58	U+1F36B	chocolate bar
+59	U+1F36C	candy
+60	U+1F36D	lollipop
+61	U+1F36E	custard
+62	U+1F36F	honey pot
+63	U+1F370	shortcake
+64	U+1F371	bento box
+65	U+1F372	pot of food
+66	U+1F374	fork and knife
+67	U+1F377	wine glass
+68	U+1F379	tropical drink
+69	U+1F37A	beer mug
+70	U+1F37F	popcorn
+71	U+1F380	ribbon
+72	U+1F381	wrapped gift
+73	U+1F382	birthday cake
+74	U+1F383	jack-o-lantern
+75	U+1F384	christmas tree
+76	U+1F386	fireworks
+77	U+1F387	sparkler
+78	U+1F388	balloon
+79	U+1F389	party popper
+80	U+1F38D	pine decoration
+81	U+1F38F	carp streamer
+82	U+1F390	wind chime
+83	U+1F393	graduation cap
+84	U+1F3A0	carousel horse
+85	U+1F3A1	ferris wheel
+86	U+1F3A2	roller coaster
+87	U+1F3A4	microphone
+88	U+1F3A5	movie camera
+89	U+1F3A6	cinema
+90	U+1F3A7	headphone
+91	U+1F3A8	artist palette
+92	U+1F3AA	circus tent
+93	U+1F3AB	ticket
+94	U+1F3B0	slot machine
+95	U+1F3B1	pool 8 ball
+96	U+1F3B2	game die
+97	U+1F3B5	note
+98	U+1F3B7	saxophone
+99	U+1F3B8	guitar
+100	U+1F3B9	keyboard
+101	U+1F3BA	trumpet
+102	U+1F3BB	violin
+103	U+1F3BE	tennis
+104	U+1F3C0	basketball
+105	U+1F3C2	snowboarder
+106	U+1F3C5	sports medal
+107	U+1F3C6	trophy
+108	U+1F3E0	house
+109	U+1F3EF	japanese castle
+110	U+1F3F0	castle
+111	U+1F400	rat
+112	U+1F401	mouse
+113	U+1F402	ox
+114	U+1F404	cow
+115	U+1F405	tiger
+116	U+1F406	leopard
+117	U+1F407	rabbit
+118	U+1F408	cat
+119	U+1F409	dragon
+120	U+1F40A	crocodile
+121	U+1F40B	whale
+122	U+1F40D	snake
+123	U+1F40E	horse
+124	U+1F40F	ram
+125	U+1F410	goat
+126	U+1F412	monkey
+127	U+1F413	rooster
+128	U+1F414	chicken
+129	U+1F415	dog
+130	U+1F416	pig
+131	U+1F417	boar
+132	U+1F418	elephant
+133	U+1F41A	spiral shell
+134	U+1F41B	bug
+135	U+1F41C	ant
+136	U+1F41D	honeybee
+137	U+1F41E	lady beetle
+138	U+1F41F	fish
+139	U+1F421	blowfish
+140	U+1F422	turtle
+141	U+1F426	bird
+142	U+1F428	koala
+143	U+1F429	poodle
+144	U+1F42A	camel
+145	U+1F42B	two-hump camel
+146	U+1F42C	dolphin
+147	U+1F438	frog
+148	U+1F439	hamster
+149	U+1F43A	wolf
+150	U+1F43C	panda
+151	U+1F43E	paw prints
+152	U+1F453	glasses
+153	U+1F454	necktie
+154	U+1F455	t-shirt
+155	U+1F456	jeans
+156	U+1F457	dress
+157	U+1F459	bikini
+158	U+1F45B	purse
+159	U+1F45E	shoe
+160	U+1F460	heel
+161	U+1F479	ogre
+162	U+1F47A	goblin
+163	U+1F47B	ghost
+164	U+1F47D	alien
+165	U+1F488	barber pole
+166	U+1F48A	pill
+167	U+1F48E	gem stone
+168	U+1F490	bouquet
+169	U+1F4A1	light bulb
+170	U+1F4A9	pile of poo
+171	U+1F4AC	speech balloon
+172	U+1F4B0	money bag
+173	U+1F4B3	credit card
+174	U+1F4BC	briefcase
+175	U+1F4BE	floppy disk
+176	U+1F4CA	bar chart
+177	U+1F4CC	pushpin
+178	U+1F4DC	scroll
+179	U+1F4E0	fax machine
+180	U+1F4E1	satellite antenna
+181	U+1F4E3	megaphone
+182	U+1F4E6	package
+183	U+1F4EF	postal horn
+184	U+1F4F1	mobile phone
+185	U+1F4F7	camera
+186	U+1F4FA	television
+187	U+1F4FB	radio
+188	U+1F50B	battery
+189	U+1F511	key
+190	U+1F512	locked
+191	U+1F514	bell
+192	U+1F525	fire
+193	U+1F526	flashlight
+194	U+1F527	wrench
+195	U+1F528	hammer
+196	U+1F529	nut and bolt
+197	U+1F52C	microscope
+198	U+1F52D	telescope
+199	U+1F52E	crystal ball
+200	U+1F5FB	mount fuji
+201	U+1F5FD	statue of liberty
+202	U+1F5FF	moai
+203	U+1F680	rocket
+204	U+1F681	helicopter
+205	U+1F685	bullet train
+206	U+1F686	train
+207	U+1F68A	tram
+208	U+1F68C	bus
+209	U+1F691	ambulance
+210	U+1F693	police car
+211	U+1F695	taxi
+212	U+1F69C	tractor
+213	U+1F6A1	aerial tramway
+214	U+1F6A2	ship
+215	U+1F6A4	speedboat
+216	U+1F6AA	door
+217	U+1F6BD	toilet
+218	U+1F6BF	shower
+219	U+1F6F6	canoe
+220	U+1F916	robot
+221	U+1F940	wilted flower
+222	U+1F941	drum
+223	U+1F944	spoon
+224	U+1F950	croissant
+225	U+1F951	avocado
+226	U+1F952	cucumber
+227	U+1F953	bacon
+228	U+1F954	potato
+229	U+1F955	carrot
+230	U+1F956	baguette bread
+231	U+1F958	shallow pan of food
+232	U+1F959	stuffed flatbread
+233	U+1F95A	egg
+234	U+1F95B	glass of milk
+235	U+1F95C	peanuts
+236	U+1F95D	kiwi fruit
+237	U+1F95E	pancakes
+238	U+1F980	crab
+239	U+1F981	lion
+240	U+1F982	scorpion
+241	U+1F983	turkey
+242	U+1F984	unicorn
+243	U+1F985	eagle
+244	U+1F986	duck
+245	U+1F987	bat
+246	U+1F988	shark
+247	U+1F989	owl
+248	U+1F98A	fox
+249	U+1F98B	butterfly
+250	U+1F98C	deer
+251	U+1F98D	gorilla
+252	U+1F98E	lizard
+253	U+1F98F	rhinoceros
+254	U+1F990	shrimp
+255	U+1F9C0	cheese wedge

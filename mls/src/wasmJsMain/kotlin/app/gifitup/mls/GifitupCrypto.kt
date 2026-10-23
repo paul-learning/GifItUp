@@ -29,6 +29,9 @@ internal external class NativeMlsClient(
         expectedUsername: String,
     ): JsPublicIdentity
 
+    /** 12 indices into the app's emoji table for a 32-byte signature public key (crypto/src/fingerprint.rs). */
+    fun fingerprint(signatureKey: Uint8Array): Uint8Array
+
     fun exportState(): Uint8Array
 
     /** [purpose] is exactly "register" or "login" (`AuthPurpose::from_name` in crypto/src/auth.rs). */

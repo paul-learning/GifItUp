@@ -44,6 +44,17 @@ class FakeMlsClient private constructor(
             PublicIdentity(expectedUsername, signatureKey(expectedUsername, parts[2]))
         }
 
+    /**
+     * Same input rule as the crate (exactly 32 bytes, else `InvalidInput`), but **not** its algorithm: the first 12 bytes
+     * of the key, so a test can tell keys apart. The real vectors are tested only against the real crate in `:mls`
+     * (ADR-0014); nothing hashes in Kotlin.
+     */
+    override fun fingerprint(signatureKey: ByteArray): ByteArray =
+        live {
+            if (signatureKey.size != KEY_SIZE) fail(MlsErrorCode.InvalidInput)
+            signatureKey.copyOf(FingerprintEmojis.LENGTH)
+        }
+
     /** "Encrypted" with the key: restoring with another key fails like the real client (SnapshotAuth). */
     override fun exportState(): ByteArray = live { "state:$keyTag:$username:${keyPackagesHeld.size}".encodeToByteArray() }
 
