@@ -143,7 +143,11 @@ class FakeMlsClient private constructor(
         fun signatureKey(
             username: String,
             keyTag: String,
-        ) = "sig:$username:$keyTag".encodeToByteArray()
+        ): ByteArray {
+            // 32 bytes like a real Ed25519 key (the fingerprint rule), still a deterministic function of name and tag.
+            val seed = "sig:$username:$keyTag".encodeToByteArray()
+            return ByteArray(KEY_SIZE) { i -> (seed[i % seed.size] + i / seed.size * (i + 1)).toByte() }
+        }
 
         fun fail(code: MlsErrorCode): Nothing = throw MlsException(code)
     }

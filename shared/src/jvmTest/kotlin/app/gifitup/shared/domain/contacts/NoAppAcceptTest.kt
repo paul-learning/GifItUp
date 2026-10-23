@@ -11,10 +11,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * [AcceptContact] has no app caller until a fingerprint can be shown (ADR-0014, #18 PR 3/4): an accept in an app
- * without something to compare is a blind click. Only `:cli` (test accounts, which says so) may use it. The book's
- * own `accept` and the result type count too (SEC-25). A text check over the app modules' sources, so wiring it in by
- * mistake fails here.
+ * No app module can trust a contact except through the Friends screen's holder in `:shared`, which only accepts an
+ * observation it showed with its emojis (ADR-0014, #18 PR 4). The accept use case, its result type, the reviewed
+ * observation, the dev CLI's opt-in and the book's own `accept` are named nowhere in the app modules. The types
+ * enforce the main path: the book's `accept`, `claim` and `list`, the access object's `update` and the whole
+ * `ContactsUseCases` bundle are internal to `:shared`, `AcceptContact.reviewed` is internal, and `blindly` needs an
+ * opt-in. The store (`ContactStore`, `RecordContactStore`, `ContactRecordCodec`) and the book's constructors stay public
+ * because the dev CLI keeps its own book file with them, so this text check is what keeps them out of the app modules.
  */
 class NoAppAcceptTest {
     private val root: Path =
@@ -22,7 +25,11 @@ class NoAppAcceptTest {
             it.parent
         }.first { Files.exists(it.resolve("settings.gradle.kts")) }
 
-    private val unblock = Regex("AcceptContact|AcceptResult|\\.accept\\(")
+    private val unblock =
+        Regex(
+            "ContactBookAccess|ContactStore|RecordContactStore|ContactRecordCodec|AcceptContact|AcceptResult|" +
+                "ReviewedObservation|BlindAcceptForDevCli|acceptContact|\\.blindly\\(|\\.accept\\(",
+        )
 
     @Test
     fun noAppModuleReferencesAcceptContact() {

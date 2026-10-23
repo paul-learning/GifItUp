@@ -51,6 +51,7 @@ fun main() {
                     engine = { Js.create() },
                     random = WebSecureRandom,
                     clipboard = WebClipboard,
+                    glyphs = WebGlyphs,
                 )
             }
         ComposeViewport {

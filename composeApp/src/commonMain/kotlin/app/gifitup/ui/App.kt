@@ -148,7 +148,13 @@ private fun Navigation(
             LaunchedEffect(state is OnboardingState.EnterInvite) {
                 if (state is OnboardingState.EnterInvite) inbox.take()?.let(model.holder::submitInvite)
             }
-            OnboardingScreen(state, model.holder, current, onOpenSettings = { nav.navigate(ROUTE_SETTINGS) }) {
+            OnboardingScreen(
+                state,
+                model.holder,
+                current,
+                onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
+                onFriends = { nav.navigate(ROUTE_FRIENDS) },
+            ) {
                 nav.navigate(ROUTE_INVITES)
             }
         }
@@ -158,6 +164,13 @@ private fun Navigation(
             val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
             CreateInviteScreen(model.invites, services.graph.clipboard.clearsCopied, screen) {
                 if (nav.currentDestination?.route == ROUTE_INVITES) nav.popBackStack()
+            }
+        }
+        composable(ROUTE_FRIENDS) { entry ->
+            val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
+            val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
+            FriendsScreen(model.contacts, services.graph.glyphs) {
+                if (nav.currentDestination?.route == ROUTE_FRIENDS) nav.popBackStack()
             }
         }
         composable(ROUTE_SETTINGS) {
@@ -176,3 +189,4 @@ private fun Navigation(
 private const val ROUTE_ONBOARDING = "onboarding"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_INVITES = "invites"
+private const val ROUTE_FRIENDS = "friends"

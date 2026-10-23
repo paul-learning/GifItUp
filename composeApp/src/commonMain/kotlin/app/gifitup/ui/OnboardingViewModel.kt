@@ -13,6 +13,7 @@ import app.gifitup.shared.domain.invite.ListInvites
 import app.gifitup.shared.domain.invite.RevokeInvite
 import app.gifitup.shared.domain.origin.ServerOriginSetting
 import app.gifitup.shared.domain.session.SessionHolder
+import app.gifitup.shared.presentation.contacts.ContactsStateHolder
 import app.gifitup.shared.presentation.invite.CreateInviteStateHolder
 import app.gifitup.shared.presentation.onboarding.OnboardingStateHolder
 import kotlin.time.Clock
@@ -51,12 +52,16 @@ internal class OnboardingViewModel(
     val invites =
         CreateInviteStateHolder(viewModelScope, sessions, CreateInvite(api), ListInvites(api), RevokeInvite(api), graph.clipboard)
 
+    /** The Friends screen's logic, over the same session, API and engine (ADR-0014). */
+    val contacts = ContactsStateHolder(viewModelScope, sessions, auth.contacts)
+
     init {
         holder.start()
     }
 
     override fun onCleared() {
         invites.leave() // the link leaves memory and the clipboard before the API closes
+        contacts.leave()
         api.close()
         engine.close()
     }

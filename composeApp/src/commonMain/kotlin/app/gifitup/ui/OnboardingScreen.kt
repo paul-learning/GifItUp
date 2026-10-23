@@ -28,12 +28,14 @@ import app.gifitup.shared.presentation.onboarding.OriginView
  * Renders the onboarding state and sends the user's actions to the holder; it decides nothing (ADR-0013). Typed text
  * is held with `remember`, never `rememberSaveable`: an invite code must not reach saved state (#17 plan, SEC-3).
  */
+@Suppress("LongParameterList") // The state, its holder and one callback per destination of this screen.
 @Composable
 internal fun OnboardingScreen(
     state: OnboardingState,
     holder: OnboardingStateHolder,
     current: OriginView,
     onOpenSettings: () -> Unit,
+    onFriends: () -> Unit,
     onInvite: () -> Unit,
 ) {
     Column(
@@ -49,7 +51,7 @@ internal fun OnboardingScreen(
             is OnboardingState.ChooseUsername -> ChooseUsername(state, holder)
             is OnboardingState.ConfirmServer -> ConfirmServer(state, holder)
             is OnboardingState.FinishPending -> FinishPending(state, holder)
-            is OnboardingState.Done -> Done(state, onInvite)
+            is OnboardingState.Done -> Done(state, onFriends, onInvite)
             is OnboardingState.Blocked -> Text(Texts.blocked(state.reason))
             is OnboardingState.Failed -> Text(Texts.error(state.error))
         }
@@ -156,9 +158,11 @@ private fun FinishPending(
 @Composable
 private fun Done(
     state: OnboardingState.Done,
+    onFriends: () -> Unit,
     onInvite: () -> Unit,
 ) {
     Text("Welcome, ${state.username}!", style = MaterialTheme.typography.titleMedium)
     Button(onClick = onInvite) { Text("Invite a friend") }
+    Button(onClick = onFriends) { Text("Friends") }
     if (state.keyPackagesUploaded == false) Text("Some setup is still pending; it finishes the next time you open the app.")
 }
