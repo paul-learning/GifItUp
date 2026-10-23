@@ -16,8 +16,8 @@ data class FingerprintEmoji(
  * (no variation selectors, no joiners), Emoji 4.0 or older (a conservative bound for Android 8; which release renders
  * which Emoji version was not verified), no people, hands, faces, flags, clocks, zodiac signs or colored shapes, and
  * none that takes a skin-tone modifier (checked against `Emoji_Modifier_Base` when the list was made). Some pairs
- * still look alike on some fonts (a ram and a goat, a rat and a mouse), so the **name is always shown with the emoji** and a comparison counts by name too: a
- * device without a glyph draws a box, and several boxes look identical.
+ * still look alike on some fonts (a ram and a goat, a rat and a mouse), so the **name is always shown with the emoji**
+ * and a comparison counts by name too: a device without a glyph draws a box, and several boxes look identical.
  */
 object FingerprintEmojis {
     /** Indices a fingerprint holds; all of them are compared, never just the first few (ADR-0014). */
