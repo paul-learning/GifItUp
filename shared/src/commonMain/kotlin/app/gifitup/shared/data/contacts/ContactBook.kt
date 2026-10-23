@@ -156,6 +156,18 @@ class ContactBook(
             pending = null,
         )
 
+    /**
+     * The devices [accountId] would have pinned after [accept] of [expected], or null if that accept would be refused or
+     * there is nothing to accept. The review screen shows this set, retained old pins included (ADR-0014).
+     */
+    fun resultOfAccepting(
+        accountId: String,
+        expected: Observation,
+    ): Map<KeyBytes, String>? {
+        val (book, result) = accept(accountId, expected)
+        return if (result == AcceptResult.Accepted) book.contacts[accountId]?.devices else null
+    }
+
     private fun conflict(
         sighting: Sighting,
         known: Contact?,

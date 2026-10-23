@@ -9,11 +9,13 @@ import app.gifitup.shared.data.storage.ContactLoad
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.contacts.AcceptContact
 import app.gifitup.shared.domain.contacts.AcceptOutcome
+import app.gifitup.shared.domain.contacts.BlindAcceptForDevCli
 import app.gifitup.shared.domain.contacts.ContactBookAccess
 import app.gifitup.shared.domain.contacts.RefreshContacts
 import java.io.PrintStream
 
 /** The contact commands (ADR-0014, #18), thin over the app's use cases. Fixed output lines, public data only. */
+@OptIn(BlindAcceptForDevCli::class) // The dev CLI is the one caller of the blind accept (test accounts, ADR-0014).
 internal class ContactCommands(
     private val refresh: RefreshContacts,
     private val acceptContact: AcceptContact,
@@ -40,7 +42,7 @@ internal class ContactCommands(
      */
     suspend fun accept(accountId: String): Int {
         val contact = blocked(accountId)
-        return when (val outcome = acceptContact(accountId, checkNotNull(contact.pending))) {
+        return when (val outcome = acceptContact.blindly(accountId, checkNotNull(contact.pending))) {
             is AcceptOutcome.Result -> acceptedLine(contact, outcome.result)
             AcceptOutcome.Unavailable -> throw CliError("the contact book couldn't be updated", EXIT_REFUSED)
         }

@@ -32,6 +32,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 /** The book's access lock, the list refresh and the accept use case (ADR-0014). */
+@OptIn(BlindAcceptForDevCli::class) // The blind accept is the dev CLI's; its behaviour is tested here.
 class ContactUseCasesTest {
     private val server = FakeAuthServer()
     private val identities = InMemoryIdentityStore()
@@ -165,7 +166,7 @@ class ContactUseCasesTest {
             store.book = ContactBook(mapOf(id(1) to blocked))
             val accept = AcceptContact(access)
             val stale = Observation(TrustConflict.KEY_CHANGED, "user1", mapOf(KeyBytes(ByteArray(32) { 8 }) to id(101)))
-            assertEquals(AcceptResult.Changed, (accept(id(1), stale) as AcceptOutcome.Result).result)
+            assertEquals(AcceptResult.Changed, (accept.blindly(id(1), stale) as AcceptOutcome.Result).result)
             assertEquals(
                 ContactStatus.BLOCKED,
                 store.book
@@ -173,7 +174,7 @@ class ContactUseCasesTest {
                     ?.getValue(id(1))
                     ?.status,
             )
-            assertEquals(AcceptResult.Accepted, (accept(id(1), checkNotNull(blocked.pending)) as AcceptOutcome.Result).result)
+            assertEquals(AcceptResult.Accepted, (accept.blindly(id(1), checkNotNull(blocked.pending)) as AcceptOutcome.Result).result)
             assertEquals(
                 ContactStatus.OK,
                 store.book
@@ -182,6 +183,6 @@ class ContactUseCasesTest {
                     ?.status,
             )
             store.book = null
-            assertEquals(AcceptOutcome.Unavailable, accept(id(1), stale))
+            assertEquals(AcceptOutcome.Unavailable, accept.blindly(id(1), stale))
         }
 }

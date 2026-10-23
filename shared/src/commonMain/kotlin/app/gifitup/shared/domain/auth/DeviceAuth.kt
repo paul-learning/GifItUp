@@ -5,11 +5,18 @@ import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.LocalStore
+import app.gifitup.shared.data.storage.RecordContactStore
 import app.gifitup.shared.data.storage.RecordIdentityStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredRestoreCounter
+import app.gifitup.shared.domain.contacts.AcceptContact
+import app.gifitup.shared.domain.contacts.ContactBookAccess
+import app.gifitup.shared.domain.contacts.ContactsUseCases
+import app.gifitup.shared.domain.contacts.RefreshContacts
+import app.gifitup.shared.domain.contacts.ShowFingerprints
 import app.gifitup.shared.domain.keypackages.RefillKeyPackages
 import app.gifitup.shared.domain.origin.ServerOriginSetting
+import kotlin.time.Clock
 
 /**
  * This device's storage (ADR-0011), built once per app instance by the platform's composition root: once per page on
@@ -53,6 +60,17 @@ class DeviceAuth(
     val logIn = LogIn(api, guarded, storage.identities, keys, lock)
     val logOut = LogOut(api)
     val wipe = WipeLocalData(storage.data, logOut, lock)
+
+    /** The contact book and what the Friends screen needs from it (ADR-0014); the clock is the book's display time only. */
+    val contacts: ContactsUseCases =
+        ContactBookAccess(RecordContactStore(storage.store, storage.identities)) { Clock.System.now().epochSeconds }.let { access ->
+            ContactsUseCases(
+                RefreshContacts(api, guarded, storage.identities, keys, lock, access),
+                access,
+                ShowFingerprints(api.endpoint.origin, guarded, storage.identities, keys, lock),
+                AcceptContact(access),
+            )
+        }
 
     /**
      * The user's "try again" after `RESTORE_BLOCKED`. Under the storage's lock like every restore, so a reset from one
