@@ -14,9 +14,10 @@ import kotlin.test.assertTrue
  * No app module can trust a contact except through the Friends screen's holder in `:shared`, which only accepts an
  * observation it showed with its emojis (ADR-0014, #18 PR 4). The accept use case, its result type, the reviewed
  * observation, the dev CLI's opt-in and the book's own `accept` are named nowhere in the app modules. The types
- * enforce it: the book's `accept`, `claim` and `list`, the access object's `update` and the whole
+ * enforce the main path: the book's `accept`, `claim` and `list`, the access object's `update` and the whole
  * `ContactsUseCases` bundle are internal to `:shared`, `AcceptContact.reviewed` is internal, and `blindly` needs an
- * opt-in. This text check is the second line: it catches an attempt to route around them with a new public wrapper.
+ * opt-in. The store (`ContactStore`, `RecordContactStore`, `ContactRecordCodec`) and the book's constructors stay public
+ * because the dev CLI keeps its own book file with them, so this text check is what keeps them out of the app modules.
  */
 class NoAppAcceptTest {
     private val root: Path =
@@ -26,8 +27,8 @@ class NoAppAcceptTest {
 
     private val unblock =
         Regex(
-            "ContactBookAccess|AcceptContact|AcceptResult|ReviewedObservation|BlindAcceptForDevCli|acceptContact|" +
-                "\\.blindly\\(|\\.accept\\(",
+            "ContactBookAccess|ContactStore|RecordContactStore|ContactRecordCodec|AcceptContact|AcceptResult|" +
+                "ReviewedObservation|BlindAcceptForDevCli|acceptContact|\\.blindly\\(|\\.accept\\(",
         )
 
     @Test
