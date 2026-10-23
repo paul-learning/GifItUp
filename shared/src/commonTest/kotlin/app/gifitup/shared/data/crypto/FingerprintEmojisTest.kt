@@ -33,7 +33,7 @@ class FingerprintEmojisTest {
             val e = cell.emoji
             val oneCodePoint = e.length == 1 || (e.length == 2 && e[0].isHighSurrogate() && e[1].isLowSurrogate())
             assertTrue(oneCodePoint, "${cell.name} is one code point")
-            assertTrue(e.none { it == '\\uFE0F' || it == '\\uFE0E' || it == '\\u200D' }, "${cell.name}: no variation selector or joiner")
+            assertTrue(e.none { it == '\uFE0F' || it == '\uFE0E' || it == '\u200D' }, "${cell.name}: no variation selector or joiner")
         }
     }
 
