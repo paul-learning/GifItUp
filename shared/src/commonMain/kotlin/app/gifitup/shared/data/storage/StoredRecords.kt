@@ -12,9 +12,28 @@ class RecordIdentityStore(
 ) : IdentityStore {
     override suspend fun load(): StoredIdentity? = store.get(KEY)?.let(::decode)
 
-    override suspend fun save(identity: StoredIdentity) = store.putAll(mapOf(KEY to encode(identity)))
+    /**
+     * Writes the identity. The **first** write of an identity (there is no identity record yet) also writes an empty
+     * contact record in the same atomic write (ADR-0014), replacing any leftover of an earlier identity. Later saves
+     * never touch the contact record, so a record that went missing or damaged stays unavailable instead of being
+     * healed into an empty book. An identity from before the contact book has no record; it needs a wipe and a new
+     * registration (alpha, no friends yet).
+     */
+    override suspend fun save(identity: StoredIdentity) {
+        val first = store.get(KEY) == null
+        val contacts =
+            if (first) {
+                mapOf(
+                    RecordContactStore.KEY to ContactRecordCodec.empty(identity.origin, identity.username),
+                )
+            } else {
+                emptyMap()
+            }
+        store.putAll(mapOf(KEY to encode(identity)) + contacts)
+    }
 
-    override suspend fun clear() = store.putAll(mapOf(KEY to null))
+    /** The contact book belongs to the identity: it goes with it. */
+    override suspend fun clear() = store.putAll(mapOf(KEY to null, RecordContactStore.KEY to null))
 
     internal companion object {
         const val KEY = "identity"

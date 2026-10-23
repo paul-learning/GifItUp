@@ -1,5 +1,9 @@
 package app.gifitup.cli
 
+import app.gifitup.shared.data.contacts.ContactBook
+import app.gifitup.shared.data.storage.ContactLoad
+import app.gifitup.shared.data.storage.ContactRecordCodec
+import app.gifitup.shared.data.storage.ContactStore
 import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredIdentity
@@ -32,6 +36,7 @@ class StateDir(
 ) {
     private val identityFile = dir.resolve("identity")
     private val keyFile = dir.resolve("snapshot-key")
+    private val contactsFile = dir.resolve("contacts")
 
     /** Creates the dir if needed and takes the lock; close it when the command ends. */
     fun lock(): AutoCloseable {
@@ -64,9 +69,41 @@ class StateDir(
         object : IdentityStore {
             override suspend fun load(): StoredIdentity? = readOrNull(identityFile)?.let(::parseIdentity)
 
-            override suspend fun save(identity: StoredIdentity) = writeAtomically(identityFile, formatIdentity(identity))
+            /** Like the app's store (ADR-0014): the first write of an identity creates the empty book; later saves leave it. */
+            override suspend fun save(identity: StoredIdentity) {
+                if (!Files.exists(identityFile)) {
+                    writeAtomically(contactsFile, ContactRecordCodec.empty(identity.origin, identity.username))
+                }
+                writeAtomically(identityFile, formatIdentity(identity))
+            }
 
-            override suspend fun clear() = delete(identityFile)
+            override suspend fun clear() {
+                delete(identityFile)
+                delete(contactsFile)
+            }
+        }
+
+    /** The contact book (ADR-0014): one file, bound to the identity, unprotected like the rest of the dir. */
+    val contacts: ContactStore =
+        object : ContactStore {
+            override suspend fun load(): ContactLoad {
+                val identity = identities.load()
+                val bytes = readOrNull(contactsFile)
+                val book =
+                    if (identity == null ||
+                        bytes == null
+                    ) {
+                        null
+                    } else {
+                        ContactRecordCodec.decode(bytes, identity.origin, identity.username)
+                    }
+                return if (book == null) ContactLoad.Unavailable else ContactLoad.Book(book)
+            }
+
+            override suspend fun save(book: ContactBook) {
+                val identity = identities.load() ?: throw CliError("the state dir holds no identity", EXIT_REFUSED)
+                writeAtomically(contactsFile, ContactRecordCodec.encode(book, identity.origin, identity.username))
+            }
         }
 
     val keys: SnapshotKeyStore =

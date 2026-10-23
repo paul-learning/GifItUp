@@ -68,6 +68,7 @@ internal object Texts {
         }
 
     /** Every case is listed, so a new error code can't fall into a vague text unnoticed (#131 CR-5). */
+    @Suppress("CyclomaticComplexMethod") // One fixed text per closed code.
     fun error(error: AuthError): String =
         when (error) {
             is AuthError.Api -> api(error.error)
@@ -82,6 +83,8 @@ internal object Texts {
             AuthError.Local.USERNAME_MISMATCH -> "An unfinished registration for another username is on this device."
             AuthError.Local.INVALID_USERNAME -> "3 to 32 characters: a–z, 0–9 and _."
             AuthError.Local.INVALID_INVITE_CODE -> "That is not an invite code."
+            AuthError.Local.CONTACTS_UNAVAILABLE -> "This device's contact list can't be used."
+            AuthError.Local.CONTACT_BLOCKED -> "This contact's key or name changed. Review it before you continue."
             AuthError.Local.UNEXPECTED -> "Something went wrong on this device."
         }
 

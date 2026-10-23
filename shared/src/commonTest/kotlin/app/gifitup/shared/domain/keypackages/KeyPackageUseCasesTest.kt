@@ -2,6 +2,8 @@ package app.gifitup.shared.domain.keypackages
 
 import app.gifitup.protocol.ProtocolJson
 import app.gifitup.protocol.UploadKeyPackagesRequest
+import app.gifitup.shared.data.contacts.ContactStatus
+import app.gifitup.shared.data.contacts.TrustConflict
 import app.gifitup.shared.data.crypto.FakeMlsClient
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.Base64Url
@@ -10,7 +12,9 @@ import app.gifitup.shared.data.network.FakeAuthServer.Companion.DEVICE_ID
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.error
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.json
 import app.gifitup.shared.data.network.KeyPackageStatus
+import app.gifitup.shared.data.network.Reply
 import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.data.storage.InMemoryContactStore
 import app.gifitup.shared.data.storage.StoredIdentity
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
@@ -21,7 +25,11 @@ import app.gifitup.shared.domain.auth.InMemoryKeyStore
 import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.RegisterDevice
 import app.gifitup.shared.domain.auth.unguarded
+import app.gifitup.shared.domain.contacts.ContactBookAccess
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -36,7 +44,9 @@ class KeyPackageUseCasesTest {
     private val keys = InMemoryKeyStore()
     private val lock = DeviceLock()
     private val refill = RefillKeyPackages(server.api(), unguarded(), identities, keys, lock)
-    private val claim = ClaimKeyPackages(server.api(), unguarded(), identities, keys, lock)
+    private val contactStore = InMemoryContactStore()
+    private val access = ContactBookAccess(contactStore) { 1_000L }
+    private val claim = ClaimKeyPackages(server.api(), unguarded(), identities, keys, lock, access)
 
     /** A registered, logged-in device "ann". */
     private suspend fun registered(): Session {
@@ -229,4 +239,111 @@ class KeyPackageUseCasesTest {
                 .decodeToString()
         assertTrue(first.startsWith("kp:ann:"))
     }
+
+    private val benAccount = "aaaaaaaa-2222-4333-8444-555555555555"
+    private val device1 = "00000000-0000-4000-8000-000000000001"
+    private val device2 = "00000000-0000-4000-8000-000000000002"
+
+    private fun kp(tag: String) = "kp:ben:$tag:0".encodeToByteArray()
+
+    private fun entry(
+        id: String,
+        bytes: ByteArray?,
+    ) = """{"deviceId":"$id","keyPackage":${bytes?.let { "\"${Base64Url.encode(it)}\"" }}}"""
+
+    private fun answer(
+        account: String,
+        vararg entries: String,
+    ) = json("""{"accountId":"$account","devices":[${entries.joinToString(",")}]}""")
+
+    @Test
+    fun aFirstClaimPinsTheKeyAndALaterOneWithTheSameKeyPasses() =
+        runTest {
+            val session = registered()
+            server.on("/key-packages/claim", answer(benAccount, entry(device1, kp("abc"))))
+            assertIs<AuthResult.Ok<List<ClaimedDeviceKey>>>(claim(session, "ben"))
+            assertEquals(1, contactStore.book?.pinCount)
+            // Another KeyPackage with the same signature key (the fake keys it by name and tag).
+            server.on("/key-packages/claim", answer(benAccount, entry(device1, kp("abc"))))
+            assertIs<AuthResult.Ok<List<ClaimedDeviceKey>>>(claim(session, "ben"))
+        }
+
+    @Test
+    fun aKeyThatDiffersFromThePinBlocksTheClaimAndHandsOnNothing() =
+        runTest {
+            val session = registered()
+            server.on("/key-packages/claim", answer(benAccount, entry(device1, kp("abc"))), answer(benAccount, entry(device1, kp("xyz"))))
+            claim(session, "ben")
+            assertEquals(AuthResult.Failed(AuthError.Local.CONTACT_BLOCKED), claim(session, "ben"))
+            val ben = checkNotNull(contactStore.book).contacts.getValue(benAccount)
+            assertEquals(ContactStatus.BLOCKED, ben.status)
+            assertEquals(TrustConflict.KEY_CHANGED, ben.pending?.reason)
+        }
+
+    @Test
+    fun aBlockedContactIsRefusedBeforeTheRequestSoNoKeyPackageIsBurned() =
+        runTest {
+            val session = registered()
+            server.on("/key-packages/claim", answer(benAccount, entry(device1, kp("abc"))), answer(benAccount, entry(device1, kp("xyz"))))
+            claim(session, "ben")
+            claim(session, "ben")
+            val before = server.bodiesFor("/key-packages/claim").size
+            assertEquals(AuthResult.Failed(AuthError.Local.CONTACT_BLOCKED), claim(session, "ben"))
+            assertEquals(before, server.bodiesFor("/key-packages/claim").size, "no request")
+        }
+
+    @Test
+    fun anUnusableBookRefusesBeforeTheRequest() =
+        runTest {
+            val session = registered()
+            contactStore.book = null
+            assertEquals(AuthResult.Failed(AuthError.Local.CONTACTS_UNAVAILABLE), claim(session, "ben"))
+            assertEquals(emptyList(), server.requests)
+        }
+
+    @Test
+    fun aPinThatCannotBeWrittenHandsOnNothing() =
+        runTest {
+            val session = registered()
+            contactStore.failSaves = true
+            server.on("/key-packages/claim", answer(benAccount, entry(device1, kp("abc"))))
+            assertEquals(AuthResult.Failed(AuthError.Local.CONTACTS_UNAVAILABLE), claim(session, "ben"))
+            assertEquals(0, contactStore.book?.pinCount)
+        }
+
+    @Test
+    fun aFirstClaimWithTwoUsableDevicesIsBlockedAsAWholeAndPinsNothing() =
+        runTest {
+            val session = registered()
+            server.on("/key-packages/claim", answer(benAccount, entry(device1, kp("abc")), entry(device2, kp("def"))))
+            assertEquals(AuthResult.Failed(AuthError.Local.CONTACT_BLOCKED), claim(session, "ben"))
+            val ben = checkNotNull(contactStore.book).contacts.getValue(benAccount)
+            assertEquals(TrustConflict.MULTIPLE_DEVICES, ben.pending?.reason)
+            assertEquals(emptyMap(), ben.devices)
+        }
+
+    @Test
+    fun theSameKeyOnTwoDevicesOfOneClaimIsRefused() =
+        runTest {
+            val session = registered()
+            server.on("/key-packages/claim", answer(benAccount, entry(device1, kp("abc")), entry(device2, kp("abc"))))
+            assertEquals(AuthResult.Failed(AuthError.Api(ApiError.MALFORMED_RESPONSE)), claim(session, "ben"))
+            assertEquals(0, contactStore.book?.pinCount)
+        }
+
+    @Test
+    fun theBookIsNotLockedWhileTheRequestRuns() =
+        runTest {
+            val session = registered()
+            val reply: Reply = { _ ->
+                access.update { book, _ -> book to Unit } // would never return if the claim held the lock across its request
+                respond(
+                    """{"accountId":"$benAccount","devices":[${entry(device1, kp("abc"))}]}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            }
+            server.on("/key-packages/claim", reply)
+            assertIs<AuthResult.Ok<List<ClaimedDeviceKey>>>(claim(session, "ben"))
+        }
 }

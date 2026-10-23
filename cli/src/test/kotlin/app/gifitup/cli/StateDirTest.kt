@@ -1,5 +1,10 @@
 package app.gifitup.cli
 
+import app.gifitup.shared.data.contacts.Contact
+import app.gifitup.shared.data.contacts.ContactBook
+import app.gifitup.shared.data.contacts.ContactStatus
+import app.gifitup.shared.data.contacts.KeyBytes
+import app.gifitup.shared.data.storage.ContactLoad
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
@@ -12,6 +17,8 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -19,6 +26,16 @@ class StateDirTest {
     private val dir = Files.createTempDirectory("cli-state-").resolve("state")
     private val state = StateDir(dir)
     private val identity = StoredIdentity("https://e2e.invalid", "ann", byteArrayOf(1, 2, 3, -1), deviceId = null)
+    private val pinned =
+        Contact(
+            ACCOUNT,
+            "ben",
+            ContactStatus.OK,
+            mapOf(KeyBytes(ByteArray(32) { 5 }) to "00000000-0000-4000-8000-000000000002"),
+            null,
+            1L,
+            1L,
+        )
 
     @Test
     fun identityAndKeyRoundTripAndClear() =
@@ -47,12 +64,51 @@ class StateDirTest {
                 state.identities.save(identity)
                 state.keys.save(ByteArray(32))
             }
-            assertEquals(listOf("identity", "lock", "snapshot-key"), dir.listDirectoryEntries().map { it.name }.sorted())
+            assertEquals(listOf("contacts", "identity", "lock", "snapshot-key"), dir.listDirectoryEntries().map { it.name }.sorted())
             if ("posix" in dir.fileSystem.supportedFileAttributeViews()) {
                 assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(dir)))
                 dir.listDirectoryEntries().forEach {
                     assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(it)), it.name)
                 }
+            }
+        }
+
+    @Test
+    fun theContactBookIsCreatedWithTheIdentityKeptOnLaterSavesAndGoesWithClear() =
+        runBlocking {
+            state.lock().use {
+                assertIs<ContactLoad.Unavailable>(state.contacts.load())
+                state.identities.save(identity)
+                val empty = assertIs<ContactLoad.Book>(state.contacts.load()).book
+                assertEquals(0, empty.contacts.size)
+                state.contacts.save(ContactBook(mapOf(ACCOUNT to pinned)))
+                state.identities.save(StoredIdentity(identity.origin, "ann", byteArrayOf(2), identity.deviceId))
+                assertEquals(1, assertIs<ContactLoad.Book>(state.contacts.load()).book.pinCount, "a later save keeps the book")
+                state.identities.clear()
+                assertIs<ContactLoad.Unavailable>(state.contacts.load())
+                assertFalse(Files.exists(dir.resolve("contacts")))
+            }
+        }
+
+    @Test
+    fun aDamagedOrMissingContactFileIsUnavailableNeverAnEmptyBook() =
+        runBlocking {
+            state.lock().use {
+                state.identities.save(identity)
+                Files.delete(dir.resolve("contacts"))
+                assertIs<ContactLoad.Unavailable>(state.contacts.load())
+                Files.write(dir.resolve("contacts"), byteArrayOf(1, 2, 3))
+                assertIs<ContactLoad.Unavailable>(state.contacts.load())
+                state.identities.save(identity)
+                assertContentEquals(
+                    byteArrayOf(1, 2, 3),
+                    Files.readAllBytes(dir.resolve("contacts")),
+                    "a save never replaces a damaged book",
+                )
+                Files.delete(dir.resolve("contacts"))
+                state.identities.save(identity)
+                assertIs<ContactLoad.Unavailable>(state.contacts.load(), "nor does it heal a deleted book into an empty one")
+                assertFalse(Files.exists(dir.resolve("contacts")))
             }
         }
 
@@ -116,3 +172,5 @@ class StateDirTest {
         const val PROCESS_TIMEOUT_SECONDS = 60L
     }
 }
+
+private const val ACCOUNT = "00000000-0000-4000-8000-000000000001"

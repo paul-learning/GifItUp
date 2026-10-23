@@ -53,7 +53,7 @@ class StoredRecordsTest {
         runTest {
             identities.save(pending)
             identities.save(StoredIdentity(pending.origin, pending.username, byteArrayOf(5), deviceId = null))
-            assertEquals(setOf(RecordIdentityStore.KEY), store.entries.keys)
+            assertEquals(setOf(RecordIdentityStore.KEY, RecordContactStore.KEY), store.entries.keys)
             assertContentEquals(byteArrayOf(5), identities.load()?.snapshot)
             assertEquals(1, store.writes.last().size)
         }
