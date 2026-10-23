@@ -32,6 +32,14 @@ interface MlsClient : AutoCloseable {
         expectedUsername: String,
     ): PublicIdentity
 
+    /**
+     * The fingerprint of a signature public key (ADR-0014): [FingerprintEmojis.LENGTH] bytes, each an index into
+     * [FingerprintEmojis]. [signatureKey] must be exactly 32 bytes ([MlsErrorCode.InvalidInput] otherwise). It reads no
+     * client state, but like every call it is refused on a closed or poisoned client. A user compares **all** of it, out
+     * of band, never part of it.
+     */
+    fun fingerprint(signatureKey: ByteArray): ByteArray
+
     /** The whole client state, encrypted with the snapshot key given at create/restore. */
     fun exportState(): ByteArray
 

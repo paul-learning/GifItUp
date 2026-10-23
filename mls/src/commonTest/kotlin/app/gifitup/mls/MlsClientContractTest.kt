@@ -78,6 +78,27 @@ class MlsClientContractTest {
             }
         }
 
+    /**
+     * The fingerprint against the real crate (ADR-0014). The vectors were made outside the crate:
+     * `hashlib.sha256(b"gifitup/fingerprint/v1\0" + key).digest()[:12]` in Python.
+     */
+    @Test
+    fun fingerprintMatchesIndependentVectorsAndRefusesOtherLengths() =
+        runTest {
+            platformMlsClientFactory().create("bob", key()).use { bob ->
+                assertEquals("202f30067a34946fb860eeb9", hex(bob.fingerprint(ByteArray(32))))
+                assertEquals("fcb427388f0d94f10ff19869", hex(bob.fingerprint(ByteArray(32) { 0x80.toByte() })))
+                assertEquals("1dc540e603af69e24ae30a6e", hex(bob.fingerprint(ByteArray(32) { it.toByte() })))
+                assertEquals("67a951281dedf1d856b7b9c7", hex(bob.fingerprint(ByteArray(32) { 0xFF.toByte() })))
+                listOf(0, 1, 31, 33, 64).forEach { size ->
+                    assertCode(MlsErrorCode.InvalidInput) { bob.fingerprint(ByteArray(size)) }
+                }
+                assertEquals("202f30067a34946fb860eeb9", hex(bob.fingerprint(ByteArray(32))), "a refused call leaves the client usable")
+            }
+        }
+
+    private fun hex(bytes: ByteArray) = bytes.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+
     @Test
     fun createdKeyPackagesBeyondTheCapDropTheOldest() =
         runTest {

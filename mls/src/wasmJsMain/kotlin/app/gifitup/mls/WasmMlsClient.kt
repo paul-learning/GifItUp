@@ -106,6 +106,12 @@ private class WasmMlsClient(
             guarded { native.inspectKeyPackage(bytes, expectedUsername) }.toShared()
         }
 
+    override fun fingerprint(signatureKey: ByteArray): ByteArray =
+        call {
+            val bytes = signatureKey.toUint8Array()
+            guarded { native.fingerprint(bytes) }.toByteArray()
+        }
+
     override fun exportState(): ByteArray = call { guarded { native.exportState() }.toByteArray() }
 
     override fun signAuth(

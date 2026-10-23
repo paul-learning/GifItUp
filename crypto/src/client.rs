@@ -57,6 +57,12 @@ impl Client {
         })
     }
 
+    /// The fingerprint of a signature public key (ADR-0014): 12 indices into the app's emoji table. Needs no client
+    /// state; it is a method so it goes through the same panic guard as every other call.
+    pub fn fingerprint(&self, signature_key: &[u8]) -> Result<Vec<u8>, ErrorCode> {
+        crate::fingerprint::fingerprint(self.provider.crypto(), signature_key)
+    }
+
     /// Exports the complete client state (identity, groups, KeyPackages, key material),
     /// encrypted with the snapshot key (format in [`crate::snapshot`]).
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
