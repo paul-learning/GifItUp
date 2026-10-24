@@ -1,0 +1,64 @@
+# ADR-0015: Delivery Service (groups, ordering, welcomes, retention, WebSocket)
+
+- **Status:** accepted (design; the server logic lands in the following #21 PRs)
+- **Date:** 2026-10-24
+- **Issue/PR:** #21 (PR A: this ADR, the protocol messages, V4 and the threat model). Round-0 plan review (SEC-1 to SEC-14) before this PR. Owner decision in chat, 2026-10-24, on the four residual risks listed under *Residual risks*: "Accept all four (Recommended)".
+
+## Context
+The server is the MLS Delivery Service (ADR-0002): it orders Commits per group, stores and forwards ciphertext and Welcomes, and tells online devices that something is waiting. It stays untrusted for content and never parses MLS. ADR-0002 already fixes: the envelope that accompanies each Commit lists the affected device ids; membership changes apply only when the Commit is accepted; any member may add, a member may remove itself, the creator may remove anyone; a mismatch between envelope and Commit makes the group compromised and recovery is a new group. ADR-0006 fixes the first-frame handshake and the close codes 4001/4002. Constraints: a new server-visible field needs a justification (CLAUDE.md); the server runs one process on a shared VM (ADR-0005); the web client cannot set headers on a WebSocket.
+
+## Options considered
+1. **Epoch ordering with a counter on the group row, a per-group log with sequence numbers** and per-device cursors. **Chosen.** Simple, one lock, easy to reason about.
+2. A database sequence per group. Rejected: gaps and the order of commit versus sequence are harder to guarantee than under one row lock.
+3. Authenticate the WebSocket with a single-use ticket from a new endpoint. Rejected: it adds an endpoint and a pre-auth store for no gain, because the session token is the same bearer secret that already travels in every `Authorization` header and Caddy logs request lines, not frames.
+4. Push message payloads over the WebSocket. Rejected: the socket is a hint channel; content goes over HTTP so a missed push is harmless.
+
+## Decision
+
+### Data (V4, expand-only)
+`groups` (opaque id of 16..64 bytes, `creator_device_id`, `epoch`, `next_seq`, `retained_bytes`), `group_members` (per device: `joined_seq`, `acked_seq`, `last_sent_seq`, `last_client_msg_id`, `last_acked_at`, `added_by_device_id`), `group_messages` (the log: seq, sender, kind, commit epoch, `added`, `removed`, `client_msg_id`, payload hash, payload) and `welcomes`. Device deletion removes memberships and welcomes (cascade) and sets sender, creator and adder to `NULL`; the server does not treat a deleted device as a Commit, so the remaining members see a group that shrank without one. The Commit/envelope mismatch recovery of ADR-0002 covers what clients do. The creator's right to remove others lapses when the creator is `NULL`.
+
+### Envelope and ordering
+- `POST /groups` creates a group with its first Commit (epoch 0, at least one added device). `POST /groups/{id}/messages` posts a Commit or an application message. Wire shapes: `protocol/…/DeliveryMessages.kt`.
+- **The whole transaction runs under `SELECT … FOR UPDATE` on the group row.** Seq order is therefore commit order and no reader sees a gap.
+- A Commit is accepted only if the sender is a current member, `epoch` equals the group's epoch, and the envelope passes **all** of: `added` are known devices that are not members; `removed` are members; no duplicates and no overlap between the lists; the sender is not in `added`; `welcomes` has exactly one item per added device; a non-creator removes only itself; the group stays within 50 devices. Any violation is `400 envelope_invalid` and nothing is applied. A stale epoch is `409 epoch_conflict`. On accept, in the same transaction: append the message, apply `added` (join point = this seq, `acked_seq` = join point) and `removed`, store the welcomes, `epoch += 1`.
+- An application message needs a member sender; `epoch` is `null` and the lists are empty.
+- **Retries:** `clientMsgId` (16 random bytes, never sent to recipients) makes a repeat return the first answer. A repeat with another payload is `409 envelope_conflict`. The record lives as long as the message; after retention a very late retry is a new message, which for a Commit is an `epoch_conflict`.
+- **Sizes** (measured with the crate, 2026-10-24: application message 1086 bytes; a Commit adding one device to a 50-device group 5.2 KB; its Welcome 9.8 KB): application payload at most 2 KiB, Commit at most 16 KiB, Welcome at most 16 KiB, at most 10 added plus removed devices per Commit, 50 devices per group.
+
+### Reads, authorization, freshness
+- Everything needs a session; the device is the session's device, never a body field. A non-member and an unknown group get the same `404 not_found`, so there is no membership oracle. A removed device therefore cannot fetch its own removal Commit and cannot tell removal from withholding; client text must say the group is "no longer available", never "you were removed by X".
+- `GET /groups/{id}/messages?after=&limit=` returns messages above the larger of `after` and the device's join point, so a new device never sees history from before it joined. The answer carries `oldestSeq`: a device whose cursor is below it has a gap and must be re-added. `POST /groups/{id}/ack` moves `acked_seq` (monotonic, at most `lastSeq`).
+- **Freshness anchor (SEC-M0-2, #16).** The member row keeps the device's last accepted `last_sent_seq` and `last_client_msg_id`, set in the same transaction as the append; `GET /groups/{id}` returns them. The client rule (built in #22): the client stores the `clientMsgId` of its last send in its snapshot (persist before send). On load and after any send with an unknown outcome it compares with the server's `lastClientMsgId`: equal means fresh; equal to the one before it, while a send is in flight, means fresh; anything else means the state was rolled back, so the client rejoins or sends a self-update before it encrypts again. A retry resends the stored ciphertext. **Limit:** this detects a restored client against a server that remembers; a server that colludes with whoever rolled the state back can replay an old value (ADR-0002). A value derived from messages uses its own domain-separation label, never the message-reference label (#92 SEC-15).
+- `GET /welcomes` lists the caller's pending welcomes (oldest first, at most 20), `POST /welcomes/{id}/ack` deletes one, only for its target. `POST /groups/{id}/leave` drops the caller's own membership without a Commit, for a device that was added without consent and holds no MLS state (like device deletion, so the others see a ghost leaf until a member removes it).
+
+### Retention
+- Hourly cleanup (as `KeyPackageCleanup`): delete messages every member that was a member at that seq has acked; a member that has not acked for 7 days stops blocking deletion; delete messages and welcomes older than 30 days; delete groups without members. A device that is offline for more than 7 days can therefore miss commits and must be re-added (`oldestSeq` shows the gap).
+- **Bytes, not only counts:** a group keeps at most 2 MiB and 5000 messages (`409 group_full`), and one sender device at most 8 MiB of retained, unacknowledged bytes across groups. Welcomes: at most 20 pending per target device, 3 per (adder, target), and 64 MiB in total (`409 welcome_limit`). A device may create 3 groups per hour and at most 100 groups in total, belong to at most 300, and add the same target at most 3 times a day (`409 group_limit`). The caps count groups **created**, so an attacker cannot lock a victim out of creating groups by adding them to groups.
+- "Deleted" means deleted from the live tables; the nightly dumps keep rows for another 15 to 16 days (threat model, *Backups*).
+
+### Rate limits
+Keyed by device id, in memory, spend/refund like ADR-0012. Posting an application message: burst 60, refill 1/s. Commits: burst 5, refill 1/min. Fetch/status/ack/welcomes: burst 120, refill 2/s. Buckets exist only for authenticated, existing devices; the map is sized above the number of device rows, full buckets are evicted, and an existing device is never refused for lack of room. The per-account request budget of ADR-0009 (4/s) is checked against normal use (about 3 requests per send) in PR B1 and adjusted or exempted for these paths.
+
+### WebSocket
+- `GET /ws`, exempt from the header checks **by exact method and path** in both the session interceptor and the version check (tests: trailing slash, other method). The client's **first frame** is a text frame `{"v":…,"token":…}` of at most 256 bytes, within 5 s of the `101`. A wrong version closes with 4001 (client outdated) or 4002 (server outdated), anything else wrong (not JSON, wrong shape, bad token, expired session) with 4400 or 4401. The token never appears in a URL and is never logged. One auth attempt per socket.
+- Frames: `maxFrameSize` 256 bytes for the whole socket, no extensions (no deflate), any frame after the handshake other than a pong, or any oversize frame, closes the socket. Ping every 25 s, close after 60 s without a pong. The session is re-checked at every ping, and logout closes that session's sockets at once.
+- Limits: 2 sockets per device (a third closes the oldest), 50 unauthenticated and 500 authenticated sockets in total, and a global bucket on upgrades, so an anonymous flood cannot take every slot (HTTP polling stays as the fallback).
+- Push: `{"groupId","seq","kind"}` per accepted message to online member devices, and a `welcome` hint to the target. Bounded outbound queue per socket; on overflow drop and push one resync hint. A push never blocks a post.
+- `RequestDeadlineHandler` is removed from the connection on a `101` that came from `/ws` and replaced by the ping rule (#68 SEC-23). Tests use a raw socket against the real Netty engine.
+- Caddy: WebSocket idle timeout above the ping interval and `stream_close_delay` for config reloads are checked in the PR that adds the route.
+
+### What the server learns (metadata it reveals)
+Group ids, member device ids and when each joined, the sender device and kind of every message, padded sizes, timing, online presence (open sockets), and per-member cursors (joined, acked, last sent). Not content, not GIF identity, not MLS secrets. `clientMsgId` is random and carries nothing.
+
+## Residual risks
+Accepted by the owner in chat on 2026-10-24 ("Accept all four (Recommended)"), recorded in the threat model:
+1. A member can fill a group's log up to its byte cap, which stops posting for everyone until members ack or the TTL passes.
+2. A member can add any known device to groups and fill its welcome inbox, within the bounds above; the victim can leave.
+3. Unauthenticated WebSocket upgrade flooding, bounded by the separate cap; HTTP polling is the fallback.
+4. A broken or mismatched envelope can wedge a group; recovery is a new group (ADR-0002).
+
+## Consequences
+- The server holds a per-group log and per-member cursors; deletion follows acks, the 7 day rule and the 30 day TTL.
+- #22 builds the sync loop and the freshness rule on these endpoints; #24 sends and receives GIF messages over them.
+- A second server instance would need a shared fan-out for pushes; not needed on the single VM.
