@@ -28,7 +28,10 @@ ignore = [
   # only through elliptic-curve 0.13 (p256, p384, k256, ecdsa), which OpenMLS 0.9.1's RustCrypto provider pulls in;
   # `cargo update` cannot reach 0.7.x because the 0.13 curve crates pin 0.5. Our ciphersuite is
   # MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 and we never hold a NIST or secp256k1 secret, so the affected
-  # operations do not touch our keys. Remove this entry when OpenMLS moves to a newer RustCrypto. Tracked in #156.
+  # operations do not touch our keys. This holds only while `CIPHERSUITE` (client.rs) stays X25519/Ed25519 and
+  `inspect_key_package` (identity.rs) rejects other suites: remove this entry before any NIST or secp256k1 suite is
+  added. Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0387. Remove it also when OpenMLS moves to a newer
+  RustCrypto. Tracked in #156.
   { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 only via NIST/k256 curve crates; not used with our ciphersuite (#156)" },
 ]
 
