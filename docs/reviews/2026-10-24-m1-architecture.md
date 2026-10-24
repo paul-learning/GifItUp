@@ -136,3 +136,5 @@ graph TD
 ## Tracking
 
 Each actionable finding becomes a `review-finding` issue (the caller opens them): ARCH-M1-1 to ARCH-M1-10.
+
+Owner decisions (chat, 2026-10-24): ARCH-M1-4 is decided, `ContactBook` moves to `domain.contacts` ("2. yes move it"); tracked in #157.
