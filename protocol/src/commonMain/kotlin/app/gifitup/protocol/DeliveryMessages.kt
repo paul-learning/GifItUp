@@ -141,6 +141,12 @@ data class SocketPush(
     val kind: String,
 )
 
+/** Sent instead of a push when the server had to drop pushes for a slow socket: fetch every group (ADR-0015). */
+@Serializable
+data class SocketResync(
+    val resync: Boolean,
+)
+
 /** Close codes of the WebSocket (ADR-0006 A2; 4400 and 4401 are ours). */
 object SocketCloseCodes {
     const val CLIENT_OUTDATED: Int = 4001

@@ -29,6 +29,11 @@ gifitup.example.com {
 		respond `[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"app.gifitup","sha256_cert_fingerprints":["REPLACE_WITH_RELEASE_SHA256"]}}]` 200
 	}
 	handle {
-		reverse_proxy gifitup-server:8080
+		# /ws is a WebSocket (ADR-0015): reverse_proxy upgrades it by default and sets no idle timeout of its own (the
+		# server pings every 25 s). stream_close_delay keeps open sockets across a Caddy config reload of the shared VM
+		# (the default closes them at once); clients reconnect anyway, so this only avoids a needless burst.
+		reverse_proxy gifitup-server:8080 {
+			stream_close_delay 5m
+		}
 	}
 }

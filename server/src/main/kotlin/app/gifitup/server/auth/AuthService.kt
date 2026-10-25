@@ -67,7 +67,7 @@ class AuthenticatedSession(
  *
  * The signed bytes are always rebuilt from the server's own [origin], never from the request (#70 SEC-25).
  */
-@Suppress("LongParameterList") // Constructor injection of the use case's collaborators (ADR-0004).
+@Suppress("LongParameterList", "TooManyFunctions") // Constructor injection (ADR-0004); one function per use case.
 class AuthService(
     private val db: TransactionRunner,
     private val origin: CanonicalOrigin,
@@ -171,6 +171,16 @@ class AuthService(
             .transaction { c ->
                 sessions.findValid(c, hash, now)?.also { devices.touch(c, it.deviceId, now) }
             }?.let { AuthenticatedSession(it, hash) }
+    }
+
+    /**
+     * True if [token] still names a live session. A read only: unlike [authenticate] it does not touch the device's
+     * `last_seen_at`, so a socket's periodic re-check is not a write per ping. Throws if the database fails.
+     */
+    fun isLive(token: String): Boolean {
+        val bytes = Base64Url.decode(token, TOKEN_SIZE) ?: return false
+        val hash = sha256(bytes)
+        return db.transaction { c -> sessions.findValid(c, hash, clock.instant()) != null }
     }
 
     fun logout(session: AuthenticatedSession) {

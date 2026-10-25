@@ -17,6 +17,7 @@ import app.gifitup.server.db.DeliveryCleanup
 import app.gifitup.server.db.KeyPackageCleanup
 import app.gifitup.server.delivery.DeliveryLimits
 import app.gifitup.server.delivery.DeliveryService
+import app.gifitup.server.delivery.SocketEndpoint
 import app.gifitup.server.delivery.deliveryBodyLimit
 import app.gifitup.server.delivery.deliveryRoutes
 import app.gifitup.server.http.CachedReadiness
@@ -65,16 +66,18 @@ fun main() {
     val inviteCleanup = InviteCleanup(database, clock).start()
     val keyPackageCleanup = KeyPackageCleanup(database, clock).start()
     val deliveryCleanup = DeliveryCleanup(database, clock).start()
+    val sockets = SocketEndpoint(auth, delivery.sockets, clock)
     val server =
         embeddedServer(
             Netty,
-            configure = { applyTo(this, config) },
+            configure = { applyTo(this, config, sockets) },
             module = { module(config, readiness, auth, invites, keyPackages, members, delivery) },
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
         keyPackageCleanup.shutdownNow()
         deliveryCleanup.shutdownNow()
+        sockets.shutdown()
         inviteCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         keyPackageCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         deliveryCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
@@ -87,6 +90,7 @@ fun main() {
 internal fun applyTo(
     engine: NettyApplicationEngine.Configuration,
     config: ServerConfig,
+    sockets: SocketEndpoint? = null,
 ) {
     engine.connector {
         host = config.host
@@ -104,6 +108,8 @@ internal fun applyTo(
             // HTTP/1 is the only pipeline (no TLS in the server, h2c off). Anything else is unexpected: close it.
             if (get(NETTY_HTTP_CODEC) != null) {
                 addAfter(NETTY_HTTP_CODEC, "requestDeadline", RequestDeadlineHandler(requestDeadlineSeconds.toLong()))
+                // The realtime channel answers its own upgrade before Ktor sees the request (ADR-0015).
+                sockets?.let { addAfter("requestDeadline", "socketUpgrade", it.upgradeHandler()) }
             } else {
                 channel().close()
             }
@@ -149,7 +155,7 @@ internal fun Application.configure(
     }
     install(ContentNegotiation) { json(ProtocolJson) }
     routing {
-        authRoutes(auth)
+        authRoutes(auth, delivery::sessionEnded)
         inviteRoutes(invites)
         keyPackageRoutes(keyPackages)
         memberRoutes(members)
