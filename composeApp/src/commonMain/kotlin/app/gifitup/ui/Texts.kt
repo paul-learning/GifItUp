@@ -126,7 +126,10 @@ internal object Texts {
                 "You already have 5 open invites. Revoke one, or wait until one is used or expires."
             }
 
-            ApiError.BAD_REQUEST, ApiError.NOT_FOUND, ApiError.KEY_PACKAGE_INVALID, ApiError.KEY_PACKAGE_LIMIT -> {
+            ApiError.BAD_REQUEST, ApiError.NOT_FOUND, ApiError.KEY_PACKAGE_INVALID, ApiError.KEY_PACKAGE_LIMIT,
+            ApiError.ENVELOPE_INVALID, ApiError.ENVELOPE_CONFLICT, ApiError.EPOCH_CONFLICT, ApiError.GROUP_FULL,
+            ApiError.WELCOME_LIMIT, ApiError.GROUP_LIMIT, ApiError.PAYLOAD_TOO_LARGE,
+            -> {
                 "The server refused the request."
             }
         }

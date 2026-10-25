@@ -36,6 +36,27 @@ enum class ApiError {
 
     /** Create invite: already 5 open invites (ADR-0010; the daily cap of 20 is `RATE_LIMITED`). */
     INVITE_LIMIT,
+
+    /** Delivery Service (ADR-0015): the envelope broke a rule; the server says no more than that. */
+    ENVELOPE_INVALID,
+
+    /** A repeated client message id came with a different envelope. */
+    ENVELOPE_CONFLICT,
+
+    /** A commit's epoch is not the group's current epoch: fetch the group's newer messages and retry. */
+    EPOCH_CONFLICT,
+
+    /** The group's retained log is at its limit until members acknowledge. */
+    GROUP_FULL,
+
+    /** The target device holds too many pending welcomes, or was added too often. */
+    WELCOME_LIMIT,
+
+    /** The device is at its group or membership limit. */
+    GROUP_LIMIT,
+
+    /** A payload is over its cap. */
+    PAYLOAD_TOO_LARGE,
     SERVER_ERROR,
     MALFORMED_RESPONSE,
     NETWORK,

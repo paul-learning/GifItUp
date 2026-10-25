@@ -18,20 +18,20 @@ import kotlin.test.assertTrue
 /** The realtime channel against the real Netty engine (ADR-0015): handshake, pushes, limits, idle handling. */
 class DeliverySocketTest {
     private fun fast() =
-        SocketSettings(helloTimeout = Duration.ofMillis(500), pingInterval = Duration.ofMillis(100), pongTimeout = Duration.ofMillis(400))
+        SocketSettings(helloTimeout = Duration.ofSeconds(3), pingInterval = Duration.ofMillis(100), pongTimeout = Duration.ofMillis(400))
 
     @Test
     fun anAuthenticatedSocketGetsHintsForNewMessagesAndWelcomes() =
         socketTest {
             val ana = delivery.member("ana")
             val ben = delivery.member("ben")
-            val benSocket = SocketClient(port).also { it.hello(ben.token) }
+            val benSocket = connect(ben.token)
             val group = delivery.newGroupId()
             delivery.posted(delivery.create(ana, group, delivery.commit(0, added = listOf(ben))))
             val welcome = assertNotNull(benSocket.next())
             assertTrue("\"kind\":\"welcome\"" in welcome && group in welcome, welcome)
 
-            val anaSocket = SocketClient(port).also { it.hello(ana.token) }
+            val anaSocket = connect(ana.token)
             val sent = delivery.posted(delivery.post(ana, group, delivery.application()))
             val hint = "\"seq\":${sent.seq},\"kind\":\"application\""
             assertTrue(hint in assertNotNull(benSocket.next()))
@@ -101,7 +101,7 @@ class DeliverySocketTest {
         socketTest(fast()) {
             val ana = delivery.member("ana")
             val ben = delivery.member("ben")
-            val polite = SocketClient(port).also { it.hello(ben.token) } // the JDK client answers pings itself
+            val polite = connect(ben.token) // the JDK client answers pings itself
             RawSocket(port).use { deaf ->
                 deaf.upgrade()
                 deaf.text("""{"v":1,"token":"${ana.token}"}""")
@@ -116,8 +116,7 @@ class DeliverySocketTest {
     fun logoutAndAnEndedSessionCloseTheSocket() =
         socketTest(fast()) {
             val ana = delivery.member("ana")
-            val socket = SocketClient(port).also { it.hello(ana.token) }
-            Thread.sleep(300)
+            val socket = connect(ana.token)
             val response = delivery.client.post("/auth/logout") { bearerAuth(ana.token) }
             assertEquals(HttpStatusCode.NoContent, response.status)
             assertEquals(SocketCloseCodes.UNAUTHORIZED, socket.closeCode())
@@ -135,9 +134,8 @@ class DeliverySocketTest {
             a.close()
             b.close()
 
-            val first = SocketClient(port).also { it.hello(ana.token) }
-            val second = SocketClient(port).also { it.hello(ana.token) }
-            Thread.sleep(300)
+            val first = connect(ana.token)
+            val second = connect(ana.token)
             val third = SocketClient(port).also { it.hello(ana.token) }
             assertEquals(1008, first.closeCode(), "the oldest socket of the device is replaced")
             assertFalse(second.closed.isDone)
@@ -149,16 +147,14 @@ class DeliverySocketTest {
     fun aFailingSessionLookupIsNotASessionThatEnded() =
         socketTest(fast()) {
             val ana = delivery.member("ana")
-            val online = SocketClient(port).also { it.hello(ana.token) }
-            Thread.sleep(300)
+            val online = connect(ana.token)
             databaseDown.set(true)
             val refused = SocketClient(port).also { it.hello(ana.token) }
             assertEquals(1013, refused.closeCode(), "at the hello: try again later, not 4401")
             Thread.sleep(500) // several pings with the lookup failing: the online socket stays
             assertFalse(online.closed.isDone, "a failing re-check keeps the socket")
             databaseDown.set(false)
-            val again = SocketClient(port).also { it.hello(ana.token) }
-            Thread.sleep(300)
+            val again = connect(ana.token)
             assertFalse(again.closed.isDone)
             again.close()
             online.close()
@@ -177,7 +173,7 @@ class DeliverySocketTest {
             RawSocket(port).use { raw ->
                 raw.upgrade()
                 raw.text("""{"v":1,"token":"${ana.token}"}""")
-                Thread.sleep(300)
+                awaitOnline(1)
                 raw.frame(RawSocket.OP_PONG, ByteArray(0))
                 assertEquals(SocketCloseCodes.BAD_HANDSHAKE, raw.closeCodeOrEnd())
             }
