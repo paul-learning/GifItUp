@@ -45,6 +45,11 @@ data class Posted(
     val epoch: Long,
 )
 
+/** Thrown inside a transaction to undo it and answer with [reason]. */
+private class Rollback(
+    val reason: Refusal,
+) : RuntimeException(null, null, false, false)
+
 class Fetched(
     val oldestSeq: Long,
     val lastSeq: Long,
@@ -80,15 +85,19 @@ class DeliveryService(
         envelope: Envelope,
     ): Delivery<Posted> =
         guarded(spendCreate(device)) {
-            db.transaction { c ->
-                rules.createLimit(c, repo, device)
-                    ?: createRefusal(envelope)
-                    ?: if (repo.insertGroup(c, groupId, device, clock.instant())) {
-                        repo.insertMember(c, groupId, device, 0L, null, clock.instant())
-                        append(c, groupId, repo.lockGroup(c, groupId)!!, device, envelope)
-                    } else {
-                        Delivery.Refused(Refusal.INVALID)
+            try {
+                db.transaction { c ->
+                    rules.createLimit(c, repo, device)?.let { throw Rollback(it.reason) }
+                    createRefusal(envelope)?.let { throw Rollback(it.reason) }
+                    if (!repo.insertGroup(c, groupId, device, clock.instant())) throw Rollback(Refusal.INVALID)
+                    repo.insertMember(c, groupId, device, 0L, null, clock.instant())
+                    // The group exists only if its first commit is accepted: a refusal rolls the whole transaction back.
+                    append(c, groupId, checkNotNull(repo.lockGroup(c, groupId)), device, envelope).also {
+                        if (it is Delivery.Refused) throw Rollback(it.reason)
                     }
+                }
+            } catch (e: Rollback) {
+                Delivery.Refused(e.reason)
             }
         }.also { logOutcome("create_group", it) }
 
@@ -112,7 +121,7 @@ class DeliveryService(
         limit: Int,
     ): Delivery<Fetched> =
         read(device, groupId) { c, group, member ->
-            val messages = repo.messages(c, groupId, maxOf(after, member.joinedSeq), limit)
+            val messages = withinByteBudget(repo.messages(c, groupId, maxOf(after, member.joinedSeq), limit))
             Fetched(repo.oldestSeq(c, groupId) ?: group.nextSeq, group.nextSeq - 1, messages)
         }
 
@@ -169,6 +178,16 @@ class DeliveryService(
             }
         }
 
+    /** At most [MAX_FETCH_BYTES] of payload per page (always at least one message): the page limit alone is a count. */
+    private fun withinByteBudget(messages: List<StoredMessage>): List<StoredMessage> {
+        var total = 0L
+        val page =
+            messages.takeWhile { message ->
+                (total + message.payload.size <= MAX_FETCH_BYTES).also { total += message.payload.size }
+            }
+        return page.ifEmpty { messages.take(1) }
+    }
+
     private fun <T> read(
         device: UUID,
         groupId: ByteArray,
@@ -196,7 +215,11 @@ class DeliveryService(
         listOf(limits.creates, limits.posts, limits.commits).all { it.spend(device.toString()) }
 
     private fun createRefusal(envelope: Envelope): Delivery.Refused? =
-        if (envelope.isCommit && envelope.epoch == 0L && envelope.added.isNotEmpty()) null else Delivery.Refused(Refusal.INVALID)
+        if (isFirstCommit(envelope)) null else Delivery.Refused(Refusal.INVALID)
+
+    /** The first commit of a group: epoch 0, adds at least one device, removes nobody. */
+    private fun isFirstCommit(envelope: Envelope): Boolean =
+        envelope.isCommit && envelope.epoch == 0L && envelope.removed.isEmpty() && envelope.added.isNotEmpty()
 
     /** The group row is locked. Checks everything, then appends the message and applies a commit. */
     private fun append(
@@ -206,10 +229,17 @@ class DeliveryService(
         device: UUID,
         envelope: Envelope,
     ): Delivery<Posted> {
-        val members = repo.memberDevices(c, id)
-        if (device !in members) return Delivery.Refused(Refusal.NOT_FOUND)
+        // A retry comes first: the first answer stays true even if that commit removed the sender itself.
         return retryOf(c, id, group, device, envelope) ?: run {
-            val refusal = rules.check(c, repo, id, group, device, members, envelope, clock.instant())
+            val members = repo.memberDevices(c, id)
+            val refusal =
+                if (device in
+                    members
+                ) {
+                    rules.check(c, repo, id, group, device, members, envelope, clock.instant())
+                } else {
+                    Refusal.NOT_FOUND
+                }
             if (refusal != null) Delivery.Refused(refusal) else Delivery.Ok(apply(c, id, group, device, members, envelope))
         }
     }
@@ -266,7 +296,7 @@ class DeliveryService(
             }
             repo.deleteGroupIfEmpty(c, id)
         }
-        repo.advanceGroup(c, id, seq + 1, epoch, group.retainedBytes + envelope.payload.size)
+        repo.advanceGroup(c, id, seq + 1, epoch, repo.retained(c, id).second)
         return Posted(seq, epoch)
     }
 
@@ -280,5 +310,6 @@ class DeliveryService(
 
     companion object {
         internal const val MAX_WELCOMES = 20
+        internal const val MAX_FETCH_BYTES = 256L * 1024
     }
 }

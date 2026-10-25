@@ -325,10 +325,18 @@ class DeliveryRepository {
         group: ByteArray,
     ): Long? = c.scalar("SELECT min(seq) FROM group_messages WHERE group_id = ?") { setBytes(1, group) }
 
-    fun messageCount(
+    /** The group's retained message count and payload bytes, summed live (the counter column can lag a cleanup). */
+    fun retained(
         c: Connection,
         group: ByteArray,
-    ): Long = c.scalar("SELECT count(*) FROM group_messages WHERE group_id = ?") { setBytes(1, group) } ?: 0L
+    ): Pair<Long, Long> =
+        c.prepareStatement("SELECT count(*), coalesce(sum(octet_length(payload)), 0) FROM group_messages WHERE group_id = ?").use {
+            it.setBytes(1, group)
+            it.executeQuery().use { rows ->
+                rows.next()
+                rows.getLong(1) to rows.getLong(2)
+            }
+        }
 
     /** Retained payload bytes of everything [sender] posted, across groups. */
     fun bytesBySender(
@@ -339,7 +347,7 @@ class DeliveryRepository {
             setObject(1, sender)
         } ?: 0L
 
-    /** Moves the member's ack forward (never back) and records that it is alive. */
+    /** Moves the member's ack forward (never back). Only an advance counts as being alive: a repeated ack changes nothing. */
     fun ack(
         c: Connection,
         group: ByteArray,
@@ -349,12 +357,13 @@ class DeliveryRepository {
     ) {
         c
             .prepareStatement(
-                "UPDATE group_members SET acked_seq = greatest(acked_seq, ?), last_acked_at = ? WHERE group_id = ? AND device_id = ?",
+                "UPDATE group_members SET acked_seq = ?, last_acked_at = ? WHERE group_id = ? AND device_id = ? AND acked_seq < ?",
             ).use {
                 it.setLong(1, seq)
                 it.setObject(2, now.utc())
                 it.setBytes(3, group)
                 it.setObject(4, device)
+                it.setLong(5, seq)
                 it.executeUpdate()
             }
     }
@@ -370,14 +379,17 @@ class DeliveryRepository {
         device: UUID,
     ): Long = c.scalar("SELECT count(*) FROM group_members WHERE device_id = ?") { setObject(1, device) } ?: 0L
 
-    /** How often [adder] added [target] since [since] (any group). */
+    /**
+     * How often [adder] added [target] since [since] (any group), counted from the commits it posted, so removing and
+     * re-adding does not reset the count.
+     */
     fun recentAdds(
         c: Connection,
         adder: UUID,
         target: UUID,
         since: Instant,
     ): Long =
-        c.scalar("SELECT count(*) FROM group_members WHERE added_by_device_id = ? AND device_id = ? AND created_at > ?") {
+        c.scalar("SELECT count(*) FROM group_messages WHERE sender_device_id = ? AND ? = ANY (added) AND created_at > ?") {
             setObject(1, adder)
             setObject(2, target)
             setObject(3, since.utc())

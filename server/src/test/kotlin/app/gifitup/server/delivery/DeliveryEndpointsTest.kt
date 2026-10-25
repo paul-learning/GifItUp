@@ -324,8 +324,9 @@ class DeliveryEndpointsTest {
 
             // A member silent for more than 7 days stops holding messages back (the cleanup's clock runs ahead; the
             // sessions are still valid on the server's).
+            posted(post(ana, group, application()))
             clock.advance(Duration.ofHours(23))
-            json(ana, "/groups/$group/ack", ProtocolJson.encodeToString(AckRequest(3)))
+            json(ana, "/groups/$group/ack", ProtocolJson.encodeToString(AckRequest(4)))
             val later =
                 TestClock(
                     clock.now
@@ -333,11 +334,138 @@ class DeliveryEndpointsTest {
                         .plus(Duration.ofDays(7))
                         .plus(Duration.ofHours(1)),
                 )
-            assertEquals(1, DeliveryCleanup(db, later).runOnce())
+            assertEquals(2, DeliveryCleanup(db, later).runOnce(), "seq 3 and 4: Ben is silent, Ana has acknowledged them")
             // Messages expire after 30 days.
             posted(post(ana, group, application()))
             val muchLater = TestClock(clock.now.plus(Duration.ofDays(31)))
             assertTrue(DeliveryCleanup(db, muchLater).runOnce() >= 1)
             assertEquals(0, fetch(ana, group).messages.size)
+        }
+
+    @Test
+    fun aRefusedCreateLeavesNothingBehindAndTheIdCanBeUsedAgain() =
+        deliveryTest(limits = ::roomy) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            val unknown =
+                commit(0, added = listOf(ben)).copy(
+                    added =
+                        listOf(
+                            java.util.UUID
+                                .randomUUID()
+                                .toString(),
+                        ),
+                )
+            assertEquals(HttpStatusCode.BadRequest, create(ana, group, unknown).status)
+            assertEquals(
+                0,
+                db.transaction { c ->
+                    c.createStatement().executeQuery("SELECT count(*) FROM groups").use {
+                        it.next()
+                        it.getInt(1)
+                    }
+                },
+            )
+            assertEquals(1L, posted(create(ana, group, commit(0, added = listOf(ben)))).seq, "the refused attempt did not burn the id")
+        }
+
+    @Test
+    fun aFullLogStillTakesACommitThatRemovesTheOneWhoFilledIt() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(maxMessagesPerGroup = 3)) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(ben))))
+            posted(post(ben, group, application()))
+            posted(post(ben, group, application()))
+            assertEquals("group_full", errorCode(post(ben, group, application())))
+            assertEquals(2L, posted(post(ana, group, commit(1, removed = listOf(ben.deviceId)))).epoch, "headroom for commits")
+        }
+
+    @Test
+    fun aRepeatedAckDoesNotKeepAMemberActive() =
+        deliveryTest(limits = ::roomy) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(ben))))
+            posted(post(ana, group, application()))
+            json(ben, "/groups/$group/ack", ProtocolJson.encodeToString(AckRequest(1)))
+            clock.advance(Duration.ofHours(20))
+            json(ben, "/groups/$group/ack", ProtocolJson.encodeToString(AckRequest(1)))
+            json(ana, "/groups/$group/ack", ProtocolJson.encodeToString(AckRequest(2)))
+            val later =
+                TestClock(
+                    clock.now
+                        .minus(Duration.ofHours(20))
+                        .plus(Duration.ofDays(7))
+                        .plus(Duration.ofHours(1)),
+                )
+            // Ben's last advance was at the start, more than 7 days before "later"; the repeat at +20h did not count.
+            assertEquals(2, DeliveryCleanup(db, later).runOnce())
+        }
+
+    @Test
+    fun addAndRemoveCyclesDoNotResetTheDailyAddLimit() =
+        deliveryTest(limits = ::roomy) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(ben))))
+            var epoch = 1L
+            repeat(2) {
+                epoch = posted(post(ana, group, commit(epoch, removed = listOf(ben.deviceId)))).epoch
+                epoch = posted(post(ana, group, commit(epoch, added = listOf(ben)))).epoch
+                json(ben, "/welcomes/${welcomes(ben).welcomes.last().id}/ack", "")
+            }
+            epoch = posted(post(ana, group, commit(epoch, removed = listOf(ben.deviceId)))).epoch
+            val fourth = post(ana, group, commit(epoch, added = listOf(ben)))
+            assertEquals("group_limit", errorCode(fourth), "three adds in a day, however many removals in between")
+        }
+
+    @Test
+    fun aRetryOfACommitThatRemovedTheSenderStillGetsTheFirstAnswer() =
+        deliveryTest(limits = ::roomy) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(ben))))
+            val leaving = commit(1, removed = listOf(ben.deviceId))
+            val first = posted(post(ben, group, leaving))
+            assertEquals(first, posted(post(ben, group, leaving)), "the response was lost and Ben retries")
+        }
+
+    @Test
+    fun theFirstCommitCannotRemoveAnyone() =
+        deliveryTest(limits = ::roomy) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val withRemoval =
+                commit(
+                    0,
+                    added = listOf(ben),
+                    removed =
+                        listOf(
+                            java.util.UUID
+                                .randomUUID()
+                                .toString(),
+                        ),
+                )
+            assertEquals(HttpStatusCode.BadRequest, create(ana, newGroupId(), withRemoval).status)
+        }
+
+    @Test
+    fun aCaughtUpCursorIsNotAGapOnceCleanupEmptiedTheLog() =
+        deliveryTest(limits = ::roomy) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(ben))))
+            json(ana, "/groups/$group/ack", ProtocolJson.encodeToString(AckRequest(1)))
+            json(ben, "/groups/$group/ack", ProtocolJson.encodeToString(AckRequest(1)))
+            assertEquals(1, DeliveryCleanup(db, clock).runOnce())
+            val status = status(ana, group)
+            assertEquals(status.lastSeq + 1, status.oldestSeq, "an empty log: the next seq")
         }
 }

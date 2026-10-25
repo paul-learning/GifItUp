@@ -44,7 +44,7 @@ class DeliveryRules(
         now: Instant,
     ): Refusal? =
         commitRefusal(c, repo, group, device, members, envelope, now)
-            ?: storageRefusal(c, repo, id, group, device, envelope)
+            ?: storageRefusal(c, repo, id, device, envelope)
 
     private fun commitRefusal(
         c: Connection,
@@ -114,13 +114,16 @@ class DeliveryRules(
         c: Connection,
         repo: DeliveryRepository,
         id: ByteArray,
-        group: GroupRow,
         device: UUID,
         envelope: Envelope,
     ): Refusal? {
         val size = envelope.payload.size
+        val (count, bytes) = repo.retained(c, id)
+        // A commit may use a reserved headroom, so a full log can still be answered by removing whoever filled it.
+        val extra = if (envelope.isCommit) COMMIT_HEADROOM_BYTES else 0L
+        val extraCount = if (envelope.isCommit) COMMIT_HEADROOM_MESSAGES else 0L
         val full =
-            repo.messageCount(c, id) >= maxMessagesPerGroup || group.retainedBytes + size > maxGroupBytes ||
+            count >= maxMessagesPerGroup + extraCount || bytes + size > maxGroupBytes + extra ||
                 repo.bytesBySender(c, device) + size > maxSenderBytes
         return if (full) Refusal.GROUP_FULL else null
     }
@@ -130,6 +133,8 @@ class DeliveryRules(
         const val MAX_MESSAGES_PER_GROUP = 5_000L
         const val MAX_GROUP_BYTES = 2L * 1024 * 1024
         const val MAX_SENDER_BYTES = 8L * 1024 * 1024
+        const val COMMIT_HEADROOM_BYTES = 512L * 1024
+        const val COMMIT_HEADROOM_MESSAGES = 100L
         const val MAX_CREATED_GROUPS = 100L
         const val MAX_MEMBERSHIPS = 300L
         const val MAX_ADDS_PER_TARGET = 3L
