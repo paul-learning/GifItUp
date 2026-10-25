@@ -128,6 +128,12 @@ class DeliveryApiTest {
                     "before the first retained seq" to page(message(2), oldest = 3),
                     "a commit that changes nothing" to page(message(2, kind = "commit", epoch = "1")),
                     "a device named twice" to page(message(2, kind = "commit", epoch = "1", added = "[\"${device(5)}\",\"${device(5)}\"]")),
+                    "commit epochs going down across an application message" to
+                        page(
+                            message(2, kind = "commit", epoch = "3", added = "[\"${device(5)}\"]"),
+                            message(3),
+                            message(4, kind = "commit", epoch = "2", added = "[\"${device(6)}\"]"),
+                        ),
                     "commit epochs going down" to
                         page(
                             message(2, kind = "commit", epoch = "3", added = "[\"${device(5)}\"]"),

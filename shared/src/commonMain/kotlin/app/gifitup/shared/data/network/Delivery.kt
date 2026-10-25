@@ -98,11 +98,10 @@ internal fun readPage(
 ): MessagePage? {
     val read = response.messages.takeIf { it.size <= MAX_PAGE_MESSAGES }?.map(::readMessage)
     val messages = read?.filterNotNull()?.takeIf { it.size == read.size }
-    val ordered =
-        messages != null && messages.zipWithNext().all { (a, b) -> a.seq < b.seq && epochsRise(a, b) } && messages.all { it.seq > after }
+    val sequenced = messages != null && risesFrom(messages, after)
     val inRange = messages != null && messages.all { it.seq in response.oldestSeq..response.lastSeq }
     val rangeOk = response.oldestSeq >= 1 && response.lastSeq >= 0 && response.oldestSeq <= response.lastSeq + 1
-    return if (ordered && inRange && rangeOk) MessagePage(response.oldestSeq, response.lastSeq, messages) else null
+    return if (sequenced && inRange && rangeOk) MessagePage(response.oldestSeq, response.lastSeq, messages) else null
 }
 
 private fun readMessage(message: GroupMessage): GroupMessageEntry? {
@@ -136,11 +135,13 @@ private fun readMessage(message: GroupMessage): GroupMessageEntry? {
     }
 }
 
-/** Commit epochs never go down along the log. */
-private fun epochsRise(
-    a: GroupMessageEntry,
-    b: GroupMessageEntry,
-): Boolean = a.epoch == null || b.epoch == null || a.epoch <= b.epoch
+/** Seq strictly rises from above [after], and commit epochs never go down along the page, application messages between or not. */
+private fun risesFrom(
+    messages: List<GroupMessageEntry>,
+    after: Long,
+): Boolean =
+    messages.zipWithNext().all { (a, b) -> a.seq < b.seq } && messages.all { it.seq > after } &&
+        messages.mapNotNull { it.epoch }.zipWithNext().all { (a, b) -> a <= b }
 
 private fun shapeFits(
     kind: MessageKind,
