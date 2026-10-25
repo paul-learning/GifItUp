@@ -384,6 +384,21 @@ class DeliveryEndpointsTest {
             assertEquals("group_full", errorCode(post(ben, group, application())))
             val noOp = post(ana, group, commit(1, added = listOf(member("carl"))))
             assertEquals("group_full", errorCode(noOp), "a commit that removes nobody gets no headroom")
+            val ghostOnly =
+                post(
+                    ana,
+                    group,
+                    commit(
+                        1,
+                        removed =
+                            listOf(
+                                java.util.UUID
+                                    .randomUUID()
+                                    .toString(),
+                            ),
+                    ),
+                )
+            assertEquals("group_full", errorCode(ghostOnly), "naming a ghost does not earn the headroom")
             assertEquals(2L, posted(post(ana, group, commit(1, removed = listOf(ben.deviceId)))).epoch, "headroom for a removal")
         }
 

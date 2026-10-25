@@ -53,7 +53,7 @@ class DeliveryRules(
         now: Instant,
     ): Refusal? =
         commitRefusal(c, repo, group, device, members, envelope, now)
-            ?: storageRefusal(c, repo, id, device, envelope)
+            ?: storageRefusal(c, repo, id, device, members, envelope)
 
     private fun commitRefusal(
         c: Connection,
@@ -124,13 +124,14 @@ class DeliveryRules(
         repo: DeliveryRepository,
         id: ByteArray,
         device: UUID,
+        members: Set<UUID>,
         envelope: Envelope,
     ): Refusal? {
         val size = envelope.payload.size
         val (count, bytes) = repo.retained(c, id)
-        // Only a commit that removes someone may use a reserved headroom, so a full log can still be answered by removing
-        // whoever filled it, and no-op commits cannot use the headroom up.
-        val removing = envelope.isCommit && envelope.removed.isNotEmpty()
+        // Only a commit that removes a current member (naming a ghost does not count) may use a reserved headroom, so a
+        // full log can still be answered by removing whoever filled it, and other commits cannot use the headroom up.
+        val removing = envelope.isCommit && envelope.removed.any { it in members }
         val extra = if (removing) COMMIT_HEADROOM_BYTES else 0L
         val extraCount = if (removing) COMMIT_HEADROOM_MESSAGES else 0L
         val full =
