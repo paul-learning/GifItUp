@@ -12,6 +12,7 @@ internal enum class SocketClose(
     val code: Int,
     val reason: String,
 ) {
+    NORMAL(CLOSE_NORMAL, "bye"),
     TIMEOUT(CLOSE_GOING_AWAY, "timeout"),
     TRY_LATER(CLOSE_TRY_AGAIN_LATER, "try later"),
     CLIENT_OUTDATED(app.gifitup.protocol.SocketCloseCodes.CLIENT_OUTDATED, "client outdated"),
@@ -21,6 +22,7 @@ internal enum class SocketClose(
     REPLACED(CLOSE_POLICY, "replaced"),
 }
 
+private const val CLOSE_NORMAL = 1000
 private const val CLOSE_GOING_AWAY = 1001
 private const val CLOSE_POLICY = 1008
 private const val CLOSE_TRY_AGAIN_LATER = 1013

@@ -25,6 +25,7 @@ import io.netty.handler.codec.http.websocketx.TextWebSocketFrame
 import io.netty.handler.codec.http.websocketx.WebSocketDecoderConfig
 import io.netty.handler.codec.http.websocketx.WebSocketFrame
 import io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory
+import io.netty.util.concurrent.Future
 import kotlinx.serialization.SerializationException
 import java.security.MessageDigest
 import java.time.Clock
@@ -148,7 +149,7 @@ internal class SocketUpgradeHandler(
 
     private fun afterHandshake(
         ctx: ChannelHandlerContext,
-        future: io.netty.util.concurrent.Future<*>,
+        future: Future<*>,
     ) {
         if (future.isSuccess) {
             ctx.pipeline().remove(this)
@@ -222,7 +223,7 @@ internal class SocketSession(
     override fun handlerAdded(ctx: ChannelHandlerContext) {
         helloTimer =
             ctx.executor().schedule(
-                { close(ctx, SocketClose.BAD_HANDSHAKE) },
+                { close(ctx, if (phase == Phase.AUTHENTICATING) SocketClose.TRY_LATER else SocketClose.BAD_HANDSHAKE) },
                 endpoint.settings.helloTimeout.toMillis(),
                 TimeUnit.MILLISECONDS,
             )
@@ -234,7 +235,7 @@ internal class SocketSession(
     ) {
         when {
             frame is CloseWebSocketFrame -> {
-                ctx.writeAndFlush(frame.retain()).addListener(ChannelFutureListener.CLOSE)
+                close(ctx, SocketClose.NORMAL)
             }
 
             phase == Phase.AWAITING_HELLO && frame is TextWebSocketFrame && frame.isFinalFragment -> {

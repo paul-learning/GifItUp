@@ -206,4 +206,20 @@ class DeliverySocketTest {
                 assertTrue(both.startsWith("HTTP/1.1 200") || both.startsWith("HTTP/1.1 101"), both)
             }
         }
+
+    @Test
+    fun anUpgradeThatCarriesABodyDoesNotHangTheServer() =
+        socketTest {
+            RawSocket(port).use { raw ->
+                val status =
+                    raw.sendRaw(
+                        "GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+                            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nContent-Length: 5\r\n\r\nhello",
+                    )
+                assertTrue(status.startsWith("HTTP/1.1 101") || status.startsWith("HTTP/1.1 4"), status)
+            }
+            val http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
+            val health = HttpRequest.newBuilder(URI("http://localhost:$port/health")).GET().build()
+            assertEquals(200, http.send(health, HttpResponse.BodyHandlers.discarding()).statusCode(), "the server still answers")
+        }
 }
