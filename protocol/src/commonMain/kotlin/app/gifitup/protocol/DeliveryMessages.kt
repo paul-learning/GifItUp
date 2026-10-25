@@ -78,8 +78,9 @@ data class GroupMessage(
 
 /**
  * `GET /groups/{groupId}/messages?after=<seq>&limit=<1..100>`: messages with `seq` greater than the larger of `after`
- * and the caller's join point, in order. [oldestSeq] is the first retained seq of the group: a client whose cursor is
- * below it has a gap and must be re-added (ADR-0015). [lastSeq] is the group's newest seq.
+ * and the caller's join point, in order. [oldestSeq] is the first retained seq of the group (the next seq when nothing is
+ * retained): a client whose cursor, plus one, is below it has a gap and must be re-added (ADR-0015). [lastSeq] is the
+ * group's newest seq.
  */
 @Serializable
 data class FetchMessagesResponse(

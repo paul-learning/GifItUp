@@ -41,7 +41,8 @@ internal object Base64Url {
         return bytes?.takeIf { it.isNotEmpty() && it.size <= maxBytes && encode(it) == text }
     }
 
-    private fun encodedLength(size: Int): Int = (size * BITS_PER_BYTE + BITS_PER_CHAR - 1) / BITS_PER_CHAR
+    /** The length of the unpadded base64url text of [size] bytes. */
+    fun encodedLength(size: Int): Int = (size * BITS_PER_BYTE + BITS_PER_CHAR - 1) / BITS_PER_CHAR
 
     private const val BITS_PER_BYTE = 8
     private const val BITS_PER_CHAR = 6

@@ -38,6 +38,7 @@ import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.db.TransactionRunner
 import app.gifitup.server.invites.InviteService
 import app.gifitup.server.module
+import app.gifitup.server.noDatabaseDelivery
 import app.gifitup.server.noDatabaseMembers
 import app.gifitup.server.testConfig
 import io.ktor.client.HttpClient
@@ -198,7 +199,7 @@ class KeyPackageEndpointsTest {
             val invites = InviteService(db, origin, clock)
             val service = KeyPackageService(db, clock, limits)
             testApplication {
-                application { module(testConfig(), AlwaysReady, auth, invites, service, noDatabaseMembers()) }
+                application { module(testConfig(), AlwaysReady, auth, invites, service, noDatabaseMembers(), noDatabaseDelivery()) }
                 val client = createClient { defaultRequest { header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString()) } }
                 Fixture(db, client, service, limits).block()
             }

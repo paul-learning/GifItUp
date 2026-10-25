@@ -26,6 +26,7 @@ class HealthRouteTest {
                     noDatabaseInvites(),
                     noDatabaseKeyPackages(),
                     noDatabaseMembers(),
+                    noDatabaseDelivery(),
                 )
             }
             val client = createClient { install(ContentNegotiation) { json(ProtocolJson) } }
@@ -54,6 +55,7 @@ class HealthRouteTest {
                     noDatabaseInvites(),
                     noDatabaseKeyPackages(),
                     noDatabaseMembers(),
+                    noDatabaseDelivery(),
                 )
             }
             val client = createClient { install(ContentNegotiation) { json(ProtocolJson) } }
@@ -76,6 +78,7 @@ class HealthRouteTest {
                     noDatabaseInvites(),
                     noDatabaseKeyPackages(),
                     noDatabaseMembers(),
+                    noDatabaseDelivery(),
                 )
             }
 

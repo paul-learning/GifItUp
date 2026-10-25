@@ -30,6 +30,7 @@ import app.gifitup.server.db.InviteRepository
 import app.gifitup.server.db.NewInvite
 import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.module
+import app.gifitup.server.noDatabaseDelivery
 import app.gifitup.server.noDatabaseKeyPackages
 import app.gifitup.server.noDatabaseMembers
 import app.gifitup.server.testConfig
@@ -166,7 +167,9 @@ class InviteEndpointsTest {
             val auth = AuthService(db, origin, Challenges(clock), DbInviteRedeemer(), clock, limits)
             val invites = InviteService(db, origin, clock)
             testApplication {
-                application { module(testConfig(), AlwaysReady, auth, invites, noDatabaseKeyPackages(), noDatabaseMembers()) }
+                application {
+                    module(testConfig(), AlwaysReady, auth, invites, noDatabaseKeyPackages(), noDatabaseMembers(), noDatabaseDelivery())
+                }
                 val client = createClient { defaultRequest { header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString()) } }
                 Fixture(db, url, client, invites).block()
             }

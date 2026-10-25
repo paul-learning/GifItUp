@@ -20,7 +20,7 @@ class MigrationsTest {
         migrations.run(TestPostgres.appPassword.toCharArray())
         migrations.run(TestPostgres.appPassword.toCharArray())
 
-        assertEquals(listOf("1", "2", "3", "4"), migrations.appliedVersions())
+        assertEquals(listOf("1", "2", "3", "4", "5"), migrations.appliedVersions())
     }
 
     @Test
@@ -118,6 +118,7 @@ class MigrationsTest {
                 "ALTER TABLE gifitup.group_messages ADD COLUMN x int",
                 "TRUNCATE gifitup.groups",
                 "DROP TABLE gifitup.welcomes",
+                "TRUNCATE gifitup.delivery_adds",
                 "SELECT * FROM flyway.flyway_schema_history",
                 "UPDATE flyway.flyway_schema_history SET checksum = 0",
                 "SET ROLE $OWNER_ROLE",
