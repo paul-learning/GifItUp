@@ -2,6 +2,11 @@
 
 package app.gifitup.server.delivery
 
+import app.gifitup.protocol.DeliveryKinds
+import app.gifitup.protocol.ProtocolJson
+import app.gifitup.protocol.SocketPush
+import app.gifitup.server.auth.AuthenticatedSession
+import app.gifitup.server.auth.Base64Url
 import app.gifitup.server.db.DeliveryRepository
 import app.gifitup.server.db.GroupMemberRow
 import app.gifitup.server.db.GroupRow
@@ -69,12 +74,20 @@ class GroupStatus(
  * closed reasons: no group, device, account or bytes (rule 4).
  */
 @Suppress("TooManyFunctions") // One function per endpoint plus the shared transaction steps.
-class DeliveryService(
+class DeliveryService internal constructor(
     private val db: TransactionRunner,
     private val clock: Clock,
     private val limits: DeliveryLimits,
-    private val rules: DeliveryRules = DeliveryRules(),
+    private val rules: DeliveryRules,
+    internal val sockets: SocketHub,
 ) {
+    constructor(
+        db: TransactionRunner,
+        clock: Clock,
+        limits: DeliveryLimits,
+        rules: DeliveryRules = DeliveryRules(),
+    ) : this(db, clock, limits, rules, SocketHub())
+
     private val repo = DeliveryRepository()
     private val log = LoggerFactory.getLogger(DeliveryService::class.java)
 
@@ -90,7 +103,10 @@ class DeliveryService(
             } catch (e: Rollback) {
                 Delivery.Refused(e.reason)
             }
-        }.also { logOutcome("create_group", it) }
+        }.also {
+            logOutcome("create_group", it)
+            notifyPosted(groupId, envelope, it)
+        }
 
     /** Appends a commit or an application message to the group the device belongs to. */
     internal fun post(
@@ -102,7 +118,10 @@ class DeliveryService(
             db.transaction { c ->
                 repo.lockGroup(c, groupId)?.let { append(c, groupId, it, device, envelope) } ?: Delivery.Refused(Refusal.NOT_FOUND)
             }
-        }.also { logOutcome("post", it) }
+        }.also {
+            logOutcome("post", it)
+            notifyPosted(groupId, envelope, it)
+        }
 
     /** Messages above the larger of [after] and the device's join point, at most [limit]. */
     fun fetch(
@@ -216,6 +235,33 @@ class DeliveryService(
     }
 
     private fun abort(reason: Refusal): Nothing = throw Rollback(reason)
+
+    /**
+     * After a commit: tells the group's online devices that there is something to fetch, and the added devices that a
+     * welcome waits. Hints carry no content; a failure here never fails the post.
+     */
+    @Suppress("TooGenericExceptionCaught") // A push must never turn an accepted post into an error.
+    private fun notifyPosted(
+        groupId: ByteArray,
+        envelope: Envelope,
+        result: Delivery<Posted>,
+    ) {
+        if (result !is Delivery.Ok) return
+        try {
+            val members = db.transaction { c -> repo.memberDevices(c, groupId) }
+            val id = Base64Url.encode(groupId)
+            val kind = if (envelope.isCommit) DeliveryKinds.COMMIT else DeliveryKinds.APPLICATION
+            sockets.push(members - envelope.added.toSet(), ProtocolJson.encodeToString(SocketPush(id, result.value.seq, kind)))
+            if (envelope.added.isNotEmpty()) {
+                sockets.push(envelope.added, ProtocolJson.encodeToString(SocketPush(id, 0L, DeliveryKinds.WELCOME)))
+            }
+        } catch (e: Exception) {
+            log.warn("event=delivery_push_failed exception={}", e::class.java.name)
+        }
+    }
+
+    /** The session ended (logout): its sockets close at once. */
+    fun sessionEnded(session: AuthenticatedSession) = sockets.closeSession(sessionKey(session))
 
     private fun spendCreate(device: UUID): Boolean =
         listOf(limits.creates, limits.posts, limits.commits).all { it.spend(device.toString()) }

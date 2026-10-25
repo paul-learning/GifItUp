@@ -110,7 +110,10 @@ internal fun Application.installSessionAuth(
 private const val BEARER = "Bearer "
 
 /** The auth endpoints (ADR-0009). Blocking work (JDBC, signature checks) runs on the IO dispatcher. */
-internal fun Route.authRoutes(auth: AuthService) {
+internal fun Route.authRoutes(
+    auth: AuthService,
+    onLogout: (AuthenticatedSession) -> Unit = {},
+) {
     post(CHALLENGE_PATH) {
         when (val outcome = auth.challenge()) {
             is AuthOutcome.Ok -> call.respond(ChallengeResponse(outcome.value))
@@ -132,6 +135,7 @@ internal fun Route.authRoutes(auth: AuthService) {
     }
     post(LOGOUT_PATH) {
         withContext(Dispatchers.IO) { auth.logout(call.session) }
+        onLogout(call.session)
         call.respond(HttpStatusCode.NoContent)
     }
     get(DEVICES_PATH) {
