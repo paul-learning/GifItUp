@@ -12,9 +12,9 @@ import java.util.Base64
 
 /**
  * The Delivery Service commands (ADR-0015, #21), a wire-level test driver for **test accounts only**: they send random
- * bytes as commit, welcome and application payloads (and the text given to `group-post`), because the server never
- * parses them. Real MLS content comes with the client sync loop (#22). Output is one fixed line per result; it shows ids
- * and counts, never tokens or keys.
+ * bytes as commit, welcome and application payloads, because the server never parses them. No readable content leaves
+ * the machine, not even for tests (CLAUDE.md rule 1); real MLS content comes with the client sync loop (#22). Output
+ * is one fixed line per result; it shows ids and counts, never payload bytes, tokens or keys.
  */
 @Suppress("TooManyFunctions") // One function per command.
 internal class DeliveryCommands(
@@ -35,7 +35,7 @@ internal class DeliveryCommands(
             "group-create" -> create(session, checkNotNull(invocation.device))
             "group-add" -> add(session, checkNotNull(group), checkNotNull(invocation.device))
             "group-remove" -> remove(session, checkNotNull(group), checkNotNull(invocation.device))
-            "group-post" -> post(session, checkNotNull(group), checkNotNull(invocation.text))
+            "group-post" -> post(session, checkNotNull(group))
             "group-fetch" -> fetch(session, checkNotNull(group), invocation.seq ?: 0L)
             "group-status" -> status(session, checkNotNull(group))
             "group-ack" -> ack(session, checkNotNull(group), checkNotNull(invocation.seq))
@@ -74,7 +74,6 @@ internal class DeliveryCommands(
     suspend fun post(
         session: Session,
         group: ByteArray,
-        text: String,
     ): Int {
         val envelope =
             DeliveryEnvelope(
@@ -84,7 +83,7 @@ internal class DeliveryCommands(
                 emptyList(),
                 emptyList(),
                 emptyMap(),
-                text.encodeToByteArray(),
+                random.nextBytes(TEST_BYTES),
             )
         val posted = value(api.postMessage(session, group, envelope))
         out.println("posted at seq ${posted.seq}")
@@ -102,7 +101,7 @@ internal class DeliveryCommands(
             val detail =
                 when (message.kind) {
                     MessageKind.COMMIT -> "epoch ${message.epoch} added ${message.added.size} removed ${message.removed.size}"
-                    MessageKind.APPLICATION -> "text \"${message.payload.decodeToString()}\""
+                    MessageKind.APPLICATION -> "${message.payload.size} bytes"
                 }
             out.println("message ${message.seq} ${message.kind.name.lowercase()} from $sender: $detail")
         }

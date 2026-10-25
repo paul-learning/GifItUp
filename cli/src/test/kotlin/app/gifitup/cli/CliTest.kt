@@ -30,9 +30,8 @@ class CliTest {
         val group = "AQIDBAUGBwgJCgsMDQ4PEA"
         val create = Invocation.parse(listOf("group-create") + base + listOf("--device", ID))
         assertEquals(ID, create.device)
-        val post = Invocation.parse(listOf("group-post") + base + listOf("--group", group, "--text", "hello"))
+        val post = Invocation.parse(listOf("group-post") + base + listOf("--group", group))
         assertEquals(16, post.group?.size)
-        assertEquals("hello", post.text)
         assertEquals(7L, Invocation.parse(listOf("group-fetch") + base + listOf("--group", group, "--seq", "7")).seq)
         assertEquals(null, Invocation.parse(listOf("group-fetch") + base + listOf("--group", group)).seq)
         assertEquals(ID, Invocation.parse(listOf("welcome-ack") + base + listOf("--welcome", ID)).welcome)
@@ -42,9 +41,10 @@ class CliTest {
             listOf(
                 listOf("group-create") + base, // no device
                 listOf("group-create") + base + listOf("--device", "not-a-uuid"),
-                listOf("group-post") + base + listOf("--group", group), // no text
-                listOf("group-post") + base + listOf("--group", "AAAA", "--text", "x"), // a group id under 16 bytes
-                listOf("group-status") + base + listOf("--group", group, "--text", "x"), // another command's option
+                listOf("group-post") + base, // no group
+                listOf("group-post") + base + listOf("--group", "AAAA"), // a group id under 16 bytes
+                listOf("group-post") + base + listOf("--group", group, "--text", "hello"), // readable content never goes out
+                listOf("group-status") + base + listOf("--group", group, "--seq", "1"), // another command's option
                 listOf("group-ack") + base + listOf("--group", group, "--seq", "-1"),
                 listOf("group-fetch") + base + listOf("--group", group, "--seq", "1x"),
                 listOf("devices") + base + listOf("--group", group), // the group options belong to the group commands

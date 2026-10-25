@@ -345,9 +345,9 @@ class EndToEndTest {
         assertEquals("welcome acknowledged", ok(fay, "welcome-ack", "--welcome", welcome.split(" ")[1]))
         assertEquals("no pending welcomes", ok(fay, "welcomes"))
 
-        assertEquals("posted at seq 2", ok(eve, "group-post", "--group", group, "--text", "hello fay"))
+        assertEquals("posted at seq 2", ok(eve, "group-post", "--group", group))
         val fetched = ok(fay, "group-fetch", "--group", group).lines()
-        assertEquals("message 2 application from $eveId: text \"hello fay\"", fetched[0], "fay sees the message after its join point only")
+        assertEquals("message 2 application from $eveId: 64 bytes", fetched[0], "fay sees the message after its join point only")
         assertEquals("retained 1..2", fetched[1])
         assertEquals("acknowledged up to 2", ok(fay, "group-ack", "--group", group, "--seq", "2"))
 
@@ -359,21 +359,21 @@ class EndToEndTest {
 
         // A device added later: a commit at the current epoch, a welcome for it, and no history from before it.
         assertEquals("committed at seq 3, epoch 2", ok(eve, "group-add", "--group", group, "--device", gusId))
-        assertEquals("posted at seq 4", ok(eve, "group-post", "--group", group, "--text", "hello gus"))
+        assertEquals("posted at seq 4", ok(eve, "group-post", "--group", group))
         assertTrue(ok(gus, "welcomes").startsWith("welcome "), "gus has a welcome")
         val gusSees = ok(gus, "group-fetch", "--group", group).lines()
-        assertEquals("message 4 application from $eveId: text \"hello gus\"", gusSees[0], "gus sees nothing from before its commit")
+        assertEquals("message 4 application from $eveId: 64 bytes", gusSees[0], "gus sees nothing from before its commit")
 
         // Not a member, and an unknown group: the same answer.
-        refused(gus, "group-post", "--group", "AQIDBAUGBwgJCgsMDQ4PEA", "--text", "x")
+        refused(gus, "group-post", "--group", "AQIDBAUGBwgJCgsMDQ4PEA")
         // Leaving, and removal by the creator: afterwards the group is gone for them.
         assertEquals("left the group", ok(fay, "group-leave", "--group", group))
         refused(fay, "group-status", "--group", group)
         assertEquals("committed at seq 5, epoch 3", ok(eve, "group-remove", "--group", group, "--device", gusId))
         refused(gus, "group-fetch", "--group", group)
         assertEquals("committed at seq 6, epoch 4", ok(eve, "group-remove", "--group", group, "--device", fayId), "a ghost may be named")
-        // Only the creator removes others: gus cannot remove eve, even if it were still a member (it is not: no such group).
-        refused(gus, "group-post", "--group", group, "--text", "after removal")
+        // Gus was removed, so it has no group to post to.
+        refused(gus, "group-post", "--group", group)
     }
 
     /**

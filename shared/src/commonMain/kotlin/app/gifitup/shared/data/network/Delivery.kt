@@ -53,7 +53,10 @@ class MessagePage(
     val messages: List<GroupMessageEntry>,
 )
 
-/** The caller's view of a group. [lastSentSeq] and [lastClientMsgId] are both null before its first send. */
+/**
+ * The caller's view of a group. [lastSentSeq] and [lastClientMsgId] are both null before its first send. They are the
+ * freshness anchor of ADR-0015; the client's check against its own stored id is planned (#22), not done here.
+ */
 class GroupState(
     val epoch: Long,
     val oldestSeq: Long,
@@ -79,7 +82,7 @@ internal const val MAX_WELCOME_BYTES = 16 * 1024
 internal const val MAX_PAGE_MESSAGES = 100
 internal const val MAX_PENDING_WELCOMES = 20
 
-/** A commit with at most 10 changed devices and a 16 KiB welcome each, plus JSON framing, fits a 256 KiB request. */
+/** Cap on a response body of a page of messages or of welcomes (as base64url, with framing). */
 internal const val MAX_DELIVERY_BODY_BYTES = 512 * 1024
 
 internal fun readPosted(response: PostMessageResponse): PostedMessage? =
@@ -95,8 +98,9 @@ internal fun readPage(
 ): MessagePage? {
     val read = response.messages.takeIf { it.size <= MAX_PAGE_MESSAGES }?.map(::readMessage)
     val messages = read?.filterNotNull()?.takeIf { it.size == read.size }
-    val ordered = messages != null && messages.zipWithNext().all { (a, b) -> a.seq < b.seq } && messages.all { it.seq > after }
-    val inRange = messages != null && messages.all { it.seq <= response.lastSeq }
+    val ordered =
+        messages != null && messages.zipWithNext().all { (a, b) -> a.seq < b.seq && epochsRise(a, b) } && messages.all { it.seq > after }
+    val inRange = messages != null && messages.all { it.seq in response.oldestSeq..response.lastSeq }
     val rangeOk = response.oldestSeq >= 1 && response.lastSeq >= 0 && response.oldestSeq <= response.lastSeq + 1
     return if (ordered && inRange && rangeOk) MessagePage(response.oldestSeq, response.lastSeq, messages) else null
 }
@@ -132,14 +136,28 @@ private fun readMessage(message: GroupMessage): GroupMessageEntry? {
     }
 }
 
+/** Commit epochs never go down along the log. */
+private fun epochsRise(
+    a: GroupMessageEntry,
+    b: GroupMessageEntry,
+): Boolean = a.epoch == null || b.epoch == null || a.epoch <= b.epoch
+
 private fun shapeFits(
     kind: MessageKind,
     message: GroupMessage,
 ): Boolean =
     when (kind) {
-        MessageKind.COMMIT -> message.epoch.let { it != null && it >= 0 }
+        MessageKind.COMMIT -> message.epoch.let { it != null && it >= 0 } && changesFit(message)
         MessageKind.APPLICATION -> message.epoch == null && message.added.isEmpty() && message.removed.isEmpty()
     }
+
+/** A commit changes 1..10 devices and names none twice (ADR-0015). */
+private fun changesFit(message: GroupMessage): Boolean {
+    val all = message.added + message.removed
+    return all.size in 1..MAX_CHANGED_DEVICES && all.toSet().size == all.size
+}
+
+private const val MAX_CHANGED_DEVICES = 10
 
 private fun kindOf(wire: String): MessageKind? =
     when (wire) {

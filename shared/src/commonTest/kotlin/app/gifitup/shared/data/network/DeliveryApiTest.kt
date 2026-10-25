@@ -125,6 +125,14 @@ class DeliveryApiTest {
                     "padding" to page(message(2, payload = "AQID=")),
                     "past the last seq" to page(message(9)),
                     "oldest beyond next" to page(message(2), oldest = 9),
+                    "before the first retained seq" to page(message(2), oldest = 3),
+                    "a commit that changes nothing" to page(message(2, kind = "commit", epoch = "1")),
+                    "a device named twice" to page(message(2, kind = "commit", epoch = "1", added = "[\"${device(5)}\",\"${device(5)}\"]")),
+                    "commit epochs going down" to
+                        page(
+                            message(2, kind = "commit", epoch = "3", added = "[\"${device(5)}\"]"),
+                            message(3, kind = "commit", epoch = "2", added = "[\"${device(6)}\"]"),
+                        ),
                 )
             broken.forEach { (why, reply) -> assertEquals(ApiResult.Failed(ApiError.MALFORMED_RESPONSE), fetched(reply), why) }
         }

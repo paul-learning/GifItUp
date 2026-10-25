@@ -39,7 +39,6 @@ data class Invocation(
     val account: String? = null,
     val group: ByteArray? = null,
     val device: String? = null,
-    val text: String? = null,
     val seq: Long? = null,
     val welcome: String? = null,
 ) {
@@ -50,7 +49,7 @@ data class Invocation(
                 "group-create" to (setOf("--device") to emptySet()),
                 "group-add" to (setOf("--group", "--device") to emptySet()),
                 "group-remove" to (setOf("--group", "--device") to emptySet()),
-                "group-post" to (setOf("--group", "--text") to emptySet()),
+                "group-post" to (setOf("--group") to emptySet()),
                 "group-fetch" to (setOf("--group") to setOf("--seq")),
                 "group-status" to (setOf("--group") to emptySet()),
                 "group-ack" to (setOf("--group", "--seq") to emptySet()),
@@ -85,13 +84,14 @@ data class Invocation(
                 "--account",
                 "--group",
                 "--device",
-                "--text",
                 "--seq",
                 "--welcome",
             )
 
-        private val GROUP_OPTIONS = setOf("--group", "--device", "--text", "--seq", "--welcome")
-        private const val MAX_TEXT_CHARS = 500
+        /** The commands of the Delivery Service test driver. */
+        val DELIVERY_COMMANDS: Set<String> = GROUP_COMMANDS.keys
+
+        private val GROUP_OPTIONS = setOf("--group", "--device", "--seq", "--welcome")
         private const val MIN_GROUP_ID = 16
         private const val MAX_GROUP_ID = 64
 
@@ -143,7 +143,6 @@ data class Invocation(
                 account = values["--account"],
                 group = values["--group"]?.let(::groupIdOf),
                 device = values["--device"],
-                text = values["--text"],
                 seq = values["--seq"]?.toLong(),
                 welcome = values["--welcome"],
             )
@@ -160,8 +159,7 @@ data class Invocation(
             val (required, optional) = GROUP_COMMANDS[command] ?: (emptySet<String>() to emptySet())
             val shapes =
                 (values["--group"]?.let { groupIdOf(it) != null } != false) &&
-                    (values["--seq"]?.let { it.length in 1..SEQ_DIGITS && it.all(Char::isDigit) } != false) &&
-                    (values["--text"]?.let { it.isNotEmpty() && it.length <= MAX_TEXT_CHARS } != false)
+                    (values["--seq"]?.let { it.length in 1..SEQ_DIGITS && it.all(Char::isDigit) } != false)
             return given.containsAll(required) && (given - required).all { it in optional } && shapes
         }
 
@@ -194,7 +192,7 @@ data class Invocation(
   contacts-accept --account <account id>   TEST ACCOUNTS ONLY: accept a blocked contact's new key blindly, without any check
   group-create --device <device id>   Delivery Service test driver (random bytes as payloads): new group adding that device
   group-add|group-remove --group <id> --device <device id>   a commit at the group's current epoch
-  group-post --group <id> --text <text>      an application message (the text is the payload)
+  group-post --group <id>                    an application message of random bytes
   group-fetch --group <id> [--seq <after>]   messages above a cursor; group-status --group <id>
   group-ack --group <id> --seq <n>           acknowledge up to n; group-leave --group <id>
   welcomes                     pending welcomes of this device; welcome-ack --welcome <id>
@@ -332,7 +330,7 @@ class Cli(
                 contacts.accept(checkNotNull(invocation.account))
             }
 
-            in DELIVERY_COMMANDS -> {
+            in Invocation.DELIVERY_COMMANDS -> {
                 DeliveryCommands(api, random, out) {
                     throw CliError(message(AuthError.Api(it)), EXIT_SERVER)
                 }.run(invocation, session)
@@ -415,21 +413,6 @@ private object NoRestoreCounter : RestoreCounter {
 
     override suspend fun set(failures: Int) = Unit
 }
-
-/** The commands of the Delivery Service test driver. */
-private val DELIVERY_COMMANDS =
-    setOf(
-        "group-create",
-        "group-add",
-        "group-remove",
-        "group-post",
-        "group-fetch",
-        "group-status",
-        "group-ack",
-        "group-leave",
-        "welcomes",
-        "welcome-ack",
-    )
 
 /** The invite code from what the user pasted: the code itself or the invite link, whose fragment is the code. */
 fun inviteCodeFrom(input: String): String = input.trim().substringAfterLast('#')
