@@ -33,7 +33,8 @@ CREATE TABLE gifitup.group_members (
     created_at         timestamptz NOT NULL,
     PRIMARY KEY (group_id, device_id),
     CONSTRAINT group_members_cursors CHECK (acked_seq >= joined_seq AND joined_seq >= 0),
-    CONSTRAINT group_members_msg_id_size CHECK (last_client_msg_id IS NULL OR octet_length(last_client_msg_id) = 16)
+    CONSTRAINT group_members_msg_id_size CHECK (last_client_msg_id IS NULL OR octet_length(last_client_msg_id) = 16),
+    CONSTRAINT group_members_last_sent_pair CHECK ((last_sent_seq IS NULL) = (last_client_msg_id IS NULL))
 );
 CREATE INDEX group_members_device_idx ON gifitup.group_members (device_id);
 CREATE INDEX group_members_added_by_idx ON gifitup.group_members (added_by_device_id, created_at);
@@ -63,6 +64,8 @@ CREATE TABLE gifitup.group_messages (
 -- Retry lookups; sender_device_id is NULL once the sender is deleted, which never matches.
 CREATE UNIQUE INDEX group_messages_client_msg_idx ON gifitup.group_messages (group_id, sender_device_id, client_msg_id);
 CREATE INDEX group_messages_created_idx ON gifitup.group_messages (created_at);
+-- Device deletion (SET NULL) and the per-sender retained-bytes check scan by sender.
+CREATE INDEX group_messages_sender_idx ON gifitup.group_messages (sender_device_id);
 
 -- A Welcome waiting for its target device. Deleted on ack or after the TTL. adder_device_id bounds pending welcomes
 -- per (adder, target); it is NULL once the adder is deleted.
@@ -78,3 +81,5 @@ CREATE TABLE gifitup.welcomes (
 CREATE INDEX welcomes_target_idx ON gifitup.welcomes (target_device_id, created_at);
 CREATE INDEX welcomes_adder_idx ON gifitup.welcomes (adder_device_id, target_device_id);
 CREATE INDEX welcomes_created_idx ON gifitup.welcomes (created_at);
+-- Deleting a group cascades to its welcomes.
+CREATE INDEX welcomes_group_idx ON gifitup.welcomes (group_id);

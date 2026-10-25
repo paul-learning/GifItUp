@@ -11,10 +11,13 @@ import kotlinx.serialization.Serializable
 object DeliveryKinds {
     const val COMMIT: String = "commit"
     const val APPLICATION: String = "application"
+
+    /** Only in [SocketPush]: a new pending welcome for this device. */
+    const val WELCOME: String = "welcome"
 }
 
 /**
- * One Welcome for one added device. Each added device gets exactly one, of at most 21,846 characters (16 KiB).
+ * One Welcome for one added device. Each added device gets exactly one, of at most 16 KiB decoded (21,846 characters).
  */
 @Serializable
 data class WelcomeItem(
@@ -24,13 +27,14 @@ data class WelcomeItem(
 
 /**
  * `POST /groups/{groupId}/messages` and the commit inside [CreateGroupRequest]. [clientMsgId] is 16 random bytes that
- * make a retry safe: a repeat with the same payload returns the first answer, a repeat with another payload is `409
+ * make a retry safe: a repeat of the same envelope returns the first answer, a repeat with another envelope is `409
  * envelope_conflict`. For [kind] `commit`: [epoch] is the epoch the commit applies to, [added] and [removed] list the
- * device ids it changes, [welcomes] has exactly one item per added device. For [kind] `application`: [epoch] is `null`
- * and the three lists are empty. [payload] is at most 2 KiB for an application message and 16 KiB for a commit. The
- * whole envelope is checked first and rejected as `400 envelope_invalid` on any violation, with nothing applied.
- * `409 epoch_conflict` when a commit's epoch is not the group's current epoch, `409 group_full`, `409 welcome_limit`,
- * `409 group_limit`, `404 not_found` for a non-member, `429 rate_limited`, `413 payload_too_large`.
+ * device ids it changes ([removed] may name a ghost, ADR-0015), [welcomes] has exactly one item per added device.
+ * For [kind] `application`: [epoch] is `null` and the three lists are empty. [payload] is at most 2 KiB decoded for
+ * an application message and 16 KiB for a commit. The whole envelope is checked first and rejected as
+ * `400 envelope_invalid` on any violation, with nothing applied. `409 epoch_conflict` when a commit's epoch is not
+ * the group's current epoch, `409 group_full`, `409 welcome_limit`, `409 group_limit`, `404 not_found` for a
+ * non-member, `429 rate_limited`, `413 payload_too_large`.
  */
 @Serializable
 data class PostMessageRequest(
