@@ -215,7 +215,37 @@ internal class SocketFixture(
     val delivery: DeliveryFixture,
     val port: Int,
     val databaseDown: AtomicBoolean,
-)
+    private val hub: SocketHub,
+) {
+    /**
+     * Connects and sends the hello, then waits until the server has the socket online. The client's send returns when
+     * the hello is written, but the server checks the session asynchronously: a push sent before it is online is lost
+     * (by design a client fetches on connect), so a test that expects a push must wait for this.
+     */
+    fun connect(token: String): SocketClient {
+        val before = hub.onlineSockets()
+        val client = SocketClient(port).also { it.hello(token) }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SocketClient.WAIT_SECONDS)
+        while (hub.onlineSockets() <= before) {
+            check(System.nanoTime() < deadline) { "the socket did not come online" }
+            Thread.sleep(POLL_MILLIS)
+        }
+        return client
+    }
+
+    /** Waits until at least [count] sockets are online. */
+    fun awaitOnline(count: Int) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SocketClient.WAIT_SECONDS)
+        while (hub.onlineSockets() < count) {
+            check(System.nanoTime() < deadline) { "the sockets did not come online" }
+            Thread.sleep(POLL_MILLIS)
+        }
+    }
+
+    private companion object {
+        const val POLL_MILLIS = 20L
+    }
+}
 
 /** The auth service's database, which fails while [down] is set (a blip or a flooded pool). */
 private class FlakyDatabase(
@@ -284,7 +314,7 @@ internal fun socketTest(
                     )
                 }
                 val client = createClient { defaultRequest { header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString()) } }
-                SocketFixture(DeliveryFixture(db, client, clock, service), port, down).block()
+                SocketFixture(DeliveryFixture(db, client, clock, service), port, down, hub).block()
             }
         } finally {
             server.stop(gracePeriodMillis = 0, timeoutMillis = 1_000)
