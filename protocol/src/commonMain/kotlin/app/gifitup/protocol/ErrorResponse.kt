@@ -45,6 +45,24 @@ enum class ApiErrorCode(
     /** The device would hold more KeyPackages than the directory allows (ADR-0012); nothing was stored. */
     KEY_PACKAGE_LIMIT("key_package_limit"),
 
+    /** A Delivery Service envelope is not acceptable (ADR-0015). One code for every reason; the server logs the reason. */
+    ENVELOPE_INVALID("envelope_invalid"),
+
+    /** A repeated `clientMsgId` came with a different payload (ADR-0015). */
+    ENVELOPE_CONFLICT("envelope_conflict"),
+
+    /** A commit's epoch is not the group's current epoch (ADR-0015); process the group's newer messages and retry. */
+    EPOCH_CONFLICT("epoch_conflict"),
+
+    /** The group's retained log is at its limit until members acknowledge (ADR-0015). */
+    GROUP_FULL("group_full"),
+
+    /** The target device holds too many pending welcomes, or the adder added it too often (ADR-0015). */
+    WELCOME_LIMIT("welcome_limit"),
+
+    /** The device is at its group or membership limit (ADR-0015). */
+    GROUP_LIMIT("group_limit"),
+
     /** A code this build doesn't know. Never sent. */
     UNKNOWN("unknown"),
 }
