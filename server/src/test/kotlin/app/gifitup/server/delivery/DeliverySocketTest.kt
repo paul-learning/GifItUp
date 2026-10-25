@@ -144,4 +144,66 @@ class DeliverySocketTest {
             third.close()
             second.close()
         }
+
+    @Test
+    fun aFailingSessionLookupIsNotASessionThatEnded() =
+        socketTest(fast()) {
+            val ana = delivery.member("ana")
+            val online = SocketClient(port).also { it.hello(ana.token) }
+            Thread.sleep(300)
+            databaseDown.set(true)
+            val refused = SocketClient(port).also { it.hello(ana.token) }
+            assertEquals(1013, refused.closeCode(), "at the hello: try again later, not 4401")
+            Thread.sleep(500) // several pings with the lookup failing: the online socket stays
+            assertFalse(online.closed.isDone, "a failing re-check keeps the socket")
+            databaseDown.set(false)
+            val again = SocketClient(port).also { it.hello(ana.token) }
+            Thread.sleep(300)
+            assertFalse(again.closed.isDone)
+            again.close()
+            online.close()
+        }
+
+    @Test
+    fun anUnsolicitedPongClosesTheSocket() =
+        socketTest(
+            SocketSettings(
+                helloTimeout = Duration.ofSeconds(5),
+                pingInterval = Duration.ofSeconds(30),
+                pongTimeout = Duration.ofSeconds(60),
+            ),
+        ) {
+            val ana = delivery.member("ana")
+            RawSocket(port).use { raw ->
+                raw.upgrade()
+                raw.text("""{"v":1,"token":"${ana.token}"}""")
+                Thread.sleep(300)
+                raw.frame(RawSocket.OP_PONG, ByteArray(0))
+                assertEquals(SocketCloseCodes.BAD_HANDSHAKE, raw.closeCodeOrEnd())
+            }
+        }
+
+    @Test
+    fun anUpgradeWithoutAKeyIsRefusedAndAPipelinedUpgradeIsAnsweredOrOvertakes() =
+        socketTest {
+            RawSocket(port).use { raw ->
+                val status =
+                    raw.sendRaw(
+                        "GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+                            "Sec-WebSocket-Version: 13\r\n\r\n",
+                    )
+                assertTrue(status.startsWith("HTTP/1.1 400"), status)
+            }
+            RawSocket(port).use { raw ->
+                val both =
+                    raw.sendRaw(
+                        "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n" +
+                            "GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+                            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+                    )
+                // The upgrade may overtake the pipelined request's answer (the client's own connection, nobody else's); either way
+                // the server answers and does not hang or crash.
+                assertTrue(both.startsWith("HTTP/1.1 200") || both.startsWith("HTTP/1.1 101"), both)
+            }
+        }
 }

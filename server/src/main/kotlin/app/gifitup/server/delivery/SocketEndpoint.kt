@@ -73,6 +73,9 @@ internal class SocketEndpoint(
     val blocking: ExecutorService =
         Executors.newFixedThreadPool(BLOCKING_THREADS) { Thread(it, "socket-auth").apply { isDaemon = true } }
 
+    /** Stops the lookup threads (the server is stopping). */
+    fun shutdown() = blocking.shutdownNow()
+
     /** A new upgrade handler for one connection. */
     fun upgradeHandler(): ChannelHandler = SocketUpgradeHandler(this)
 
@@ -110,6 +113,13 @@ internal class SocketUpgradeHandler(
         ctx: ChannelHandlerContext,
         request: HttpRequest,
     ) {
+        if (!request.headers().contains(HttpHeaderNames.SEC_WEBSOCKET_KEY)) {
+            // The handshaker would fail later, inside the pipeline, with no answer at all: refuse it here.
+            ctx
+                .writeAndFlush(DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.BAD_REQUEST))
+                .addListener(ChannelFutureListener.CLOSE)
+            return
+        }
         if (!endpoint.admit()) {
             ctx
                 .writeAndFlush(DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.SERVICE_UNAVAILABLE))
@@ -132,16 +142,21 @@ internal class SocketUpgradeHandler(
         if (handshaker == null) {
             WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(ctx.channel()).addListener(ChannelFutureListener.CLOSE)
         } else {
-            handshaker.handshake(ctx.channel(), request).addListener { future ->
-                if (future.isSuccess) {
-                    ctx.pipeline().remove(this)
-                    // Ktor reads requests on demand (auto-read off); frames need the reads back on.
-                    ctx.channel().config().isAutoRead = true
-                    ctx.channel().read()
-                } else {
-                    ctx.close()
-                }
-            }
+            handshaker.handshake(ctx.channel(), request).addListener { future -> afterHandshake(ctx, future) }
+        }
+    }
+
+    private fun afterHandshake(
+        ctx: ChannelHandlerContext,
+        future: io.netty.util.concurrent.Future<*>,
+    ) {
+        if (future.isSuccess) {
+            ctx.pipeline().remove(this)
+            // Ktor reads requests on demand (auto-read off); frames need the reads back on.
+            ctx.channel().config().isAutoRead = true
+            ctx.channel().read()
+        } else {
+            ctx.close()
         }
     }
 
@@ -150,6 +165,28 @@ internal class SocketUpgradeHandler(
         const val SESSION_HANDLER = "socketSession"
     }
 }
+
+/** The answer of a session lookup: found, not found, or the database failed (which must not read as "ended"). */
+private sealed interface Lookup {
+    data class Found(
+        val session: AuthenticatedSession,
+    ) : Lookup
+
+    data object Missing : Lookup
+
+    data object Failed : Lookup
+}
+
+@Suppress("TooGenericExceptionCaught") // Any failure of the lookup is "unavailable", never "the session ended".
+private fun lookup(
+    auth: AuthService,
+    token: String,
+): Lookup =
+    try {
+        auth.authenticate(token)?.let { Lookup.Found(it) } ?: Lookup.Missing
+    } catch (_: Exception) {
+        Lookup.Failed
+    }
 
 private fun parseHello(text: String): SocketHello? =
     try {
@@ -168,6 +205,7 @@ private enum class Phase { AWAITING_HELLO, AUTHENTICATING, ONLINE, CLOSED }
  * frame a client may send is a pong. Everything else closes the socket. Runs on the channel's event loop; session
  * lookups run on [SocketEndpoint.blocking].
  */
+@Suppress("TooManyFunctions") // One callback per Netty event plus the steps of the state machine.
 internal class SocketSession(
     private val endpoint: SocketEndpoint,
 ) : SimpleChannelInboundHandler<WebSocketFrame>() {
@@ -178,6 +216,8 @@ internal class SocketSession(
     private var helloTimer: ScheduledFuture<*>? = null
     private var pingTimer: ScheduledFuture<*>? = null
     private val placeHeld = AtomicBoolean(true)
+    private val checking = AtomicBoolean(false)
+    private var pingOutstanding = false
 
     override fun handlerAdded(ctx: ChannelHandlerContext) {
         helloTimer =
@@ -193,10 +233,22 @@ internal class SocketSession(
         frame: WebSocketFrame,
     ) {
         when {
-            frame is CloseWebSocketFrame -> ctx.writeAndFlush(frame.retain()).addListener(ChannelFutureListener.CLOSE)
-            phase == Phase.AWAITING_HELLO && frame is TextWebSocketFrame && frame.isFinalFragment -> hello(ctx, frame.text())
-            phase == Phase.ONLINE && frame is PongWebSocketFrame -> lastPong = endpoint.clock.instant()
-            else -> close(ctx, SocketClose.BAD_HANDSHAKE)
+            frame is CloseWebSocketFrame -> {
+                ctx.writeAndFlush(frame.retain()).addListener(ChannelFutureListener.CLOSE)
+            }
+
+            phase == Phase.AWAITING_HELLO && frame is TextWebSocketFrame && frame.isFinalFragment -> {
+                hello(ctx, frame.text())
+            }
+
+            phase == Phase.ONLINE && frame is PongWebSocketFrame && pingOutstanding -> {
+                lastPong = endpoint.clock.instant()
+                pingOutstanding = false
+            }
+
+            else -> {
+                close(ctx, SocketClose.BAD_HANDSHAKE)
+            }
         }
     }
 
@@ -219,27 +271,25 @@ internal class SocketSession(
         presented: String,
     ) {
         endpoint.blocking.execute {
-            val session = runCatching { endpoint.auth.authenticate(presented) }.getOrNull()
-            ctx.executor().execute { online(ctx, presented, session) }
+            val found = lookup(endpoint.auth, presented)
+            ctx.executor().execute { online(ctx, presented, found) }
         }
     }
 
     private fun online(
         ctx: ChannelHandlerContext,
         presented: String,
-        session: AuthenticatedSession?,
+        found: Lookup,
     ) {
-        val client =
-            session?.takeIf { phase == Phase.AUTHENTICATING }?.let {
-                ClientSocket(
-                    it.record.deviceId,
-                    sessionKey(it),
-                    ctx.channel(),
-                )
-            }
+        val session = (found as? Lookup.Found)?.session
+        val client = session?.let { ClientSocket(it.record.deviceId, sessionKey(it), ctx.channel()) }
         when {
             phase != Phase.AUTHENTICATING -> {
                 Unit
+            }
+
+            found is Lookup.Failed -> {
+                close(ctx, SocketClose.TRY_LATER)
             }
 
             session == null || client == null -> {
@@ -258,24 +308,37 @@ internal class SocketSession(
                 lastPong = endpoint.clock.instant()
                 val every = endpoint.settings.pingInterval.toMillis()
                 pingTimer = ctx.executor().scheduleWithFixedDelay({ tick(ctx) }, every, every, TimeUnit.MILLISECONDS)
+                // A logout that raced the hello must not leave a socket behind until the first ping.
+                recheck(ctx)
             }
         }
     }
 
-    /** Every ping interval: close a socket that has not answered for the pong timeout, else ping and re-check the session. */
+    /**
+     * Every ping interval: close a socket that has not answered for the pong timeout, else ping (unless the channel
+     * cannot take a write) and re-check the session.
+     */
     private fun tick(ctx: ChannelHandlerContext) {
         val silent = Duration.between(lastPong, endpoint.clock.instant())
         if (silent > endpoint.settings.pongTimeout) {
             close(ctx, SocketClose.TIMEOUT)
         } else {
-            ctx.writeAndFlush(PingWebSocketFrame())
-            val presented = token
-            if (presented != null) {
-                endpoint.blocking.execute {
-                    val alive = runCatching { endpoint.auth.authenticate(presented) }.getOrNull() != null
-                    if (!alive) ctx.executor().execute { close(ctx, SocketClose.UNAUTHORIZED) }
-                }
+            if (ctx.channel().isWritable) {
+                pingOutstanding = true
+                ctx.writeAndFlush(PingWebSocketFrame())
             }
+            recheck(ctx)
+        }
+    }
+
+    /** Closes the socket if the session ended; a failing lookup keeps it, and one lookup runs at a time. */
+    private fun recheck(ctx: ChannelHandlerContext) {
+        val presented = token ?: return
+        if (!checking.compareAndSet(false, true)) return
+        endpoint.blocking.execute {
+            val live = runCatching { endpoint.auth.isLive(presented) }.getOrNull()
+            checking.set(false)
+            if (live == false) ctx.executor().execute { close(ctx, SocketClose.UNAUTHORIZED) }
         }
     }
 
@@ -308,6 +371,7 @@ internal class SocketSession(
         why: SocketClose,
     ) {
         phase = Phase.CLOSED
+        pingTimer?.cancel(false)
         ctx.channel().closeWith(why)
     }
 

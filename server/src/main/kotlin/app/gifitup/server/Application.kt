@@ -66,16 +66,18 @@ fun main() {
     val inviteCleanup = InviteCleanup(database, clock).start()
     val keyPackageCleanup = KeyPackageCleanup(database, clock).start()
     val deliveryCleanup = DeliveryCleanup(database, clock).start()
+    val sockets = SocketEndpoint(auth, delivery.sockets, clock)
     val server =
         embeddedServer(
             Netty,
-            configure = { applyTo(this, config, SocketEndpoint(auth, delivery.sockets, clock)) },
+            configure = { applyTo(this, config, sockets) },
             module = { module(config, readiness, auth, invites, keyPackages, members, delivery) },
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
         keyPackageCleanup.shutdownNow()
         deliveryCleanup.shutdownNow()
+        sockets.shutdown()
         inviteCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         keyPackageCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         deliveryCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)

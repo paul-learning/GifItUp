@@ -14,6 +14,7 @@ import app.gifitup.server.db.APP_ROLE
 import app.gifitup.server.db.Database
 import app.gifitup.server.db.DatabaseConfig
 import app.gifitup.server.db.TestPostgres
+import app.gifitup.server.db.TransactionRunner
 import app.gifitup.server.invites.InviteService
 import app.gifitup.server.module
 import app.gifitup.server.noDatabaseKeyPackages
@@ -36,6 +37,7 @@ import java.time.Clock
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
 /** A JDK WebSocket client that records what it receives. */
@@ -111,6 +113,13 @@ internal class RawSocket(
     private val socket = Socket("localhost", port).apply { soTimeout = TIMEOUT_MS }
     private val input: InputStream = socket.getInputStream()
     private val output: OutputStream = socket.getOutputStream()
+
+    /** Writes [text] as it is and returns the first line of the answer. */
+    fun sendRaw(text: String): String {
+        output.write(text.toByteArray())
+        output.flush()
+        return readHead().lineSequence().first()
+    }
 
     fun upgrade(): String {
         output.write(
@@ -205,7 +214,19 @@ internal class RawSocket(
 internal class SocketFixture(
     val delivery: DeliveryFixture,
     val port: Int,
+    val databaseDown: AtomicBoolean,
 )
+
+/** The auth service's database, which fails while [down] is set (a blip or a flooded pool). */
+private class FlakyDatabase(
+    private val db: Database,
+    private val down: AtomicBoolean,
+) : TransactionRunner {
+    override fun <T> transaction(block: (java.sql.Connection) -> T): T {
+        check(!down.get()) { "database down" }
+        return db.transaction(block)
+    }
+}
 
 internal fun socketTest(
     settings: SocketSettings = SocketSettings(),
@@ -216,7 +237,8 @@ internal fun socketTest(
     val url = TestPostgres.migratedDatabase()
     val origin = testConfig().publicOrigin
     Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { db ->
-        val auth = AuthService(db, origin, Challenges(clock), DbInviteRedeemer(), clock)
+        val down = AtomicBoolean(false)
+        val auth = AuthService(FlakyDatabase(db, down), origin, Challenges(clock), DbInviteRedeemer(), clock)
         val service = DeliveryService(db, clock, DeliveryLimits(clock), DeliveryRules(), hub)
         val endpoint = SocketEndpoint(auth, hub, Clock.systemUTC(), settings)
         val config = testConfig()
@@ -262,7 +284,7 @@ internal fun socketTest(
                     )
                 }
                 val client = createClient { defaultRequest { header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString()) } }
-                SocketFixture(DeliveryFixture(db, client, clock, service), port).block()
+                SocketFixture(DeliveryFixture(db, client, clock, service), port, down).block()
             }
         } finally {
             server.stop(gracePeriodMillis = 0, timeoutMillis = 1_000)

@@ -25,10 +25,15 @@ private const val CLOSE_GOING_AWAY = 1001
 private const val CLOSE_POLICY = 1008
 private const val CLOSE_TRY_AGAIN_LATER = 1013
 
-/** Closes [this] with a close frame carrying [why], then the connection. Safe to call from any thread. */
+/** Closes [this] with a close frame carrying [why], then the connection (hard after a grace period). Any thread. */
 internal fun Channel.closeWith(why: SocketClose) {
-    if (isActive) writeAndFlush(CloseWebSocketFrame(why.code, why.reason)).addListener(ChannelFutureListener.CLOSE)
+    if (!isActive) return
+    writeAndFlush(CloseWebSocketFrame(why.code, why.reason)).addListener(ChannelFutureListener.CLOSE)
+    // A peer that stops reading must not hold its place: the connection goes after a short grace either way.
+    eventLoop().schedule({ close() }, CLOSE_GRACE_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
 }
+
+private const val CLOSE_GRACE_SECONDS = 2L
 
 /** One authenticated socket: its channel, the session it belongs to, and whether a push was dropped for lack of room. */
 internal class ClientSocket(
