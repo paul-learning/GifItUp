@@ -85,7 +85,9 @@ class DeliveryEndpointsTest {
             val first = commit(0, added = listOf(ben))
             val answer = posted(create(ana, group, first))
             // The same envelope again (a lost response): not a second group and not an epoch conflict.
-            assertEquals(HttpStatusCode.BadRequest, create(ana, group, first).status, "a group id is created once")
+            assertEquals(answer, posted(create(ana, group, first)), "the creator repeating its own create gets the first answer")
+            val rival = member("rival")
+            assertEquals(HttpStatusCode.BadRequest, create(rival, group, commit(0, added = listOf(ana))).status, "a taken id")
 
             val message = application()
             val one = posted(post(ana, group, message))
@@ -380,7 +382,9 @@ class DeliveryEndpointsTest {
             posted(post(ben, group, application()))
             posted(post(ben, group, application()))
             assertEquals("group_full", errorCode(post(ben, group, application())))
-            assertEquals(2L, posted(post(ana, group, commit(1, removed = listOf(ben.deviceId)))).epoch, "headroom for commits")
+            val noOp = post(ana, group, commit(1, added = listOf(member("carl"))))
+            assertEquals("group_full", errorCode(noOp), "a commit that removes nobody gets no headroom")
+            assertEquals(2L, posted(post(ana, group, commit(1, removed = listOf(ben.deviceId)))).epoch, "headroom for a removal")
         }
 
     @Test
@@ -418,6 +422,10 @@ class DeliveryEndpointsTest {
                 epoch = posted(post(ana, group, commit(epoch, removed = listOf(ben.deviceId)))).epoch
                 epoch = posted(post(ana, group, commit(epoch, added = listOf(ben)))).epoch
                 json(ben, "/welcomes/${welcomes(ben).welcomes.last().id}/ack", "")
+                // Everyone acknowledges and the retention runs between the adds: the add log is not messages.
+                val last = status(ana, group).lastSeq
+                json(ana, "/groups/$group/ack", ProtocolJson.encodeToString(AckRequest(last)))
+                DeliveryCleanup(db, clock).runOnce()
             }
             epoch = posted(post(ana, group, commit(epoch, removed = listOf(ben.deviceId)))).epoch
             val fourth = post(ana, group, commit(epoch, added = listOf(ben)))
@@ -467,5 +475,18 @@ class DeliveryEndpointsTest {
             assertEquals(1, DeliveryCleanup(db, clock).runOnce())
             val status = status(ana, group)
             assertEquals(status.lastSeq + 1, status.oldestSeq, "an empty log: the next seq")
+        }
+
+    @Test
+    fun aFetchPageStopsAtItsByteBudgetButAlwaysHoldsOneMessage() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(maxFetchBytes = 1_000)) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(ben))))
+            repeat(3) { posted(post(ana, group, application(payload = bytes(600)))) }
+            val page = fetch(ben, group)
+            assertEquals(listOf(2L), page.messages.map { it.seq }, "600 + 600 is over 1,000 bytes: one message")
+            assertEquals(listOf(3L), fetch(ben, group, after = 2).messages.map { it.seq })
         }
 }

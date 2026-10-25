@@ -9,8 +9,9 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Hourly retention for the Delivery Service (ADR-0015): messages every active member has acknowledged (a member silent
- * for [activeWindow] stops holding them back), messages and welcomes older than [ttl], groups without members, and the
- * groups' retained-byte counters. Each step is its own transaction; logs only how many rows went.
+ * for [activeWindow] stops holding them back), messages and welcomes older than [ttl], groups without members, the
+ * add log (kept two days, the add limit's window is one) and the groups' retained-byte counters. Each step is its
+ * own transaction; logs only how many message, welcome and group rows went.
  */
 class DeliveryCleanup(
     private val db: TransactionRunner,
@@ -34,6 +35,7 @@ class DeliveryCleanup(
             total += db.transaction { c -> repository.deleteMessagesBefore(c, now.minus(ttl)) }
             total += db.transaction { c -> repository.deleteWelcomesBefore(c, now.minus(ttl)) }
             total += db.transaction { c -> repository.deleteEmptyGroups(c) }
+            db.transaction { c -> repository.deleteAddsBefore(c, now.minus(ADDS_KEPT)) }
             db.transaction { c -> repository.recountRetainedBytes(c) }
         } catch (e: Exception) {
             log.warn("event=delivery_cleanup_failed exception={}", e::class.java.name)
@@ -50,6 +52,7 @@ class DeliveryCleanup(
 
     private companion object {
         const val TTL_DAYS = 30L
+        val ADDS_KEPT: Duration = Duration.ofDays(2)
         const val ACTIVE_DAYS = 7L
     }
 }

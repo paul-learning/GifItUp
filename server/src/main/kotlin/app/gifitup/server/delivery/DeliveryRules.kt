@@ -4,6 +4,7 @@ package app.gifitup.server.delivery
 
 import app.gifitup.server.db.DeliveryRepository
 import app.gifitup.server.db.GroupRow
+import app.gifitup.server.db.StoredMessage
 import java.sql.Connection
 import java.time.Duration
 import java.time.Instant
@@ -16,7 +17,15 @@ class DeliveryRules(
     private val maxGroupBytes: Long = MAX_GROUP_BYTES,
     private val maxSenderBytes: Long = MAX_SENDER_BYTES,
     private val addWindow: Duration = ADD_WINDOW,
+    private val maxFetchBytes: Long = MAX_FETCH_BYTES,
 ) {
+    /** At most [maxFetchBytes] of payload per page (always at least one message): the page limit alone is a count. */
+    internal fun withinByteBudget(messages: List<StoredMessage>): List<StoredMessage> {
+        var total = 0L
+        val page = messages.takeWhile { message -> (total + message.payload.size <= maxFetchBytes).also { total += message.payload.size } }
+        return page.ifEmpty { messages.take(1) }
+    }
+
     /** A device may have created at most 100 live groups and belong to at most 300. */
     internal fun createLimit(
         c: Connection,
@@ -119,9 +128,11 @@ class DeliveryRules(
     ): Refusal? {
         val size = envelope.payload.size
         val (count, bytes) = repo.retained(c, id)
-        // A commit may use a reserved headroom, so a full log can still be answered by removing whoever filled it.
-        val extra = if (envelope.isCommit) COMMIT_HEADROOM_BYTES else 0L
-        val extraCount = if (envelope.isCommit) COMMIT_HEADROOM_MESSAGES else 0L
+        // Only a commit that removes someone may use a reserved headroom, so a full log can still be answered by removing
+        // whoever filled it, and no-op commits cannot use the headroom up.
+        val removing = envelope.isCommit && envelope.removed.isNotEmpty()
+        val extra = if (removing) COMMIT_HEADROOM_BYTES else 0L
+        val extraCount = if (removing) COMMIT_HEADROOM_MESSAGES else 0L
         val full =
             count >= maxMessagesPerGroup + extraCount || bytes + size > maxGroupBytes + extra ||
                 repo.bytesBySender(c, device) + size > maxSenderBytes
@@ -133,6 +144,7 @@ class DeliveryRules(
         const val MAX_MESSAGES_PER_GROUP = 5_000L
         const val MAX_GROUP_BYTES = 2L * 1024 * 1024
         const val MAX_SENDER_BYTES = 8L * 1024 * 1024
+        const val MAX_FETCH_BYTES = 256L * 1024
         const val COMMIT_HEADROOM_BYTES = 512L * 1024
         const val COMMIT_HEADROOM_MESSAGES = 100L
         const val MAX_CREATED_GROUPS = 100L

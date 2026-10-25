@@ -86,16 +86,7 @@ class DeliveryService(
     ): Delivery<Posted> =
         guarded(spendCreate(device)) {
             try {
-                db.transaction { c ->
-                    rules.createLimit(c, repo, device)?.let { throw Rollback(it.reason) }
-                    createRefusal(envelope)?.let { throw Rollback(it.reason) }
-                    if (!repo.insertGroup(c, groupId, device, clock.instant())) throw Rollback(Refusal.INVALID)
-                    repo.insertMember(c, groupId, device, 0L, null, clock.instant())
-                    // The group exists only if its first commit is accepted: a refusal rolls the whole transaction back.
-                    append(c, groupId, checkNotNull(repo.lockGroup(c, groupId)), device, envelope).also {
-                        if (it is Delivery.Refused) throw Rollback(it.reason)
-                    }
-                }
+                db.transaction { c -> createIn(c, groupId, device, envelope) }
             } catch (e: Rollback) {
                 Delivery.Refused(e.reason)
             }
@@ -121,7 +112,7 @@ class DeliveryService(
         limit: Int,
     ): Delivery<Fetched> =
         read(device, groupId) { c, group, member ->
-            val messages = withinByteBudget(repo.messages(c, groupId, maxOf(after, member.joinedSeq), limit))
+            val messages = rules.withinByteBudget(repo.messages(c, groupId, maxOf(after, member.joinedSeq), limit))
             Fetched(repo.oldestSeq(c, groupId) ?: group.nextSeq, group.nextSeq - 1, messages)
         }
 
@@ -178,16 +169,6 @@ class DeliveryService(
             }
         }
 
-    /** At most [MAX_FETCH_BYTES] of payload per page (always at least one message): the page limit alone is a count. */
-    private fun withinByteBudget(messages: List<StoredMessage>): List<StoredMessage> {
-        var total = 0L
-        val page =
-            messages.takeWhile { message ->
-                (total + message.payload.size <= MAX_FETCH_BYTES).also { total += message.payload.size }
-            }
-        return page.ifEmpty { messages.take(1) }
-    }
-
     private fun <T> read(
         device: UUID,
         groupId: ByteArray,
@@ -210,6 +191,31 @@ class DeliveryService(
         device: UUID,
         envelope: Envelope,
     ): Boolean = limits.posts.spend(device.toString()) && (!envelope.isCommit || limits.commits.spend(device.toString()))
+
+    /**
+     * The create transaction. A repeat of the creator's own create (a lost response: same group id, same envelope)
+     * returns the first answer; any other create of a taken id is invalid. A refusal throws [Rollback], so the group
+     * exists only if its first commit is accepted.
+     */
+    private fun createIn(
+        c: Connection,
+        groupId: ByteArray,
+        device: UUID,
+        envelope: Envelope,
+    ): Delivery<Posted> {
+        rules.createLimit(c, repo, device)?.let { abort(it.reason) }
+        createRefusal(envelope)?.let { abort(it.reason) }
+        return if (repo.insertGroup(c, groupId, device, clock.instant())) {
+            repo.insertMember(c, groupId, device, 0L, null, clock.instant())
+            append(c, groupId, checkNotNull(repo.lockGroup(c, groupId)), device, envelope).also {
+                if (it is Delivery.Refused) abort(it.reason)
+            }
+        } else {
+            repo.lockGroup(c, groupId)?.let { retryOf(c, groupId, it, device, envelope) } ?: abort(Refusal.INVALID)
+        }
+    }
+
+    private fun abort(reason: Refusal): Nothing = throw Rollback(reason)
 
     private fun spendCreate(device: UUID): Boolean =
         listOf(limits.creates, limits.posts, limits.commits).all { it.spend(device.toString()) }
@@ -292,6 +298,7 @@ class DeliveryService(
             repo.deleteMembers(c, id, envelope.removed.filter { it in members })
             envelope.added.forEach { target ->
                 repo.insertMember(c, id, target, seq, device, now)
+                repo.recordAdd(c, device, target, now)
                 repo.insertWelcome(c, UUID.randomUUID(), id, target, device, envelope.welcomes.getValue(target), now)
             }
             repo.deleteGroupIfEmpty(c, id)
@@ -310,6 +317,5 @@ class DeliveryService(
 
     companion object {
         internal const val MAX_WELCOMES = 20
-        internal const val MAX_FETCH_BYTES = 256L * 1024
     }
 }

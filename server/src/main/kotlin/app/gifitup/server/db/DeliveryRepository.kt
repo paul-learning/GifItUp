@@ -379,21 +379,41 @@ class DeliveryRepository {
         device: UUID,
     ): Long = c.scalar("SELECT count(*) FROM group_members WHERE device_id = ?") { setObject(1, device) } ?: 0L
 
-    /**
-     * How often [adder] added [target] since [since] (any group), counted from the commits it posted, so removing and
-     * re-adding does not reset the count.
-     */
+    /** How often [adder] added [target] since [since], from the add log (retention and removals do not touch it). */
     fun recentAdds(
         c: Connection,
         adder: UUID,
         target: UUID,
         since: Instant,
     ): Long =
-        c.scalar("SELECT count(*) FROM group_messages WHERE sender_device_id = ? AND ? = ANY (added) AND created_at > ?") {
+        c.scalar("SELECT count(*) FROM delivery_adds WHERE adder_device_id = ? AND target_device_id = ? AND added_at > ?") {
             setObject(1, adder)
             setObject(2, target)
             setObject(3, since.utc())
         } ?: 0L
+
+    fun recordAdd(
+        c: Connection,
+        adder: UUID,
+        target: UUID,
+        now: Instant,
+    ) {
+        c.prepareStatement("INSERT INTO delivery_adds (adder_device_id, target_device_id, added_at) VALUES (?, ?, ?)").use {
+            it.setObject(1, adder)
+            it.setObject(2, target)
+            it.setObject(3, now.utc())
+            it.executeUpdate()
+        }
+    }
+
+    fun deleteAddsBefore(
+        c: Connection,
+        before: Instant,
+    ): Int =
+        c.prepareStatement("DELETE FROM delivery_adds WHERE added_at < ?").use {
+            it.setObject(1, before.utc())
+            it.executeUpdate()
+        }
 
     // Welcomes
 
