@@ -26,6 +26,34 @@ class CliTest {
     }
 
     @Test
+    fun parsesTheDeliveryCommandsWithExactlyTheirOptions() {
+        val group = "AQIDBAUGBwgJCgsMDQ4PEA"
+        val create = Invocation.parse(listOf("group-create") + base + listOf("--device", ID))
+        assertEquals(ID, create.device)
+        val post = Invocation.parse(listOf("group-post") + base + listOf("--group", group, "--text", "hello"))
+        assertEquals(16, post.group?.size)
+        assertEquals("hello", post.text)
+        assertEquals(7L, Invocation.parse(listOf("group-fetch") + base + listOf("--group", group, "--seq", "7")).seq)
+        assertEquals(null, Invocation.parse(listOf("group-fetch") + base + listOf("--group", group)).seq)
+        assertEquals(ID, Invocation.parse(listOf("welcome-ack") + base + listOf("--welcome", ID)).welcome)
+        assertEquals("welcomes", Invocation.parse(listOf("welcomes") + base).command)
+
+        val bad =
+            listOf(
+                listOf("group-create") + base, // no device
+                listOf("group-create") + base + listOf("--device", "not-a-uuid"),
+                listOf("group-post") + base + listOf("--group", group), // no text
+                listOf("group-post") + base + listOf("--group", "AAAA", "--text", "x"), // a group id under 16 bytes
+                listOf("group-status") + base + listOf("--group", group, "--text", "x"), // another command's option
+                listOf("group-ack") + base + listOf("--group", group, "--seq", "-1"),
+                listOf("group-fetch") + base + listOf("--group", group, "--seq", "1x"),
+                listOf("devices") + base + listOf("--group", group), // the group options belong to the group commands
+                listOf("welcomes") + base + listOf("--welcome", ID),
+            )
+        bad.forEach { args -> assertFailsWith<CliError>(args.joinToString(" ")) { Invocation.parse(args) } }
+    }
+
+    @Test
     fun badCommandLinesAreUsageErrors() {
         val cases =
             listOf(

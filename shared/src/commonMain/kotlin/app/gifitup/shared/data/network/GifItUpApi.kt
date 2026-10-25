@@ -1,12 +1,16 @@
 package app.gifitup.shared.data.network
 
+import app.gifitup.protocol.AckRequest
 import app.gifitup.protocol.ApiErrorCode
 import app.gifitup.protocol.ChallengeResponse
 import app.gifitup.protocol.ClaimKeyPackagesRequest
 import app.gifitup.protocol.ClaimKeyPackagesResponse
+import app.gifitup.protocol.CreateGroupRequest
 import app.gifitup.protocol.CreateInviteResponse
 import app.gifitup.protocol.DeviceListResponse
 import app.gifitup.protocol.ErrorResponse
+import app.gifitup.protocol.FetchMessagesResponse
+import app.gifitup.protocol.GroupStatusResponse
 import app.gifitup.protocol.InviteInfo
 import app.gifitup.protocol.InviteListResponse
 import app.gifitup.protocol.InviteStatus
@@ -15,6 +19,9 @@ import app.gifitup.protocol.LoginRequest
 import app.gifitup.protocol.MembersResponse
 import app.gifitup.protocol.PROTOCOL_VERSION
 import app.gifitup.protocol.PROTOCOL_VERSION_HEADER
+import app.gifitup.protocol.PendingWelcomesResponse
+import app.gifitup.protocol.PostMessageRequest
+import app.gifitup.protocol.PostMessageResponse
 import app.gifitup.protocol.ProtocolJson
 import app.gifitup.protocol.RegisterRequest
 import app.gifitup.protocol.SessionResponse
@@ -236,6 +243,102 @@ class GifItUpApi(
         return exchange(Route.REVOKE_INVITE, body = null, session, pathSuffix = "/$inviteId") { }
     }
 
+    /**
+     * `POST /groups`: creates the group [groupId] (16..64 random bytes) with its first commit, epoch 0, which adds at
+     * least one device (ADR-0015). Safe to repeat with the same envelope after a lost answer: the creator gets the
+     * first answer back.
+     */
+    suspend fun createGroup(
+        session: Session,
+        groupId: ByteArray,
+        commit: DeliveryEnvelope,
+    ): ApiResult<PostedMessage> {
+        require(groupId.size in MIN_GROUP_ID_BYTES..MAX_GROUP_ID_BYTES) { "group id out of range" }
+        val body =
+            ProtocolJson.encodeToString(
+                CreateGroupRequest.serializer(),
+                CreateGroupRequest(Base64Url.encode(groupId), commit.toWire()),
+            )
+        return exchange(Route.CREATE_GROUP, body, session) { bytes -> decode(PostMessageResponse.serializer(), bytes)?.let(::readPosted) }
+    }
+
+    /** `POST /groups/{id}/messages`: a commit or an application message; a repeat of the same envelope is safe. */
+    suspend fun postMessage(
+        session: Session,
+        groupId: ByteArray,
+        envelope: DeliveryEnvelope,
+    ): ApiResult<PostedMessage> {
+        val body = ProtocolJson.encodeToString(PostMessageRequest.serializer(), envelope.toWire())
+        return exchange(Route.POST_MESSAGE, body, session, pathSuffix = groupPath(groupId, "/messages")) { bytes ->
+            decode(PostMessageResponse.serializer(), bytes)?.let(::readPosted)
+        }
+    }
+
+    /** `GET /groups/{id}/messages`: up to [limit] messages above [after] (and above this device's join point). */
+    suspend fun fetchMessages(
+        session: Session,
+        groupId: ByteArray,
+        after: Long,
+        limit: Int = MAX_PAGE_MESSAGES,
+    ): ApiResult<MessagePage> {
+        require(after >= 0 && limit in 1..MAX_PAGE_MESSAGES) { "page out of range" }
+        return exchange(
+            Route.FETCH_MESSAGES,
+            body = null,
+            session,
+            pathSuffix = groupPath(groupId, "/messages?after=$after&limit=$limit"),
+        ) { bytes ->
+            decode(FetchMessagesResponse.serializer(), bytes)?.let { readPage(it, after) }
+        }
+    }
+
+    /** `GET /groups/{id}`: epoch, retained range and this device's cursors (the freshness anchor, ADR-0015). */
+    suspend fun groupStatus(
+        session: Session,
+        groupId: ByteArray,
+    ): ApiResult<GroupState> =
+        exchange(Route.GROUP_STATUS, body = null, session, pathSuffix = groupPath(groupId, "")) { bytes ->
+            decode(GroupStatusResponse.serializer(), bytes)?.let(::readState)
+        }
+
+    /** `POST /groups/{id}/ack`: this device has processed everything up to [seq]. */
+    suspend fun ackMessages(
+        session: Session,
+        groupId: ByteArray,
+        seq: Long,
+    ): ApiResult<Unit> {
+        require(seq >= 0) { "seq out of range" }
+        val body = ProtocolJson.encodeToString(AckRequest.serializer(), AckRequest(seq))
+        return exchange(Route.ACK_MESSAGES, body, session, pathSuffix = groupPath(groupId, "/ack")) { }
+    }
+
+    /** `POST /groups/{id}/leave`: drops this device's own membership without a commit (ADR-0015). */
+    suspend fun leaveGroup(
+        session: Session,
+        groupId: ByteArray,
+    ): ApiResult<Unit> = exchange(Route.LEAVE_GROUP, body = null, session, pathSuffix = groupPath(groupId, "/leave")) { }
+
+    /** `GET /welcomes`: this device's pending welcomes, oldest first. */
+    suspend fun pendingWelcomes(session: Session): ApiResult<List<PendingWelcomeEntry>> =
+        exchange(Route.WELCOMES, body = null, session) { bytes -> decode(PendingWelcomesResponse.serializer(), bytes)?.let(::readWelcomes) }
+
+    /** `POST /welcomes/{id}/ack`: deletes one pending welcome of this device. */
+    suspend fun ackWelcome(
+        session: Session,
+        welcomeId: String,
+    ): ApiResult<Unit> {
+        require(UUID.matches(welcomeId)) { "welcome ids are canonical UUIDs" }
+        return exchange(Route.ACK_WELCOME, body = null, session, pathSuffix = "/$welcomeId/ack") { }
+    }
+
+    private fun groupPath(
+        groupId: ByteArray,
+        rest: String,
+    ): String {
+        require(groupId.size in MIN_GROUP_ID_BYTES..MAX_GROUP_ID_BYTES) { "group id out of range" }
+        return "/${Base64Url.encode(groupId)}$rest"
+    }
+
     override fun close() = client.close()
 
     /** An endpoint: its method, path and the one status that means success. */
@@ -257,6 +360,14 @@ class GifItUpApi(
         LIST_INVITES(HttpMethod.Get, "/invites", HttpStatusCode.OK),
         REVOKE_INVITE(HttpMethod.Delete, "/invites", HttpStatusCode.NoContent),
         MEMBERS(HttpMethod.Get, "/members", HttpStatusCode.OK, MAX_MEMBERS_BODY_BYTES),
+        CREATE_GROUP(HttpMethod.Post, "/groups", HttpStatusCode.OK),
+        POST_MESSAGE(HttpMethod.Post, "/groups", HttpStatusCode.OK),
+        FETCH_MESSAGES(HttpMethod.Get, "/groups", HttpStatusCode.OK, MAX_DELIVERY_BODY_BYTES),
+        GROUP_STATUS(HttpMethod.Get, "/groups", HttpStatusCode.OK),
+        ACK_MESSAGES(HttpMethod.Post, "/groups", HttpStatusCode.NoContent),
+        LEAVE_GROUP(HttpMethod.Post, "/groups", HttpStatusCode.NoContent),
+        WELCOMES(HttpMethod.Get, "/welcomes", HttpStatusCode.OK, MAX_DELIVERY_BODY_BYTES),
+        ACK_WELCOME(HttpMethod.Post, "/welcomes", HttpStatusCode.NoContent),
     }
 
     /**
@@ -345,6 +456,7 @@ private suspend fun <T> answer(
 private const val FIRST_ERROR_STATUS = 400
 private const val LAST_ERROR_STATUS = 599
 
+@Suppress("CyclomaticComplexMethod") // One branch per closed error code.
 private fun failure(error: ErrorResponse): ApiResult.Failed =
     ApiResult.Failed(
         when (error.error) {
@@ -359,6 +471,13 @@ private fun failure(error: ErrorResponse): ApiResult.Failed =
             ApiErrorCode.KEY_PACKAGE_INVALID -> ApiError.KEY_PACKAGE_INVALID
             ApiErrorCode.KEY_PACKAGE_LIMIT -> ApiError.KEY_PACKAGE_LIMIT
             ApiErrorCode.INVITE_LIMIT -> ApiError.INVITE_LIMIT
+            ApiErrorCode.ENVELOPE_INVALID -> ApiError.ENVELOPE_INVALID
+            ApiErrorCode.ENVELOPE_CONFLICT -> ApiError.ENVELOPE_CONFLICT
+            ApiErrorCode.EPOCH_CONFLICT -> ApiError.EPOCH_CONFLICT
+            ApiErrorCode.GROUP_FULL -> ApiError.GROUP_FULL
+            ApiErrorCode.WELCOME_LIMIT -> ApiError.WELCOME_LIMIT
+            ApiErrorCode.GROUP_LIMIT -> ApiError.GROUP_LIMIT
+            ApiErrorCode.PAYLOAD_TOO_LARGE -> ApiError.PAYLOAD_TOO_LARGE
             else -> ApiError.SERVER_ERROR
         },
     )

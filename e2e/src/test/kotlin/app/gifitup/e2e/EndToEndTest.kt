@@ -58,6 +58,7 @@ class EndToEndTest {
             invites(cli)
             contacts(cli)
             trust(cli, dbEnv)
+            groups(cli, dbEnv)
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
@@ -291,6 +292,88 @@ class EndToEndTest {
         assertTrue(CONTACT_LINE.matches(dave) && dave.contains("  e2e_erin  unconfirmed  devices 1"), "dave lists erin, not yet pinned")
         val erin = lines("state-erin").single()
         assertTrue(CONTACT_LINE.matches(erin) && erin.contains("  e2e_dave  unconfirmed  devices 1"), "erin lists dave, not yet pinned")
+    }
+
+    /**
+     * The Delivery Service (#21, ADR-0015) through the real server and the CLI's wire-level test driver: a group is
+     * created with a welcome for another device, the welcome is fetched once and acknowledged, messages arrive in
+     * order with their cursors, a device added later sees only what came after its commit, a non-member and a removed
+     * device get the one "no such" answer, leaving works, and the freshness fields name the sender's last message.
+     * Fresh accounts (eve, fay, gus): every command logs in, and a device may log in 10 times an hour.
+     */
+    private fun groups(
+        cli: Cli,
+        dbEnv: Map<String, String>,
+    ) {
+        fun register(name: String): Pair<Path, String> {
+            val state = work.resolve("state-$name")
+            val registered = cli.run("register", state, "--username", "e2e_$name", stdin = createInvite(dbEnv))
+            assertEquals(0, registered.exit, "register $name")
+            val id = Regex("^registered e2e_$name as device ([0-9a-f-]{36})$").matchEntire(registered.stdout.trim())?.groupValues?.get(1)
+            return state to (id ?: fail("register $name printed no device id"))
+        }
+
+        fun ok(
+            state: Path,
+            command: String,
+            vararg args: String,
+        ): String {
+            val finished = cli.run(command, state, *args)
+            assertEquals(0, finished.exit, "$command exit code: ${finished.stderr}")
+            return finished.stdout.trim()
+        }
+
+        fun refused(
+            state: Path,
+            command: String,
+            vararg args: String,
+        ) {
+            val finished = cli.run(command, state, *args)
+            assertEquals(EXIT_SERVER, finished.exit, "$command exit code")
+            assertTrue("gifitup-cli: no such member" in finished.stderr, "$command: the one not-found answer")
+        }
+        val (eve, eveId) = register("eve")
+        val (fay, fayId) = register("fay")
+        val (gus, gusId) = register("gus")
+
+        val created = ok(eve, "group-create", "--device", fayId)
+        val group = Regex("^created group (\\S+) at seq 1, epoch 1$").matchEntire(created)?.groupValues?.get(1) ?: fail("create: $created")
+
+        val welcome = ok(fay, "welcomes")
+        assertTrue(Regex("^welcome [0-9a-f-]{36} group $group \\(64 bytes\\)$").matches(welcome), "fay's welcome: $welcome")
+        assertEquals("no pending welcomes", ok(eve, "welcomes"), "only the target sees a welcome")
+        assertEquals("welcome acknowledged", ok(fay, "welcome-ack", "--welcome", welcome.split(" ")[1]))
+        assertEquals("no pending welcomes", ok(fay, "welcomes"))
+
+        assertEquals("posted at seq 2", ok(eve, "group-post", "--group", group, "--text", "hello fay"))
+        val fetched = ok(fay, "group-fetch", "--group", group).lines()
+        assertEquals("message 2 application from $eveId: text \"hello fay\"", fetched[0], "fay sees the message after its join point only")
+        assertEquals("retained 1..2", fetched[1])
+        assertEquals("acknowledged up to 2", ok(fay, "group-ack", "--group", group, "--seq", "2"))
+
+        val status = ok(eve, "group-status", "--group", group)
+        assertTrue(
+            Regex("^epoch 1, retained 1\\.\\.2, acknowledged 0, last sent seq 2 id \\S+$").matches(status),
+            "eve's freshness anchor: $status",
+        )
+
+        // A device added later: a commit at the current epoch, a welcome for it, and no history from before it.
+        assertEquals("committed at seq 3, epoch 2", ok(eve, "group-add", "--group", group, "--device", gusId))
+        assertEquals("posted at seq 4", ok(eve, "group-post", "--group", group, "--text", "hello gus"))
+        assertTrue(ok(gus, "welcomes").startsWith("welcome "), "gus has a welcome")
+        val gusSees = ok(gus, "group-fetch", "--group", group).lines()
+        assertEquals("message 4 application from $eveId: text \"hello gus\"", gusSees[0], "gus sees nothing from before its commit")
+
+        // Not a member, and an unknown group: the same answer.
+        refused(gus, "group-post", "--group", "AQIDBAUGBwgJCgsMDQ4PEA", "--text", "x")
+        // Leaving, and removal by the creator: afterwards the group is gone for them.
+        assertEquals("left the group", ok(fay, "group-leave", "--group", group))
+        refused(fay, "group-status", "--group", group)
+        assertEquals("committed at seq 5, epoch 3", ok(eve, "group-remove", "--group", group, "--device", gusId))
+        refused(gus, "group-fetch", "--group", group)
+        assertEquals("committed at seq 6, epoch 4", ok(eve, "group-remove", "--group", group, "--device", fayId), "a ghost may be named")
+        // Only the creator removes others: gus cannot remove eve, even if it were still a member (it is not: no such group).
+        refused(gus, "group-post", "--group", group, "--text", "after removal")
     }
 
     /**

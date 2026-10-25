@@ -37,8 +37,27 @@ data class Invocation(
     val linkFile: Path? = null,
     val inviteId: String? = null,
     val account: String? = null,
+    val group: ByteArray? = null,
+    val device: String? = null,
+    val text: String? = null,
+    val seq: Long? = null,
+    val welcome: String? = null,
 ) {
     companion object {
+        /** The Delivery Service commands (test driver, ADR-0015): required and optional options of each. */
+        private val GROUP_COMMANDS =
+            mapOf(
+                "group-create" to (setOf("--device") to emptySet()),
+                "group-add" to (setOf("--group", "--device") to emptySet()),
+                "group-remove" to (setOf("--group", "--device") to emptySet()),
+                "group-post" to (setOf("--group", "--text") to emptySet()),
+                "group-fetch" to (setOf("--group") to setOf("--seq")),
+                "group-status" to (setOf("--group") to emptySet()),
+                "group-ack" to (setOf("--group", "--seq") to emptySet()),
+                "group-leave" to (setOf("--group") to emptySet()),
+                "welcomes" to (emptySet<String>() to emptySet()),
+                "welcome-ack" to (setOf("--welcome") to emptySet()),
+            )
         private val COMMANDS =
             setOf(
                 "register",
@@ -53,9 +72,28 @@ data class Invocation(
                 "invite-revoke",
                 "contacts",
                 "contacts-accept",
-            )
+            ) + GROUP_COMMANDS.keys
         private val VALUE_OPTIONS =
-            setOf("--server", "--state-dir", "--origin", "--username", "--target", "--link-file", "--id", "--account")
+            setOf(
+                "--server",
+                "--state-dir",
+                "--origin",
+                "--username",
+                "--target",
+                "--link-file",
+                "--id",
+                "--account",
+                "--group",
+                "--device",
+                "--text",
+                "--seq",
+                "--welcome",
+            )
+
+        private val GROUP_OPTIONS = setOf("--group", "--device", "--text", "--seq", "--welcome")
+        private const val MAX_TEXT_CHARS = 500
+        private const val MIN_GROUP_ID = 16
+        private const val MAX_GROUP_ID = 64
 
         /** The options that one command needs and no other takes. */
         private val COMMAND_OPTIONS =
@@ -83,8 +121,16 @@ data class Invocation(
                 i++
             }
             if (COMMAND_OPTIONS.any { (owner, option) -> (command == owner) != (option in values) }) usage()
-            if (!idsAreCanonical(values)) usage()
-            return Invocation(
+            if (!idsAreCanonical(values) || !groupOptionsFit(command, values)) usage()
+            return invocation(command, values, remote)
+        }
+
+        private fun invocation(
+            command: String,
+            values: Map<String, String>,
+            remote: Boolean,
+        ): Invocation =
+            Invocation(
                 command = command,
                 server = values["--server"] ?: usage(),
                 stateDir = Path.of(values["--state-dir"] ?: usage()),
@@ -95,11 +141,39 @@ data class Invocation(
                 linkFile = values["--link-file"]?.let { Path.of(it) },
                 inviteId = values["--id"],
                 account = values["--account"],
+                group = values["--group"]?.let(::groupIdOf),
+                device = values["--device"],
+                text = values["--text"],
+                seq = values["--seq"]?.toLong(),
+                welcome = values["--welcome"],
             )
-        }
 
         private fun idsAreCanonical(values: Map<String, String>): Boolean =
-            listOf("--id", "--account").all { option -> values[option]?.let(UUID::matches) != false }
+            listOf("--id", "--account", "--device", "--welcome").all { option -> values[option]?.let(UUID::matches) != false }
+
+        /** Only the group commands take the group options, each takes exactly its own, and the values have their shapes. */
+        private fun groupOptionsFit(
+            command: String,
+            values: Map<String, String>,
+        ): Boolean {
+            val given = values.keys.filter { it in GROUP_OPTIONS }.toSet()
+            val (required, optional) = GROUP_COMMANDS[command] ?: (emptySet<String>() to emptySet())
+            val shapes =
+                (values["--group"]?.let { groupIdOf(it) != null } != false) &&
+                    (values["--seq"]?.let { it.length in 1..SEQ_DIGITS && it.all(Char::isDigit) } != false) &&
+                    (values["--text"]?.let { it.isNotEmpty() && it.length <= MAX_TEXT_CHARS } != false)
+            return given.containsAll(required) && (given - required).all { it in optional } && shapes
+        }
+
+        /** A group id as printed by the CLI: base64url, 16 to 64 bytes. */
+        private fun groupIdOf(text: String): ByteArray? =
+            runCatching {
+                java.util.Base64
+                    .getUrlDecoder()
+                    .decode(text)
+            }.getOrNull()?.takeIf { it.size in MIN_GROUP_ID..MAX_GROUP_ID }
+
+        private const val SEQ_DIGITS = 15
 
         private fun usage(): Nothing = throw CliError(USAGE, EXIT_USAGE)
 
@@ -118,6 +192,12 @@ data class Invocation(
   invite-revoke --id <invite id>      revoke one of this account's open invites
   contacts                     refresh the contact book from the server's member list and print it
   contacts-accept --account <account id>   TEST ACCOUNTS ONLY: accept a blocked contact's new key blindly, without any check
+  group-create --device <device id>   Delivery Service test driver (random bytes as payloads): new group adding that device
+  group-add|group-remove --group <id> --device <device id>   a commit at the group's current epoch
+  group-post --group <id> --text <text>      an application message (the text is the payload)
+  group-fetch --group <id> [--seq <after>]   messages above a cursor; group-status --group <id>
+  group-ack --group <id> --seq <n>           acknowledge up to n; group-leave --group <id>
+  welcomes                     pending welcomes of this device; welcome-ack --welcome <id>
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
 Only test origins (*.invalid, *.test, localhost) unless --remote-test-account and a cli_ username are given.
 Every command logs in and out again; the server allows 10 logins per device per hour."""
@@ -220,15 +300,47 @@ class Cli(
                 report(it) { }
             }
         return when (invocation.command) {
-            "keypackages-refill" -> keyPackages.refill(session)
-            "keypackages-status" -> keyPackages.status(session)
-            "keypackages-claim" -> keyPackages.claim(session, checkNotNull(invocation.target))
-            "invite-create" -> invites.create(session, checkNotNull(invocation.linkFile))
-            "invites" -> invites.list(session)
-            "invite-revoke" -> invites.revoke(session, checkNotNull(invocation.inviteId))
-            "contacts" -> contacts.list(session)
-            "contacts-accept" -> contacts.accept(checkNotNull(invocation.account))
-            else -> deviceCommand(invocation.command, api, session)
+            "keypackages-refill" -> {
+                keyPackages.refill(session)
+            }
+
+            "keypackages-status" -> {
+                keyPackages.status(session)
+            }
+
+            "keypackages-claim" -> {
+                keyPackages.claim(session, checkNotNull(invocation.target))
+            }
+
+            "invite-create" -> {
+                invites.create(session, checkNotNull(invocation.linkFile))
+            }
+
+            "invites" -> {
+                invites.list(session)
+            }
+
+            "invite-revoke" -> {
+                invites.revoke(session, checkNotNull(invocation.inviteId))
+            }
+
+            "contacts" -> {
+                contacts.list(session)
+            }
+
+            "contacts-accept" -> {
+                contacts.accept(checkNotNull(invocation.account))
+            }
+
+            in DELIVERY_COMMANDS -> {
+                DeliveryCommands(api, random, out) {
+                    throw CliError(message(AuthError.Api(it)), EXIT_SERVER)
+                }.run(invocation, session)
+            }
+
+            else -> {
+                deviceCommand(invocation.command, api, session)
+            }
         }
     }
 
@@ -304,6 +416,21 @@ private object NoRestoreCounter : RestoreCounter {
     override suspend fun set(failures: Int) = Unit
 }
 
+/** The commands of the Delivery Service test driver. */
+private val DELIVERY_COMMANDS =
+    setOf(
+        "group-create",
+        "group-add",
+        "group-remove",
+        "group-post",
+        "group-fetch",
+        "group-status",
+        "group-ack",
+        "group-leave",
+        "welcomes",
+        "welcome-ack",
+    )
+
 /** The invite code from what the user pasted: the code itself or the invite link, whose fragment is the code. */
 fun inviteCodeFrom(input: String): String = input.trim().substringAfterLast('#')
 
@@ -328,6 +455,13 @@ private fun apiMessage(error: ApiError): String =
         ApiError.KEY_PACKAGE_INVALID -> "the server refused a KeyPackage as invalid"
         ApiError.KEY_PACKAGE_LIMIT -> "this device already holds the most KeyPackages the server allows"
         ApiError.INVITE_LIMIT -> "too many open invites; revoke one or wait until one is used or expires"
+        ApiError.ENVELOPE_INVALID -> "the server refused the envelope (a rule of the group was broken)"
+        ApiError.ENVELOPE_CONFLICT -> "the same message id was sent with a different envelope"
+        ApiError.EPOCH_CONFLICT -> "another commit won this epoch; fetch the group and retry"
+        ApiError.GROUP_FULL -> "the group's log is full until members acknowledge"
+        ApiError.WELCOME_LIMIT -> "too many pending welcomes for that device"
+        ApiError.GROUP_LIMIT -> "the device is at its group limit, or was added too often today"
+        ApiError.PAYLOAD_TOO_LARGE -> "a payload is over its size cap"
         ApiError.SERVER_ERROR -> "the server failed"
         ApiError.MALFORMED_RESPONSE -> "the server's answer broke the protocol"
         ApiError.NETWORK -> "no answer from the server (network error or timeout)"
