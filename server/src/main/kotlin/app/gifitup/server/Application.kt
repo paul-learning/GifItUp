@@ -13,7 +13,12 @@ import app.gifitup.server.auth.authRoutes
 import app.gifitup.server.auth.installSessionAuth
 import app.gifitup.server.db.Database
 import app.gifitup.server.db.DatabaseConfig
+import app.gifitup.server.db.DeliveryCleanup
 import app.gifitup.server.db.KeyPackageCleanup
+import app.gifitup.server.delivery.DeliveryLimits
+import app.gifitup.server.delivery.DeliveryService
+import app.gifitup.server.delivery.deliveryBodyLimit
+import app.gifitup.server.delivery.deliveryRoutes
 import app.gifitup.server.http.CachedReadiness
 import app.gifitup.server.http.HEALTH_PATH
 import app.gifitup.server.http.ReadinessProbe
@@ -56,19 +61,23 @@ fun main() {
     val invites = InviteService(database, config.publicOrigin, clock)
     val keyPackages = KeyPackageService(database, clock, KeyPackageLimits(clock))
     val members = MemberService(database)
+    val delivery = DeliveryService(database, clock, DeliveryLimits(clock))
     val inviteCleanup = InviteCleanup(database, clock).start()
     val keyPackageCleanup = KeyPackageCleanup(database, clock).start()
+    val deliveryCleanup = DeliveryCleanup(database, clock).start()
     val server =
         embeddedServer(
             Netty,
             configure = { applyTo(this, config) },
-            module = { module(config, readiness, auth, invites, keyPackages, members) },
+            module = { module(config, readiness, auth, invites, keyPackages, members, delivery) },
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
         keyPackageCleanup.shutdownNow()
+        deliveryCleanup.shutdownNow()
         inviteCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         keyPackageCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+        deliveryCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         database.close()
     }
     server.start(wait = true)
@@ -114,7 +123,8 @@ fun Application.module(
     invites: InviteService,
     keyPackages: KeyPackageService,
     members: MemberService,
-) = configure(config, readiness, auth, invites, keyPackages, members, PUBLIC_PATHS)
+    delivery: DeliveryService,
+) = configure(config, readiness, auth, invites, keyPackages, members, delivery, PUBLIC_PATHS)
 
 /** [module] with the public paths as a parameter, so tests can make their test-only routes public (#73 CR-5). */
 @Suppress("LongParameterList") // The composition root: one parameter per service.
@@ -125,6 +135,7 @@ internal fun Application.configure(
     invites: InviteService,
     keyPackages: KeyPackageService,
     members: MemberService,
+    delivery: DeliveryService,
     publicPaths: Set<String>,
 ) {
     installErrorHandling()
@@ -133,13 +144,16 @@ internal fun Application.configure(
     installProtocolVersionCheck()
     // Second: deny by default. Every path but the public ones needs a session before routing runs (ADR-0009).
     installSessionAuth(auth, publicPaths)
-    install(RequestBodyLimit) { bodyLimit { call -> keyPackageBodyLimit(call, config.limits.defaultBodyLimitBytes) } }
+    install(RequestBodyLimit) {
+        bodyLimit { call -> keyPackageBodyLimit(call, deliveryBodyLimit(call, config.limits.defaultBodyLimitBytes)) }
+    }
     install(ContentNegotiation) { json(ProtocolJson) }
     routing {
         authRoutes(auth)
         inviteRoutes(invites)
         keyPackageRoutes(keyPackages)
         memberRoutes(members)
+        deliveryRoutes(delivery)
         // 503 when the database is unreachable, so deploy.sh's health gate covers it and rolls back (ADR-0008).
         get(HEALTH_PATH) {
             val ready = readiness.isReady()

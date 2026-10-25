@@ -18,6 +18,7 @@ import app.gifitup.server.db.InviteRepository
 import app.gifitup.server.db.NewInvite
 import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.module
+import app.gifitup.server.noDatabaseDelivery
 import app.gifitup.server.noDatabaseInvites
 import app.gifitup.server.noDatabaseKeyPackages
 import app.gifitup.server.noDatabaseMembers
@@ -166,7 +167,17 @@ class InviteFlowTest {
         Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { db ->
             val auth = AuthService(db, origin, Challenges(clock), DbInviteRedeemer(), clock)
             testApplication {
-                application { module(testConfig(), AlwaysReady, auth, noDatabaseInvites(), noDatabaseKeyPackages(), noDatabaseMembers()) }
+                application {
+                    module(
+                        testConfig(),
+                        AlwaysReady,
+                        auth,
+                        noDatabaseInvites(),
+                        noDatabaseKeyPackages(),
+                        noDatabaseMembers(),
+                        noDatabaseDelivery(),
+                    )
+                }
                 val client = createClient { defaultRequest { header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.toString()) } }
                 Fixture(db, url, client).block()
             }

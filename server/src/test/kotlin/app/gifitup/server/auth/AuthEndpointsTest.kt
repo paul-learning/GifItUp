@@ -17,6 +17,7 @@ import app.gifitup.server.db.DatabaseConfig
 import app.gifitup.server.db.RedeemedInvite
 import app.gifitup.server.db.TestPostgres
 import app.gifitup.server.module
+import app.gifitup.server.noDatabaseDelivery
 import app.gifitup.server.noDatabaseInvites
 import app.gifitup.server.noDatabaseKeyPackages
 import app.gifitup.server.noDatabaseMembers
@@ -78,7 +79,17 @@ class AuthEndpointsTest {
         Database.connect(DatabaseConfig(url, APP_ROLE, TestPostgres.appPasswordFile())).use { database ->
             val auth = AuthService(database, origin, Challenges(clock), invites, clock, limits)
             testApplication {
-                application { module(testConfig(), AlwaysReady, auth, noDatabaseInvites(), noDatabaseKeyPackages(), noDatabaseMembers()) }
+                application {
+                    module(
+                        testConfig(),
+                        AlwaysReady,
+                        auth,
+                        noDatabaseInvites(),
+                        noDatabaseKeyPackages(),
+                        noDatabaseMembers(),
+                        noDatabaseDelivery(),
+                    )
+                }
                 Fixture(this, url).block()
             }
         }
