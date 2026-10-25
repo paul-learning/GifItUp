@@ -132,7 +132,7 @@ data class SocketHello(
     val token: String,
 )
 
-/** A hint that [groupId] has a new message [seq]; [kind] `welcome` (with `seq` 0) hints at a new pending welcome. */
+/** A hint that [groupId] has a new message [seq]; [kind] [DeliveryKinds.WELCOME] (with `seq` 0) hints at a new pending welcome. */
 @Serializable
 data class SocketPush(
     val groupId: String,
