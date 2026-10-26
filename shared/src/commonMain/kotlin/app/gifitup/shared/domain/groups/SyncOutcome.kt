@@ -5,7 +5,7 @@ import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.ApiResult
 
-/** How one [GroupSyncEngine.sync] ended. */
+/** How one [GroupSyncEngine] call ended (sync, welcomes, send, resume). */
 sealed interface SyncOutcome {
     /** Everything the server holds for the group is applied and acknowledged; [applied] messages this time. */
     data class CaughtUp(
@@ -40,6 +40,30 @@ sealed interface SyncOutcome {
      * from storage; whatever was not stored is fetched again.
      */
     data object StorageFailed : SyncOutcome
+
+    /** The message is posted and acknowledged by the server at [seq] (`send`, `resume`). */
+    data class Sent(
+        val seq: Long,
+    ) : SyncOutcome
+
+    /**
+     * The message is stored but the server's answer is not known (network, rate limit, full log): it stays pending with
+     * its client message id, and `resume` posts the same bytes again. Nothing else is sent in this group meanwhile.
+     */
+    data class InFlight(
+        val error: ApiError,
+    ) : SyncOutcome
+
+    /** The server refused the message for good (invalid envelope, too large); nothing is pending any more. */
+    data class Rejected(
+        val error: ApiError,
+    ) : SyncOutcome
+
+    /** The text is longer than one padded block holds (896 bytes). */
+    data object TooLong : SyncOutcome
+
+    /** Another send would not fit in the stored sync state; resume or sync first. */
+    data object Busy : SyncOutcome
 
     /** The MLS client is dead (panic or trap). Drop it, restore, and call [GroupSyncEngine.recordFailure] on the new one. */
     data class Poisoned(

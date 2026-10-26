@@ -2,6 +2,7 @@ package app.gifitup.mls.groups
 
 import app.gifitup.mls.UniffiMlsClientFactory
 import app.gifitup.shared.data.crypto.MlsClient
+import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.DeliveryEnvelope
 import app.gifitup.shared.data.network.MessageKind
@@ -49,6 +50,7 @@ class Party(
                 saves++
             },
             IncomingSink { received += it },
+            SecureRandomSource { randomBytes(it) },
         )
 
     /** A restart: the old client goes away, the stored snapshot is restored, a new engine reads its state. */

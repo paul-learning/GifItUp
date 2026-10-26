@@ -1,5 +1,6 @@
 package app.gifitup.shared.domain.groups
 
+import app.gifitup.shared.data.network.MessageKind
 import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -21,6 +22,7 @@ class SyncStateCodecTest {
         listOf(KeyBytes(ByteArray(32) { 3 })),
         ByteArray(16) { 1 },
         null,
+        listOf(12L, 13L),
     )
 
     private fun sample() = SyncState(mapOf(id(1) to record(), id(2) to record(cursor = 0, status = GroupStatus.FROZEN_GAP)))
@@ -35,7 +37,8 @@ class SyncStateCodecTest {
         assertEquals(listOf(4L, 5L), first.quarantined)
         assertEquals(listOf(KeyBytes(ByteArray(32) { 3 })), first.unverified)
         assertContentEquals(ByteArray(16) { 1 }, first.lastMsgId)
-        assertEquals(null, first.prevMsgId)
+        assertEquals(null, first.pending)
+        assertEquals(listOf(12L, 13L), first.ownSeqs)
         assertEquals(GroupStatus.FROZEN_GAP, decoded.groups.getValue(id(2)).status)
     }
 
@@ -85,6 +88,55 @@ class SyncStateCodecTest {
             val encoded = SyncStateCodec.encode(SyncState(mapOf(id(1) to bad)))
             assertFailsWith<SyncStateException> { SyncStateCodec.decode(encoded) }
         }
+    }
+
+    private fun commit(
+        added: List<String> = listOf(uuid(1)),
+        welcome: ByteArray? = ByteArray(300) { 5 },
+    ) = PendingSend(ByteArray(16) { 9 }, MessageKind.COMMIT, 4, added, listOf(uuid(2)), welcome, ByteArray(500) { 6 })
+
+    private fun uuid(n: Int) = "00000000-0000-0000-0000-" + n.toString().padStart(12, '0')
+
+    @Test
+    fun aPendingMessageRoundTripsWithEveryField() {
+        val application =
+            PendingSend(ByteArray(16) { 3 }, MessageKind.APPLICATION, null, emptyList(), emptyList(), null, ByteArray(1100) { 4 })
+        for (pending in listOf(application, commit())) {
+            val state = SyncState(mapOf(id(1) to record().copy(pending = pending)))
+            val back =
+                SyncStateCodec
+                    .decode(SyncStateCodec.encode(state))
+                    .groups
+                    .getValue(id(1))
+                    .pending
+            assertEquals(pending.kind, back?.kind)
+            assertEquals(pending.epoch, back?.epoch)
+            assertEquals(pending.added, back?.added)
+            assertEquals(pending.removed, back?.removed)
+            assertContentEquals(pending.welcome, back?.welcome)
+            assertContentEquals(pending.payload, back?.payload)
+            assertContentEquals(pending.clientMsgId, back?.clientMsgId)
+        }
+    }
+
+    @Test
+    fun aPendingMessageThatBreaksItsKindsShapeIsRefused() {
+        val badApplication = PendingSend(ByteArray(16), MessageKind.APPLICATION, 3, emptyList(), emptyList(), null, ByteArray(10))
+        val duplicateDevices = commit(added = listOf(uuid(1), uuid(1)))
+        val notAUuid = commit(added = listOf("device-1"))
+        for (bad in listOf(badApplication, notAUuid)) {
+            val encoded = SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(pending = bad))))
+            assertFailsWith<SyncStateException> { SyncStateCodec.decode(encoded) }
+        }
+        val encoded = SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(pending = duplicateDevices))))
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(encoded) }
+    }
+
+    @Test
+    fun theWholeStateIsCappedBeforeItIsWritten() {
+        val big = commit(welcome = ByteArray(16 * 1024))
+        val groups = (1..20).associate { id(it) to record().copy(pending = big) }
+        assertFailsWith<SyncStateException> { SyncStateCodec.encode(SyncState(groups)) }
     }
 
     @Test

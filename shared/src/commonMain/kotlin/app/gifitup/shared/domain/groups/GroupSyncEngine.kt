@@ -1,6 +1,7 @@
 package app.gifitup.shared.domain.groups
 
 import app.gifitup.shared.data.crypto.MlsClient
+import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,11 +29,13 @@ class GroupSyncEngine(
     pinsSource: ContactPinsSource,
     saver: SnapshotSaver,
     sink: IncomingSink,
+    random: SecureRandomSource,
 ) {
     private val mutex = Mutex()
     private val store = SyncStore(mls, saver)
     private val messages = MessageReceiver(mls, delivery, pinsSource, sink, store)
     private val welcomes = WelcomeReceiver(mls, delivery, pinsSource, store)
+    private val sender = SendSide(mls, delivery, store, random)
 
     /** The groups this engine knows and where each stands. */
     fun statuses(): Map<KeyBytes, GroupStatus> = store.state.groups.mapValues { it.value.status }
@@ -47,6 +50,19 @@ class GroupSyncEngine(
             val outcome = halting { welcomes.process(results) }
             WelcomesReport(results, outcome.takeIf { it !is SyncOutcome.CaughtUp })
         }
+
+    /**
+     * Seals [plaintext] (at most 896 bytes), stores it and posts it. [SyncOutcome.Sent] when the server accepted it;
+     * [SyncOutcome.InFlight] when the answer is unknown (the message stays pending, call [resume]); a stale state
+     * ([GroupStatus.READ_ONLY_ROLLBACK]) sends nothing.
+     */
+    suspend fun send(
+        groupId: ByteArray,
+        plaintext: ByteArray,
+    ): SyncOutcome = mutex.withLock { halting { sender.send(KeyBytes(groupId), plaintext) } }
+
+    /** Posts the pending message of a group again, unchanged. */
+    suspend fun resume(groupId: ByteArray): SyncOutcome = mutex.withLock { halting { sender.resume(KeyBytes(groupId)) } }
 
     /**
      * Counts a failed attempt on [seq] of a group; used by the caller after a `Poisoned` outcome, on a freshly restored
