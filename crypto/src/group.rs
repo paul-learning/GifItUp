@@ -332,10 +332,9 @@ impl Client {
         if protocol_message.epoch() != group.epoch() {
             return Err(ErrorCode::WrongEpoch);
         }
-        // An echo of our own pending commit lands here too (`PendingOperation`): the engine catches echoes by device
-        // id before it stages anything.
         // Our own pending commit has to be resolved first (merged or cleared): merging a competing commit would
-        // leave the pending one and its path secrets behind (SEC-14). The engine skips our own echoes by device id.
+        // leave the pending one and its path secrets behind (SEC-14). An echo of our own commit lands here as
+        // `PendingOperation` too; the engine catches echoes by device id before it stages anything.
         let mut staging = self.lock_staging()?;
         if group.pending_commit().is_some() || staging.has_commit_for(group_id) {
             return Err(ErrorCode::PendingOperation);
