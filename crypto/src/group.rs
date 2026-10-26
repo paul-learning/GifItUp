@@ -1222,6 +1222,41 @@ mod tests {
         );
     }
 
+    /// CR-10: the leaf cap holds for a received commit too (ghosts count).
+    #[test]
+    fn a_received_commit_over_the_leaf_cap_is_refused() {
+        let (alice, bob, group_id) = pair();
+        let mut next = 0;
+        while alice.member_count(&group_id).unwrap() < 50 {
+            let room = 50 - alice.member_count(&group_id).unwrap() as usize;
+            let batch: Vec<Vec<u8>> = (0..room.min(10))
+                .map(|_| {
+                    next += 1;
+                    key_package(&client(&format!("user{next:02}")))
+                })
+                .collect();
+            let prepared = alice.prepare_add(&group_id, &batch).unwrap();
+            alice.merge_pending(&group_id).unwrap();
+            bob.process(&group_id, &prepared.commit).unwrap();
+        }
+        let extra = key_package(&client("extra"));
+        let over = with_group(&bob, &group_id, |group, client| {
+            let kp = client.parse_key_package(&extra).unwrap();
+            let (commit, _w, _i) = group
+                .add_members(&client.provider, &client.signer, &[kp])
+                .unwrap();
+            let bytes = commit_bytes(&commit);
+            group
+                .clear_pending_commit(client.provider.storage())
+                .unwrap();
+            bytes
+        });
+        assert_eq!(
+            alice.stage_incoming(&group_id, &over).err(),
+            Some(ErrorCode::LimitExceeded)
+        );
+    }
+
     /// CR-1: a staged commit and our own pending commit never coexist, in either order.
     #[test]
     fn a_staged_commit_blocks_merging_ours() {
