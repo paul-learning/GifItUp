@@ -230,13 +230,7 @@ private class WasmMlsClient(
     override fun members(groupId: ByteArray): List<LeafInfo> =
         call {
             val id = groupId.toUint8Array()
-            val leaves = guarded { native.members(id) }
-            val items = List(leaves.length) { i -> checkNotNull(leaves[i]) }
-            try {
-                items.map { it.toSharedAndFree() }
-            } finally {
-                items.forEach { freeGuarded { it.free() } }
-            }
+            guarded { native.members(id) }.toSharedAndFree()
         }
 
     override fun memberCount(groupId: ByteArray): Int =

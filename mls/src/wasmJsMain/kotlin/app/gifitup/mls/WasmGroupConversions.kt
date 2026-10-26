@@ -42,25 +42,32 @@ private fun ByteArray.putInt(
     return at + WORD
 }
 
+/**
+ * Reads one leaf without freeing it; whoever got the object frees it exactly once. The index is a `u32` (a leaf that
+ * is not in the tree yet is `u32::MAX`): going through `Long` wraps it to -1 like the JVM, while `Double.toInt()`
+ * would saturate at `Int.MAX_VALUE`.
+ */
+private fun JsLeafInfo.toShared(): LeafInfo =
+    LeafInfo(
+        guarded { username.toJsString() }.toString(),
+        guarded { signatureKey }.toByteArray(),
+        guarded { leafIndex.toJsNumber() }.toDouble().toLong().toInt(),
+    )
+
 /** Converts and frees one leaf. */
 internal fun JsLeafInfo.toSharedAndFree(): LeafInfo {
     try {
-        return LeafInfo(
-            guarded {
-                username.toJsString()
-            }.toString(),
-            guarded { signatureKey }.toByteArray(),
-            guarded { leafIndex.toJsNumber() }.toInt(),
-        )
+        return toShared()
     } finally {
         freeGuarded { free() }
     }
 }
 
-private fun JsArray<JsLeafInfo>.toSharedAndFree(): List<LeafInfo> {
+/** Converts a list of leaves; every wasm-side leaf is freed exactly once, also when a conversion fails. */
+internal fun JsArray<JsLeafInfo>.toSharedAndFree(): List<LeafInfo> {
     val items = List(length) { i -> checkNotNull(this[i]) }
     try {
-        return items.map { it.toSharedAndFree() }
+        return items.map { it.toShared() }
     } finally {
         items.forEach { freeGuarded { it.free() } }
     }
