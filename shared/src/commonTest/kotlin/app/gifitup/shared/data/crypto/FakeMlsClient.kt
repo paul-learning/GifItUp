@@ -7,6 +7,7 @@ import app.gifitup.shared.data.network.ApiEndpoint
  * behaviour, key handling and error codes as the real client (ADR-0007), so tests built on it fail the same
  * way. Only [MlsException] ever escapes.
  */
+@Suppress("TooManyFunctions") // Mirrors the MlsClient interface.
 class FakeMlsClient private constructor(
     private val username: String,
     private val keyTag: String,
@@ -76,6 +77,67 @@ class FakeMlsClient private constructor(
             }
             "sig:$purpose:${challenge.contentHashCode()}:$origin:$subject:$username".encodeToByteArray()
         }
+
+    // Group operations need real MLS: they are covered against the real client by the contract tests in `:mls`
+    // (ADR-0016). The fake refuses them like a client whose rules forbid the call.
+    override fun rekeyAndExport(newKey: ByteArray): ByteArray = live { fail(MlsErrorCode.Refused) }
+
+    override fun exportsUnderKey(): Long = live { 0 }
+
+    override fun setAppState(state: ByteArray) = live { fail(MlsErrorCode.Refused) }
+
+    override fun appState(): ByteArray = live { ByteArray(0) }
+
+    override fun createGroup(): ByteArray = live { fail(MlsErrorCode.Refused) }
+
+    override fun prepareAdd(
+        groupId: ByteArray,
+        keyPackages: List<ByteArray>,
+    ): PreparedCommit = live { fail(MlsErrorCode.Refused) }
+
+    override fun prepareRemove(
+        groupId: ByteArray,
+        leafIndexes: List<Int>,
+    ): PreparedCommit = live { fail(MlsErrorCode.Refused) }
+
+    override fun prepareUpdate(groupId: ByteArray): PreparedCommit = live { fail(MlsErrorCode.Refused) }
+
+    override fun mergePending(groupId: ByteArray): Long = live { fail(MlsErrorCode.Refused) }
+
+    override fun clearPending(groupId: ByteArray) = live { fail(MlsErrorCode.Refused) }
+
+    override fun hasPendingCommit(groupId: ByteArray): Boolean = live { false }
+
+    override fun encrypt(
+        groupId: ByteArray,
+        plaintext: ByteArray,
+    ): EncryptedMessage = live { fail(MlsErrorCode.UnknownGroup) }
+
+    override fun stageIncoming(
+        groupId: ByteArray,
+        message: ByteArray,
+    ): IncomingMessage = live { fail(MlsErrorCode.UnknownGroup) }
+
+    override fun mergeStaged(token: Int): Long = live { fail(MlsErrorCode.UnknownToken) }
+
+    override fun discardStaged(token: Int) = live { fail(MlsErrorCode.UnknownToken) }
+
+    override fun inspectWelcome(
+        welcome: ByteArray,
+        expectedGroupId: ByteArray,
+    ): WelcomeInfo = live { fail(MlsErrorCode.Refused) }
+
+    override fun joinWelcome(token: Int): ByteArray = live { fail(MlsErrorCode.UnknownToken) }
+
+    override fun discardWelcome(token: Int) = live { fail(MlsErrorCode.UnknownToken) }
+
+    override fun forgetGroup(groupId: ByteArray) = live { fail(MlsErrorCode.UnknownGroup) }
+
+    override fun members(groupId: ByteArray): List<LeafInfo> = live { fail(MlsErrorCode.UnknownGroup) }
+
+    override fun memberCount(groupId: ByteArray): Int = live { fail(MlsErrorCode.UnknownGroup) }
+
+    override fun epoch(groupId: ByteArray): Long = live { fail(MlsErrorCode.UnknownGroup) }
 
     override fun close() {
         closed = true

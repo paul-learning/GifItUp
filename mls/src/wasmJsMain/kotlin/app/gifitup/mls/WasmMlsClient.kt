@@ -2,11 +2,16 @@ package app.gifitup.mls
 
 import app.gifitup.shared.data.crypto.AuthPurpose
 import app.gifitup.shared.data.crypto.CreatedKeyPackage
+import app.gifitup.shared.data.crypto.EncryptedMessage
+import app.gifitup.shared.data.crypto.IncomingMessage
+import app.gifitup.shared.data.crypto.LeafInfo
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
+import app.gifitup.shared.data.crypto.PreparedCommit
 import app.gifitup.shared.data.crypto.PublicIdentity
+import app.gifitup.shared.data.crypto.WelcomeInfo
 import kotlinx.coroutines.await
 import org.khronos.webgl.Uint8Array
 import org.khronos.webgl.get
@@ -70,6 +75,7 @@ internal fun <T> withSnapshotKey(
 }
 
 /** [MlsClient] over one wasm-bindgen `NativeMlsClient`; frees it in [close]. */
+@Suppress("TooManyFunctions") // One method per MlsClient operation; the interface is the API (ADR-0007).
 private class WasmMlsClient(
     private val native: NativeMlsClient,
 ) : MlsClient {
@@ -113,6 +119,137 @@ private class WasmMlsClient(
         }
 
     override fun exportState(): ByteArray = call { guarded { native.exportState() }.toByteArray() }
+
+    override fun rekeyAndExport(newKey: ByteArray): ByteArray =
+        call {
+            val key = newKey.toUint8Array()
+            newKey.fill(0)
+            try {
+                guarded { native.rekeyAndExport(key) }.toByteArray()
+            } finally {
+                for (i in 0 until key.length) key[i] = 0
+            }
+        }
+
+    override fun exportsUnderKey(): Long = call { guarded { native.exportsUnderKey().toJsNumber() }.toDouble().toLong() }
+
+    override fun setAppState(state: ByteArray) = call { guardedUnit { native.setAppState(state.toUint8Array()) } }
+
+    override fun appState(): ByteArray = call { guarded { native.appState() }.toByteArray() }
+
+    override fun createGroup(): ByteArray = call { guarded { native.createGroup() }.toByteArray() }
+
+    override fun prepareAdd(
+        groupId: ByteArray,
+        keyPackages: List<ByteArray>,
+    ): PreparedCommit =
+        call {
+            val id = groupId.toUint8Array()
+            val packed = keyPackages.toLengthPrefixed().toUint8Array()
+            guarded { native.prepareAdd(id, packed) }.toSharedAndFree()
+        }
+
+    override fun prepareRemove(
+        groupId: ByteArray,
+        leafIndexes: List<Int>,
+    ): PreparedCommit =
+        call {
+            val id = groupId.toUint8Array()
+            val packed = leafIndexes.toBigEndian().toUint8Array()
+            guarded { native.prepareRemove(id, packed) }.toSharedAndFree()
+        }
+
+    override fun prepareUpdate(groupId: ByteArray): PreparedCommit =
+        call {
+            val id = groupId.toUint8Array()
+            guarded { native.prepareUpdate(id) }.toSharedAndFree()
+        }
+
+    override fun mergePending(groupId: ByteArray): Long =
+        call {
+            val id = groupId.toUint8Array()
+            guarded { native.mergePending(id).toJsNumber() }.toDouble().toLong()
+        }
+
+    override fun clearPending(groupId: ByteArray) =
+        call {
+            val id = groupId.toUint8Array()
+            guardedUnit { native.clearPending(id) }
+        }
+
+    override fun hasPendingCommit(groupId: ByteArray): Boolean =
+        call {
+            val id = groupId.toUint8Array()
+            guarded { native.hasPendingCommit(id).toJsBoolean() }.toBoolean()
+        }
+
+    override fun encrypt(
+        groupId: ByteArray,
+        plaintext: ByteArray,
+    ): EncryptedMessage =
+        call {
+            val id = groupId.toUint8Array()
+            val bytes = plaintext.toUint8Array()
+            guarded { native.encrypt(id, bytes) }.toSharedAndFree()
+        }
+
+    override fun stageIncoming(
+        groupId: ByteArray,
+        message: ByteArray,
+    ): IncomingMessage =
+        call {
+            val id = groupId.toUint8Array()
+            val bytes = message.toUint8Array()
+            guarded { native.stageIncoming(id, bytes) }.toSharedAndFree()
+        }
+
+    override fun mergeStaged(token: Int): Long = call { guarded { native.mergeStaged(token).toJsNumber() }.toDouble().toLong() }
+
+    override fun discardStaged(token: Int) = call { guardedUnit { native.discardStaged(token) } }
+
+    override fun inspectWelcome(
+        welcome: ByteArray,
+        expectedGroupId: ByteArray,
+    ): WelcomeInfo =
+        call {
+            val bytes = welcome.toUint8Array()
+            val id = expectedGroupId.toUint8Array()
+            guarded { native.inspectWelcome(bytes, id) }.toSharedAndFree()
+        }
+
+    override fun joinWelcome(token: Int): ByteArray = call { guarded { native.joinWelcome(token) }.toByteArray() }
+
+    override fun discardWelcome(token: Int) = call { guardedUnit { native.discardWelcome(token) } }
+
+    override fun forgetGroup(groupId: ByteArray) =
+        call {
+            val id = groupId.toUint8Array()
+            guardedUnit { native.forgetGroup(id) }
+        }
+
+    override fun members(groupId: ByteArray): List<LeafInfo> =
+        call {
+            val id = groupId.toUint8Array()
+            val leaves = guarded { native.members(id) }
+            val items = List(leaves.length) { i -> checkNotNull(leaves[i]) }
+            try {
+                items.map { it.toSharedAndFree() }
+            } finally {
+                items.forEach { freeGuarded { it.free() } }
+            }
+        }
+
+    override fun memberCount(groupId: ByteArray): Int =
+        call {
+            val id = groupId.toUint8Array()
+            guarded { native.memberCount(id).toJsNumber() }.toInt()
+        }
+
+    override fun epoch(groupId: ByteArray): Long =
+        call {
+            val id = groupId.toUint8Array()
+            guarded { native.epoch(id).toJsNumber() }.toDouble().toLong()
+        }
 
     override fun signAuth(
         purpose: AuthPurpose,
@@ -172,7 +309,7 @@ private fun JsPublicIdentity.toShared(): PublicIdentity {
 }
 
 /** `free()` goes through [guarded] too; after a trap the module is dead and nothing is freed any more. */
-private fun freeGuarded(free: () -> Unit) {
+internal fun freeGuarded(free: () -> Unit) {
     if (WasmModule.dead) return
     guarded<JsAny?> {
         free()

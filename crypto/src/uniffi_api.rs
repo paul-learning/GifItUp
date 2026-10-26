@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::auth::AuthPurpose;
 use crate::client::Client;
 use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook, module_call};
+use crate::group::{EncryptedMessage, IncomingMessage, LeafInfo, PreparedCommit, WelcomeInfo};
 use crate::identity::{CreatedKeyPackage, PublicIdentity};
 use crate::snapshot::take_key;
 
@@ -75,6 +76,127 @@ impl NativeMlsClient {
     /// The whole client state, encrypted with the snapshot key.
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
         self.guard.run(|| self.client.export_state())
+    }
+
+    /// The whole client state under a **new** key; the key switches only if the export succeeded (ADR-0011).
+    pub fn rekey_and_export(&self, new_key: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
+        self.guard
+            .run(|| self.client.rekey_and_export(take_key(new_key)?))
+    }
+
+    /// Exports made under the current snapshot key.
+    pub fn exports_under_key(&self) -> Result<u64, ErrorCode> {
+        self.guard.run(|| self.client.exports_under_key())
+    }
+
+    /// The sync engine's opaque state, exported inside the next snapshot (at most 256 KiB).
+    pub fn set_app_state(&self, state: Vec<u8>) -> Result<(), ErrorCode> {
+        self.guard.run(|| self.client.set_app_state(state))
+    }
+
+    pub fn app_state(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.client.app_state())
+    }
+
+    // Group lifecycle (ADR-0016). Every commit is prepared, then merged or cleared; every incoming commit and
+    // welcome is staged, then merged/joined or discarded.
+
+    pub fn create_group(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.client.create_group())
+    }
+
+    pub fn prepare_add(
+        &self,
+        group_id: Vec<u8>,
+        key_packages: Vec<Vec<u8>>,
+    ) -> Result<PreparedCommit, ErrorCode> {
+        self.guard
+            .run(|| self.client.prepare_add(&group_id, &key_packages))
+    }
+
+    pub fn prepare_remove(
+        &self,
+        group_id: Vec<u8>,
+        leaf_indexes: Vec<u32>,
+    ) -> Result<PreparedCommit, ErrorCode> {
+        self.guard
+            .run(|| self.client.prepare_remove(&group_id, &leaf_indexes))
+    }
+
+    pub fn prepare_update(&self, group_id: Vec<u8>) -> Result<PreparedCommit, ErrorCode> {
+        self.guard.run(|| self.client.prepare_update(&group_id))
+    }
+
+    pub fn merge_pending(&self, group_id: Vec<u8>) -> Result<u64, ErrorCode> {
+        self.guard.run(|| self.client.merge_pending(&group_id))
+    }
+
+    pub fn clear_pending(&self, group_id: Vec<u8>) -> Result<(), ErrorCode> {
+        self.guard.run(|| self.client.clear_pending(&group_id))
+    }
+
+    pub fn has_pending_commit(&self, group_id: Vec<u8>) -> Result<bool, ErrorCode> {
+        self.guard.run(|| self.client.has_pending_commit(&group_id))
+    }
+
+    pub fn encrypt(
+        &self,
+        group_id: Vec<u8>,
+        plaintext: Vec<u8>,
+    ) -> Result<EncryptedMessage, ErrorCode> {
+        self.guard
+            .run(|| self.client.encrypt(&group_id, &plaintext))
+    }
+
+    pub fn stage_incoming(
+        &self,
+        group_id: Vec<u8>,
+        message: Vec<u8>,
+    ) -> Result<IncomingMessage, ErrorCode> {
+        self.guard
+            .run(|| self.client.stage_incoming(&group_id, &message))
+            .map(IncomingMessage::from)
+    }
+
+    pub fn merge_staged(&self, token: u32) -> Result<u64, ErrorCode> {
+        self.guard.run(|| self.client.merge_staged(token))
+    }
+
+    pub fn discard_staged(&self, token: u32) -> Result<(), ErrorCode> {
+        self.guard.run(|| self.client.discard_staged(token))
+    }
+
+    pub fn inspect_welcome(
+        &self,
+        welcome: Vec<u8>,
+        expected_group_id: Vec<u8>,
+    ) -> Result<WelcomeInfo, ErrorCode> {
+        self.guard
+            .run(|| self.client.inspect_welcome(&welcome, &expected_group_id))
+    }
+
+    pub fn join_welcome(&self, token: u32) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.client.join_welcome(token))
+    }
+
+    pub fn discard_welcome(&self, token: u32) -> Result<(), ErrorCode> {
+        self.guard.run(|| self.client.discard_welcome(token))
+    }
+
+    pub fn forget_group(&self, group_id: Vec<u8>) -> Result<(), ErrorCode> {
+        self.guard.run(|| self.client.forget_group(&group_id))
+    }
+
+    pub fn members(&self, group_id: Vec<u8>) -> Result<Vec<LeafInfo>, ErrorCode> {
+        self.guard.run(|| self.client.members(&group_id))
+    }
+
+    pub fn member_count(&self, group_id: Vec<u8>) -> Result<u32, ErrorCode> {
+        self.guard.run(|| self.client.member_count(&group_id))
+    }
+
+    pub fn epoch(&self, group_id: Vec<u8>) -> Result<u64, ErrorCode> {
+        self.guard.run(|| self.client.epoch(&group_id))
     }
 
     /// Signs the server's login or registration challenge (ADR-0009). Only this typed form exists: no FFI function

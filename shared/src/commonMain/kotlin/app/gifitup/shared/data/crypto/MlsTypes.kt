@@ -29,6 +29,90 @@ class CreatedKeyPackage(
 )
 
 /**
+ * What the MLS tree says about one leaf: the username in its credential and its signature key. [leafIndex] is the
+ * position in the tree ([UNASSIGNED_LEAF] for a leaf that a commit would add and that has no position yet). The leaf
+ * has no device id; the Delivery Service's device ids are advisory only (ADR-0015, ADR-0016).
+ */
+class LeafInfo(
+    val username: String,
+    val signatureKey: ByteArray,
+    val leafIndex: Int,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is LeafInfo &&
+            username == other.username &&
+            signatureKey.contentEquals(other.signatureKey) &&
+            leafIndex == other.leafIndex
+
+    override fun hashCode(): Int = 31 * (31 * username.hashCode() + signatureKey.contentHashCode()) + leafIndex
+
+    override fun toString(): String = "LeafInfo(username=$username, leafIndex=$leafIndex)"
+
+    companion object {
+        /** `u32::MAX` in the crate, read as a signed int. */
+        const val UNASSIGNED_LEAF: Int = -1
+    }
+}
+
+/**
+ * A commit the Delivery Service has not accepted yet: post [commit] (and [welcome], if it adds anyone) in the
+ * ADR-0015 envelope, then `mergePending` or `clearPending`. [epoch] is the epoch the commit applies to.
+ */
+class PreparedCommit(
+    val commit: ByteArray,
+    val welcome: ByteArray?,
+    val epoch: Long,
+    val added: List<LeafInfo>,
+    val removed: List<LeafInfo>,
+) {
+    override fun toString(): String = "PreparedCommit(epoch=$epoch, added=${added.size}, removed=${removed.size})"
+}
+
+/** A sealed application message and its message reference (ADR-0006 B9, ADR-0016). */
+class EncryptedMessage(
+    val message: ByteArray,
+    val messageRef: ByteArray,
+) {
+    override fun toString(): String = "EncryptedMessage(size=${message.size})"
+}
+
+/** The typed result of `stageIncoming` (ADR-0016). Nothing changes the group until a commit is merged. */
+sealed interface IncomingMessage {
+    /** The leaf the MLS signature authenticates; never taken from the server's envelope. */
+    val sender: LeafInfo
+
+    class Application(
+        val plaintext: ByteArray,
+        override val sender: LeafInfo,
+        val messageRef: ByteArray,
+    ) : IncomingMessage {
+        override fun toString(): String = "Application(size=${plaintext.size})"
+    }
+
+    /** A commit, staged and **not applied**: decide with `mergeStaged(token)` or `discardStaged(token)`. */
+    class Commit(
+        val token: Int,
+        override val sender: LeafInfo,
+        val epoch: Long,
+        val added: List<LeafInfo>,
+        val removed: List<LeafInfo>,
+        val selfRemoved: Boolean,
+    ) : IncomingMessage {
+        override fun toString(): String = "Commit(token=$token, epoch=$epoch, added=${added.size}, removed=${removed.size})"
+    }
+}
+
+/** A welcome, parsed in memory and **not joined**: `joinWelcome(token)` or `discardWelcome(token)`. */
+class WelcomeInfo(
+    val token: Int,
+    val groupId: ByteArray,
+    val sender: LeafInfo,
+    val members: List<LeafInfo>,
+) {
+    override fun toString(): String = "WelcomeInfo(token=$token, members=${members.size})"
+}
+
+/**
  * Mirrors `ErrorCode` in `crypto/src/error.rs`. The bindings map the native codes by type (uniffi) or by exact
  * name (web); anything they don't recognise means the native side is in an unknown state and becomes
  * [Poisoned] (ADR-0007). On the web, a bug in the wrapper's own Kotlin code outside a call into the wasm
