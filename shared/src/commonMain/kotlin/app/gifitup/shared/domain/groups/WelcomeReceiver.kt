@@ -31,10 +31,9 @@ internal class WelcomeReceiver(
     ): WelcomeOutcome {
         val existing = store.find(KeyBytes(welcome.groupId))
         return when {
+            // At the cap the welcome stays pending, unparsed: nothing is lost, and it is joined once a slot is freed.
             existing == null && store.state.groups.size >= SyncStateCodec.MAX_GROUPS -> {
-                // Stopped and removed groups count too until the user forgets them; the welcome is dropped, unparsed.
-                drop(welcome.id)
-                WelcomeOutcome.Rejected(RejectReason.GROUP_LIMIT)
+                WelcomeOutcome.Skipped(welcome.groupId)
             }
 
             existing == null -> {

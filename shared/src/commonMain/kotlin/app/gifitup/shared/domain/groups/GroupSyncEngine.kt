@@ -17,7 +17,9 @@ import kotlinx.coroutines.sync.withLock
  * - A commit can't be skipped: a refused one, an envelope mismatch or a contact mismatch freezes the group (and is
  *   persisted). An application message that fails is counted and skipped after three tries; a used-up generation (the
  *   same ciphertext delivered again) at once.
- * - Our own messages (our device id) move the cursor without a decrypt attempt.
+ * - The sender label of a log entry is the server's word and decides nothing. A message of ours that comes back fails
+ *   to decrypt once and is then skipped; the send side (PR C2) will skip the seqs it
+ *   knows it posted.
  * - A group the server no longer shows us is "no longer available": its MLS state is deleted, the group stays read-only.
  */
 class GroupSyncEngine(
@@ -26,11 +28,10 @@ class GroupSyncEngine(
     pinsSource: ContactPinsSource,
     saver: SnapshotSaver,
     sink: IncomingSink,
-    ownDeviceId: String,
 ) {
     private val mutex = Mutex()
     private val store = SyncStore(mls, saver)
-    private val messages = MessageReceiver(mls, delivery, pinsSource, sink, ownDeviceId, store)
+    private val messages = MessageReceiver(mls, delivery, pinsSource, sink, store)
     private val welcomes = WelcomeReceiver(mls, delivery, pinsSource, store)
 
     /** The groups this engine knows and where each stands. */
@@ -66,7 +67,8 @@ class GroupSyncEngine(
 
     /**
      * Deletes everything of a group on this device: its MLS state (if any is left) and its sync record. The first step
-     * of a rejoin, and the way to free one of the 50 group slots held by a stopped group.
+     * of a rejoin, the way to free one of the 50 group slots, and the local half of leaving a group (the server half,
+     * `DeliveryPort.leave`, comes with the send side).
      */
     suspend fun forget(groupId: ByteArray): SyncOutcome =
         mutex.withLock {

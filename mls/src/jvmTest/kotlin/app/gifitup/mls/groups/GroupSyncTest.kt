@@ -253,14 +253,28 @@ class GroupSyncTest {
             assertEquals(listOf("once", "next"), bob.received.map { it.plaintext.decodeToString() })
         }
 
+    /** A message of ours that comes back can't be decrypted: it is counted and skipped after three tries. */
     @Test
-    fun ourOwnMessagesMoveTheCursorWithoutBeingDecrypted() =
+    fun aMessageOfOursComingBackIsSkippedAfterThreeTries() =
         runTest {
             val (_, bob, groupId) = joinedPair()
             val seq = bob.say(groupId, "mine")
+            assertEquals(SyncOutcome.Retry(seq), bob.engine.sync(groupId))
+            assertEquals(SyncOutcome.Retry(seq), bob.engine.sync(groupId))
             assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
             assertEquals(seq, bob.engine.recordOf(groupId)?.cursor)
             assertTrue(bob.received.isEmpty())
+        }
+
+    /** The sender label is the server's word: a member's message relabelled as ours is still decrypted and delivered. */
+    @Test
+    fun aMessageRelabelledAsOursIsStillDelivered() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            val seq = alice.say(groupId, "hello")
+            ds.relabel(groupId, seq, bob.deviceId)
+            assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
+            assertEquals(listOf("hello"), bob.received.map { it.plaintext.decodeToString() })
         }
 
     /** SEC-1: the sender label is the server's word; a commit labelled as ours must not be skipped. */
@@ -274,9 +288,9 @@ class GroupSyncTest {
             assertEquals(3, bob.mls.memberCount(groupId))
         }
 
-    /** SEC-2: the 50th group is the last; a welcome for another is dropped, and forgetting a group frees its slot. */
+    /** SEC-2: the 50th group is the last; a welcome for another stays pending, and forgetting a group frees its slot. */
     @Test
-    fun theGroupCapDropsFurtherWelcomesAndForgettingFreesASlot() =
+    fun theGroupCapLeavesFurtherWelcomesPendingAndForgettingFreesASlot() =
         runTest {
             val bob = party("bob")
             val groups = (1..50).map { party("host$it").createGroupWith(bob) }
@@ -289,12 +303,19 @@ class GroupSyncTest {
             )
             val extra = party("extra").createGroupWith(bob)
             val report = bob.engine.processWelcomes()
-            assertEquals(WelcomeOutcome.Rejected(RejectReason.GROUP_LIMIT), report.results.single())
+            assertIs<WelcomeOutcome.Skipped>(report.results.single { it is WelcomeOutcome.Skipped })
             assertEquals(null, bob.engine.recordOf(extra))
             assertEquals(SyncOutcome.CaughtUp(0), bob.engine.forget(groups.first()))
             assertEquals(null, bob.engine.recordOf(groups.first()))
+            assertTrue(
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .any { it is WelcomeOutcome.Joined },
+            )
+            assertTrue(bob.engine.recordOf(extra) != null)
             bob.restart()
-            assertEquals(49, bob.engine.statuses().size)
+            assertEquals(50, bob.engine.statuses().size)
         }
 
     @Test

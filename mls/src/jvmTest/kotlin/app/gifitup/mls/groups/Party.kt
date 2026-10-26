@@ -49,7 +49,6 @@ class Party(
                 saves++
             },
             IncomingSink { received += it },
-            deviceId,
         )
 
     /** A restart: the old client goes away, the stored snapshot is restored, a new engine reads its state. */

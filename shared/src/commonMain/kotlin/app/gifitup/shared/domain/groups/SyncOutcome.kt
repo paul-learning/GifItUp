@@ -63,13 +63,16 @@ sealed interface WelcomeOutcome {
         val reason: RejectReason,
     ) : WelcomeOutcome
 
-    /** A group of that id exists here in a stopped state; it stays pending until the user forgets that group. */
+    /**
+     * Left pending for now: a group of that id exists here in a stopped state (until the user forgets it), or the device
+     * holds 50 groups already (until one is forgotten).
+     */
     class Skipped(
         val groupId: ByteArray,
     ) : WelcomeOutcome
 }
 
-enum class RejectReason { UNUSABLE, CONTACT_MISMATCH, GROUP_LIMIT }
+enum class RejectReason { UNUSABLE, CONTACT_MISMATCH }
 
 /** The results for the welcomes handled, and why the run stopped early, if it did. */
 class WelcomesReport(

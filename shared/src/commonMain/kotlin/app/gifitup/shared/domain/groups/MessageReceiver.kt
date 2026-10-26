@@ -21,7 +21,6 @@ internal class MessageReceiver(
     private val delivery: DeliveryPort,
     private val pinsSource: ContactPinsSource,
     private val sink: IncomingSink,
-    private val ownDeviceId: String,
     private val store: SyncStore,
 ) {
     suspend fun sync(id: KeyBytes): SyncOutcome {
@@ -72,7 +71,7 @@ internal class MessageReceiver(
         val record = store.recordOf(id)
         when {
             entry.seq != record.cursor + 1 -> store.freeze(id, GroupStatus.FROZEN_GAP)
-            entry.seq in record.quarantined || entry.isOwnApplication(ownDeviceId) -> store.advance(id, entry.seq)
+            entry.seq in record.quarantined -> store.advance(id, entry.seq)
             entry.kind == MessageKind.APPLICATION -> application(id, entry)
             else -> commit(id, entry)
         }
@@ -198,11 +197,3 @@ internal class MessageReceiver(
         if (commit.selfRemoved) store.markGone(mls, id) else store.persist()
     }
 }
-
-/**
- * Our own application messages come back in the log and can't be decrypted by us, so they move the cursor. The label is
- * the server's word, so only an application message is skipped on it: a commit labelled as ours is applied like any
- * other (a hostile server must not hide a removal this way, SEC-1). The send side (PR C2) knows the seq of each of its
- * own commits from the answer to the post.
- */
-private fun GroupMessageEntry.isOwnApplication(ownDeviceId: String) = kind == MessageKind.APPLICATION && senderDeviceId == ownDeviceId
