@@ -2,7 +2,7 @@
 //!
 //! Layout: [`client`], [`identity`] (identity, KeyPackages, state export), [`auth`] (signing the server's
 //! login challenge, ADR-0009) and `fingerprint` (the emoji fingerprint of a signature key, ADR-0014) hold the
-//! platform-neutral logic, `group` the spike group operations (test-only until #22), [`error`] the
+//! platform-neutral logic, [`group`] the group lifecycle (ADR-0016), [`error`] the
 //! closed error codes and panic containment. `uniffi_api` (all non-wasm targets) and `wasm_api`
 //! (wasm32) are thin binding layers that run every call through [`error::PanicGuard`].
 
@@ -10,9 +10,7 @@ pub mod auth;
 pub mod client;
 pub mod error;
 mod fingerprint;
-// Spike group operations: test-only until #22 adds them with member validation (ADR-0007).
-#[cfg(test)]
-pub(crate) mod group;
+pub mod group;
 pub mod identity;
 mod provider;
 mod snapshot;

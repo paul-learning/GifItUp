@@ -16,7 +16,7 @@ pub(crate) const MAX_KEY_PACKAGES_PER_CALL: u32 = 100;
 /// the cap, creating more drops the oldest held ones first (#121).
 pub(crate) const MAX_KEY_PACKAGES_HELD: usize = 200;
 /// Size cap before parsing someone else's KeyPackage (ours are about 300 bytes).
-const MAX_KEY_PACKAGE_BYTES: usize = 16 * 1024;
+pub(crate) const MAX_KEY_PACKAGE_BYTES: usize = 16 * 1024;
 
 /// Owner decision 2026-10-15 (ADR-0007): lowercase ASCII letters, digits and `_`, 3 to 32 bytes.
 /// The server (#12) uses the same rule, byte for byte.
@@ -189,7 +189,10 @@ fn is_expired(lifetime: &Lifetime) -> bool {
     matches!(lifetime.validate(), Err(LifetimeError::Expired { .. }))
 }
 
-fn check_key_package(key_package: &KeyPackage, expected_username: &str) -> Result<(), ErrorCode> {
+pub(crate) fn check_key_package(
+    key_package: &KeyPackage,
+    expected_username: &str,
+) -> Result<(), ErrorCode> {
     let leaf = key_package.leaf_node();
     let identity = BasicCredential::try_from(leaf.credential().clone())
         .map_err(|_| ErrorCode::InvalidKeyPackage)?;
@@ -398,7 +401,7 @@ mod tests {
             .add_member(&group_id, &used.key_package)
             .unwrap()
             .welcome;
-        bob.join_from_welcome(&welcome).unwrap();
+        bob.join_from_welcome(&welcome, &group_id).unwrap();
 
         bob.create_key_packages(1).unwrap();
         assert_eq!(held(&bob), MAX_KEY_PACKAGES_HELD);
@@ -415,7 +418,7 @@ mod tests {
             .add_member(&second_group, &used2.key_package)
             .unwrap()
             .welcome;
-        bob.join_from_welcome(&welcome2).unwrap();
+        bob.join_from_welcome(&welcome2, &second_group).unwrap();
         bob.create_key_packages(2).unwrap();
         assert_eq!(held(&bob), MAX_KEY_PACKAGES_HELD);
         assert!(!is_stored(&bob, &all[0]), "one dropped, the oldest");
@@ -450,14 +453,17 @@ mod tests {
             .add_member(&group_id, &all[0].key_package)
             .unwrap()
             .welcome;
-        assert_eq!(bob.join_from_welcome(&stale).err(), Some(ErrorCode::Mls));
+        assert_eq!(
+            bob.join_from_welcome(&stale, &group_id).err(),
+            Some(ErrorCode::Mls)
+        );
         assert_eq!(held(&bob), MAX_KEY_PACKAGES_HELD);
         let group_id = alice.create_group().unwrap();
         let good = alice
             .add_member(&group_id, &all[5].key_package)
             .unwrap()
             .welcome;
-        assert_eq!(bob.join_from_welcome(&good).unwrap(), group_id);
+        assert_eq!(bob.join_from_welcome(&good, &group_id).unwrap(), group_id);
     }
 
     #[test]
@@ -508,7 +514,7 @@ mod tests {
 
         let group_id = alice.create_group().unwrap();
         let welcome = alice.add_member(&group_id, &used).unwrap().welcome;
-        bob.join_from_welcome(&welcome).unwrap();
+        bob.join_from_welcome(&welcome, &group_id).unwrap();
 
         assert_eq!(bob.prune_expired_key_packages().unwrap(), 1);
         let left = bob.lock_key_package_refs().unwrap().len();

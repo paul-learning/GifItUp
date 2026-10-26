@@ -44,6 +44,24 @@ enum class MlsErrorCode {
     SnapshotInvalid,
     SnapshotVersion,
     SnapshotAuth,
+
+    /** A staged or pending commit or welcome is in the way (ADR-0016). */
+    PendingOperation,
+
+    /** The message belongs to another epoch than the group's current one. */
+    WrongEpoch,
+
+    /** The message was processed before (its secret is used up). */
+    Replay,
+
+    /** The commit, welcome or proposal breaks a rule of ours (ADR-0002, ADR-0016); nothing was applied. */
+    Refused,
+
+    /** A limit of ADR-0015/ADR-0016 (leaves, changes, sizes) would be exceeded. */
+    LimitExceeded,
+
+    /** No staged commit or welcome under that token, or nothing pending. */
+    UnknownToken,
     Poisoned,
     Internal,
 }

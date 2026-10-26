@@ -32,6 +32,8 @@ pub struct Client {
     pub(crate) credential: CredentialWithKey,
     pub(crate) groups: Mutex<HashMap<Vec<u8>, MlsGroup>>,
     pub(crate) key_package_refs: Mutex<Vec<KeyPackageRef>>,
+    /// Commits and welcomes processed but not yet decided on (ADR-0016). Never exported.
+    pub(crate) staging: Mutex<crate::group::Staging>,
     snapshot_key: SnapshotKey,
 }
 
@@ -53,6 +55,7 @@ impl Client {
             credential,
             groups: Mutex::new(HashMap::new()),
             key_package_refs: Mutex::new(Vec::new()),
+            staging: Mutex::new(crate::group::Staging::default()),
             snapshot_key,
         })
     }
@@ -65,8 +68,18 @@ impl Client {
 
     /// Exports the complete client state (identity, groups, KeyPackages, key material),
     /// encrypted with the snapshot key (format in [`crate::snapshot`]).
+    ///
+    /// Refused with [`ErrorCode::PendingOperation`] while a staged commit or welcome exists: processing a message
+    /// consumes secrets that the snapshot already holds, so a snapshot without the staged item could never be
+    /// completed (ADR-0016).
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
+        // Lock order groups, then staging (as every other call), held until the snapshot is sealed: a concurrent
+        // stage_incoming cannot slip in between the check and the copy.
         let groups = self.lock_groups()?;
+        let staging = self.lock_staging()?;
+        if !staging.is_empty() {
+            return Err(ErrorCode::PendingOperation);
+        }
         let key_package_refs = self.lock_key_package_refs()?;
         let values = self
             .provider
@@ -112,6 +125,7 @@ impl Client {
             credential,
             groups: Mutex::new(groups),
             key_package_refs: Mutex::new(refs),
+            staging: Mutex::new(crate::group::Staging::default()),
             snapshot_key,
         })
     }
@@ -120,6 +134,10 @@ impl Client {
         &self,
     ) -> Result<MutexGuard<'_, HashMap<Vec<u8>, MlsGroup>>, ErrorCode> {
         self.groups.lock().map_err(|_| ErrorCode::Poisoned)
+    }
+
+    pub(crate) fn lock_staging(&self) -> Result<MutexGuard<'_, crate::group::Staging>, ErrorCode> {
+        self.staging.lock().map_err(|_| ErrorCode::Poisoned)
     }
 
     pub(crate) fn lock_key_package_refs(
