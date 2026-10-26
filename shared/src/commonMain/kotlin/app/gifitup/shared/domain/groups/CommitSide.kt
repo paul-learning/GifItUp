@@ -241,8 +241,8 @@ internal suspend fun MessageReceiver.readAhead(
     upTo: Long,
 ): SyncOutcome? =
     try {
-        val outcome = sync(id, upTo)
-        if (outcome is SyncOutcome.CaughtUp) null else outcome
+        sync(id, upTo)
+        null
     } catch (stop: Halt) {
         (stop.outcome as? SyncOutcome.Unavailable)?.let { SyncOutcome.InFlight(it.error) } ?: throw stop
     }
