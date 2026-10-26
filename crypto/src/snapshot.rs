@@ -389,14 +389,15 @@ mod tests {
         old.exports = 0;
         let inner = old.encode_inner().unwrap();
         let v2_inner = &inner[..inner.len() - 12]; // drops the empty app state field and the counter
-        let mut nonce_header = header(&[3; NONCE_LEN]);
+        let nonce: [u8; NONCE_LEN] = crypto.random_array().unwrap();
+        let mut nonce_header = header(&nonce);
         nonce_header[4] = VERSION_V2;
         let sealed = crypto
             .aead_encrypt(
                 AeadType::Aes256Gcm,
                 key(1).as_slice(),
                 v2_inner,
-                &[3; NONCE_LEN],
+                &nonce,
                 &nonce_header,
             )
             .unwrap();
