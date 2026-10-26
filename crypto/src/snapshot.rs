@@ -1,13 +1,15 @@
 //! Encrypted state snapshot (ADR-0007): the whole client state (identity, group IDs, own
 //! KeyPackage refs, OpenMLS storage) as one blob, encrypted inside Rust.
 //!
-//! Format v2: `magic ‖ version ‖ OpenMLS storage version (u16-BE) ‖ nonce[12] ‖ AES-256-GCM(inner)`.
+//! Format v3: `magic ‖ version ‖ OpenMLS storage version (u16-BE) ‖ nonce[12] ‖ AES-256-GCM(inner)`.
 //! The header is the AEAD's associated data, so it can't be swapped. The AEAD comes from the
 //! OpenMLS crypto provider (nothing hand-rolled) with a fresh random nonce per export. The inner
 //! plaintext is only ever decoded after decryption succeeded: there is no plaintext restore path.
 //!
-//! Inner layout: username, signature public key, group IDs, own KeyPackage refs, storage entries;
-//! every variable-length field is u32-BE length-prefixed.
+//! Inner layout: username, signature public key, group IDs, own KeyPackage refs, storage entries, the
+//! opaque `app_state` (ADR-0016: the sync engine's cursors and flags travel in the same sealed blob as the MLS
+//! state), and the number of exports made under the current key (u64-BE, ADR-0016); every variable-length
+//! field is u32-BE length-prefixed. Version 2 (no `app_state`, no counter) is still read.
 
 use std::collections::{HashMap, HashSet};
 
@@ -20,7 +22,11 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::error::ErrorCode;
 
 const MAGIC: &[u8; 4] = b"GIUS";
-const VERSION: u8 = 2;
+const VERSION: u8 = 3;
+/// Registration-time snapshots written before the group lifecycle (#22) have no app state and no counter.
+const VERSION_V2: u8 = 2;
+/// Cap for the app state (cursors, ids and flags of a few small groups need far less).
+pub(crate) const MAX_APP_STATE_BYTES: usize = 256 * 1024;
 const NONCE_LEN: usize = 12;
 const TAG_LEN: usize = 16;
 const HEADER_LEN: usize = 4 + 1 + 2 + NONCE_LEN;
@@ -49,6 +55,9 @@ pub(crate) struct Snapshot {
     pub(crate) group_ids: Vec<Vec<u8>>,
     pub(crate) key_package_refs: Vec<Vec<u8>>,
     pub(crate) values: HashMap<Vec<u8>, Vec<u8>>,
+    pub(crate) app_state: Vec<u8>,
+    /// Exports made under the current key, this one included once sealed (the AES-GCM random-nonce bound).
+    pub(crate) exports: u64,
 }
 
 impl std::fmt::Debug for Snapshot {
@@ -58,6 +67,8 @@ impl std::fmt::Debug for Snapshot {
             .field("group_ids", &self.group_ids.len())
             .field("key_package_refs", &self.key_package_refs.len())
             .field("values", &format_args!("<{} redacted>", self.values.len()))
+            .field("app_state", &self.app_state.len())
+            .field("exports", &self.exports)
             .finish_non_exhaustive()
     }
 }
@@ -67,6 +78,7 @@ impl Drop for Snapshot {
         for value in self.values.values_mut() {
             value.zeroize();
         }
+        self.app_state.zeroize();
     }
 }
 
@@ -105,7 +117,9 @@ impl Snapshot {
         if head[..4] != MAGIC[..] {
             return Err(ErrorCode::SnapshotInvalid);
         }
-        if head[4] != VERSION || head[5..7] != STORAGE_VERSION.to_be_bytes() {
+        if !(head[4] == VERSION || head[4] == VERSION_V2)
+            || head[5..7] != STORAGE_VERSION.to_be_bytes()
+        {
             return Err(ErrorCode::SnapshotVersion);
         }
         let nonce: [u8; NONCE_LEN] = head[7..]
@@ -117,7 +131,7 @@ impl Snapshot {
                 CryptoError::AeadDecryptionError => ErrorCode::SnapshotAuth,
                 _ => ErrorCode::Internal,
             })?;
-        Self::decode_inner(&Zeroizing::new(inner))
+        Self::decode_inner(&Zeroizing::new(inner), head[4] == VERSION_V2)
     }
 
     /// Exact encoded size, so the buffer is allocated once: a growing `Vec` would leave
@@ -131,6 +145,9 @@ impl Snapshot {
             + list(&self.key_package_refs)
             + 4
             + values
+            + 4
+            + self.app_state.len()
+            + 8
     }
 
     pub(crate) fn encode_inner(&self) -> Result<Zeroizing<Vec<u8>>, ErrorCode> {
@@ -144,10 +161,12 @@ impl Snapshot {
             put(&mut out, k)?;
             put(&mut out, v)?;
         }
+        put(&mut out, &self.app_state)?;
+        out.extend_from_slice(&self.exports.to_be_bytes());
         Ok(out)
     }
 
-    pub(crate) fn decode_inner(bytes: &[u8]) -> Result<Self, ErrorCode> {
+    pub(crate) fn decode_inner(bytes: &[u8], v2: bool) -> Result<Self, ErrorCode> {
         let mut r = Reader(bytes);
         let username =
             String::from_utf8(r.field()?.to_vec()).map_err(|_| ErrorCode::SnapshotInvalid)?;
@@ -155,13 +174,27 @@ impl Snapshot {
         let group_ids = r.unique_list()?;
         let key_package_refs = r.unique_list()?;
         // Built before the trailing-bytes check, so a rejected snapshot is wiped on drop too.
-        let snapshot = Self {
+        let mut snapshot = Self {
             username,
             signature_public_key,
             group_ids,
             key_package_refs,
             values: r.values()?,
+            app_state: Vec::new(),
+            exports: 0,
         };
+        if !v2 {
+            let app_state = r.field()?;
+            if app_state.len() > MAX_APP_STATE_BYTES {
+                return Err(ErrorCode::SnapshotInvalid);
+            }
+            snapshot.app_state = app_state.to_vec();
+            snapshot.exports = u64::from_be_bytes(
+                r.take(8)?
+                    .try_into()
+                    .map_err(|_| ErrorCode::SnapshotInvalid)?,
+            );
+        }
         if r.0.is_empty() {
             Ok(snapshot)
         } else {
@@ -269,6 +302,8 @@ mod tests {
             group_ids: vec![vec![9], vec![8, 7]],
             key_package_refs: vec![vec![5; 32]],
             values: HashMap::from([(vec![1], vec![2]), (vec![3], vec![])]),
+            app_state: vec![4, 5, 6],
+            exports: 7,
         }
     }
 
@@ -305,6 +340,8 @@ mod tests {
             tampered[i] ^= 0x01;
             let expected = match i {
                 0..4 => ErrorCode::SnapshotInvalid,
+                // 3 ^ 1 is the still-readable version 2, which the header authentication then rejects.
+                4 if tampered[4] == VERSION_V2 => ErrorCode::SnapshotAuth,
                 4..7 => ErrorCode::SnapshotVersion,
                 _ => ErrorCode::SnapshotAuth,
             };
@@ -339,6 +376,45 @@ mod tests {
         assert_eq!(
             Snapshot::open(&spike, &key(1), &crypto),
             Err(ErrorCode::SnapshotVersion)
+        );
+    }
+
+    /// ADR-0016: a version 2 snapshot (no app state, no counter) still opens, as empty and zero; a v3 body
+    /// under a v2 header or the reverse does not.
+    #[test]
+    fn version_2_still_opens_and_versions_are_not_mixed_up() {
+        let crypto = RustCrypto::default();
+        let mut old = sample();
+        old.app_state = Vec::new();
+        old.exports = 0;
+        let inner = old.encode_inner().unwrap();
+        let v2_inner = &inner[..inner.len() - 12]; // drops the empty app state field and the counter
+        let mut nonce_header = header(&[3; NONCE_LEN]);
+        nonce_header[4] = VERSION_V2;
+        let sealed = crypto
+            .aead_encrypt(
+                AeadType::Aes256Gcm,
+                key(1).as_slice(),
+                v2_inner,
+                &[3; NONCE_LEN],
+                &nonce_header,
+            )
+            .unwrap();
+        let mut bytes = nonce_header;
+        bytes.extend_from_slice(&sealed);
+        assert_eq!(Snapshot::open(&bytes, &key(1), &crypto).unwrap(), old);
+        assert!(Snapshot::decode_inner(v2_inner, false).is_err());
+        assert!(Snapshot::decode_inner(&inner, true).is_err());
+    }
+
+    #[test]
+    fn an_oversized_app_state_is_refused_on_decode() {
+        let mut big = sample();
+        big.app_state = vec![0; MAX_APP_STATE_BYTES + 1];
+        let inner = big.encode_inner().unwrap();
+        assert_eq!(
+            Snapshot::decode_inner(&inner, false),
+            Err(ErrorCode::SnapshotInvalid)
         );
     }
 
@@ -388,21 +464,21 @@ mod tests {
         let inner = sample().encode_inner().unwrap();
         for len in 0..inner.len() {
             assert!(
-                Snapshot::decode_inner(&inner[..len]).is_err(),
+                Snapshot::decode_inner(&inner[..len], false).is_err(),
                 "length {len}"
             );
         }
         let mut trailing = inner.to_vec();
         trailing.push(0);
         assert_eq!(
-            Snapshot::decode_inner(&trailing),
+            Snapshot::decode_inner(&trailing, false),
             Err(ErrorCode::SnapshotInvalid)
         );
         let mut duplicate = sample();
         duplicate.group_ids = vec![vec![9], vec![9]];
         let encoded = duplicate.encode_inner().unwrap();
         assert_eq!(
-            Snapshot::decode_inner(&encoded),
+            Snapshot::decode_inner(&encoded, false),
             Err(ErrorCode::SnapshotInvalid)
         );
     }

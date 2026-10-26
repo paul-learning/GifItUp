@@ -34,8 +34,28 @@ pub struct Client {
     pub(crate) key_package_refs: Mutex<Vec<KeyPackageRef>>,
     /// Commits and welcomes processed but not yet decided on (ADR-0016). Never exported.
     pub(crate) staging: Mutex<crate::group::Staging>,
-    snapshot_key: SnapshotKey,
+    /// The snapshot key, the export count under it and the sync engine's opaque state (ADR-0016). Locked last.
+    meta: Mutex<Meta>,
 }
+
+/// What an export needs besides the MLS state.
+struct Meta {
+    snapshot_key: SnapshotKey,
+    exports: u64,
+    app_state: Vec<u8>,
+    /// [`MAX_EXPORTS_PER_KEY`]; a field so a test can lower it.
+    max_exports: u64,
+}
+
+impl Drop for Meta {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.app_state);
+    }
+}
+
+/// Exports allowed under one snapshot key (each one seals with a fresh random 96-bit nonce). 2^24 keeps the
+/// chance of a repeated nonce near 2^-49, far below the NIST limit of 2^32 per key; the caller rekeys before it.
+pub(crate) const MAX_EXPORTS_PER_KEY: u64 = 1 << 24;
 
 impl Client {
     /// Creates a new identity with a fresh Ed25519 signature key and a BasicCredential for
@@ -56,7 +76,12 @@ impl Client {
             groups: Mutex::new(HashMap::new()),
             key_package_refs: Mutex::new(Vec::new()),
             staging: Mutex::new(crate::group::Staging::default()),
-            snapshot_key,
+            meta: Mutex::new(Meta {
+                snapshot_key,
+                exports: 0,
+                app_state: Vec::new(),
+                max_exports: MAX_EXPORTS_PER_KEY,
+            }),
         })
     }
 
@@ -73,28 +98,65 @@ impl Client {
     /// consumes secrets that the snapshot already holds, so a snapshot without the staged item could never be
     /// completed (ADR-0016).
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
-        // Lock order groups, then staging (as every other call), held until the snapshot is sealed: a concurrent
-        // stage_incoming cannot slip in between the check and the copy.
+        // Lock order groups, staging, key package refs, meta (as every other call), held until the snapshot is
+        // sealed: a concurrent stage_incoming cannot slip in between the check and the copy.
         let groups = self.lock_groups()?;
         let staging = self.lock_staging()?;
         if !staging.is_empty() {
             return Err(ErrorCode::PendingOperation);
         }
         let key_package_refs = self.lock_key_package_refs()?;
+        let mut meta = self.lock_meta()?;
+        if meta.exports >= meta.max_exports {
+            return Err(ErrorCode::LimitExceeded); // rekey first
+        }
         let values = self
             .provider
             .storage
             .values
             .read()
             .map_err(|_| ErrorCode::Poisoned)?;
-        Snapshot {
+        let sealed = Snapshot {
             username: self.username.clone(),
             signature_public_key: self.signer.to_public_vec(),
             group_ids: groups.keys().cloned().collect(),
             key_package_refs: encode_refs(&key_package_refs)?,
             values: values.clone(),
+            app_state: meta.app_state.clone(),
+            exports: meta.exports + 1,
         }
-        .seal(&self.snapshot_key, self.provider.crypto())
+        .seal(&meta.snapshot_key, self.provider.crypto())?;
+        meta.exports += 1;
+        Ok(sealed)
+    }
+
+    /// Sets the sync engine's opaque state (at most 256 KiB), exported inside the next snapshot.
+    pub fn set_app_state(&self, state: Vec<u8>) -> Result<(), ErrorCode> {
+        if state.len() > crate::snapshot::MAX_APP_STATE_BYTES {
+            return Err(ErrorCode::LimitExceeded);
+        }
+        self.lock_meta()?.app_state = state;
+        Ok(())
+    }
+
+    /// The sync engine's opaque state (empty until set).
+    pub fn app_state(&self) -> Result<Vec<u8>, ErrorCode> {
+        Ok(self.lock_meta()?.app_state.clone())
+    }
+
+    /// Replaces the snapshot key and resets the export count. The caller exports next and stores that snapshot
+    /// with the new key wrapped, and only then drops the old key: until then the old snapshot is the one that
+    /// restores.
+    pub fn rekey(&self, new_key: SnapshotKey) -> Result<(), ErrorCode> {
+        let mut meta = self.lock_meta()?;
+        meta.snapshot_key = new_key;
+        meta.exports = 0;
+        Ok(())
+    }
+
+    /// Exports made under the current key; the caller rekeys well before [`MAX_EXPORTS_PER_KEY`].
+    pub fn exports_under_key(&self) -> Result<u64, ErrorCode> {
+        Ok(self.lock_meta()?.exports)
     }
 
     /// Restores a client from [`Client::export_state`] output and the same key.
@@ -105,6 +167,8 @@ impl Client {
 
     fn from_snapshot(mut snapshot: Snapshot, snapshot_key: SnapshotKey) -> Result<Self, ErrorCode> {
         let username = std::mem::take(&mut snapshot.username);
+        let app_state = std::mem::take(&mut snapshot.app_state);
+        let exports = snapshot.exports;
         if !is_valid_username(&username) {
             return Err(ErrorCode::SnapshotInvalid);
         }
@@ -126,7 +190,12 @@ impl Client {
             groups: Mutex::new(groups),
             key_package_refs: Mutex::new(refs),
             staging: Mutex::new(crate::group::Staging::default()),
-            snapshot_key,
+            meta: Mutex::new(Meta {
+                snapshot_key,
+                exports,
+                app_state,
+                max_exports: MAX_EXPORTS_PER_KEY,
+            }),
         })
     }
 
@@ -138,6 +207,10 @@ impl Client {
 
     pub(crate) fn lock_staging(&self) -> Result<MutexGuard<'_, crate::group::Staging>, ErrorCode> {
         self.staging.lock().map_err(|_| ErrorCode::Poisoned)
+    }
+
+    fn lock_meta(&self) -> Result<MutexGuard<'_, Meta>, ErrorCode> {
+        self.meta.lock().map_err(|_| ErrorCode::Poisoned)
     }
 
     pub(crate) fn lock_key_package_refs(
@@ -272,6 +345,52 @@ mod tests {
         wipe(&mut storage);
         // `Vec::zeroize` overwrites the bytes, then truncates the vector to length 0.
         assert!(storage.values.read().unwrap()[&vec![1]].is_empty());
+    }
+
+    #[test]
+    fn app_state_travels_in_the_snapshot_and_is_capped() {
+        let alice = client("alice");
+        assert_eq!(alice.app_state().unwrap(), Vec::<u8>::new());
+        alice.set_app_state(vec![1, 2, 3]).unwrap();
+        let restored = Client::restore(&alice.export_state().unwrap(), key()).unwrap();
+        assert_eq!(restored.app_state().unwrap(), vec![1, 2, 3]);
+        assert_eq!(
+            alice
+                .set_app_state(vec![0; crate::snapshot::MAX_APP_STATE_BYTES + 1])
+                .err(),
+            Some(ErrorCode::LimitExceeded)
+        );
+        assert_eq!(alice.app_state().unwrap(), vec![1, 2, 3]);
+    }
+
+    /// ADR-0016: the export count lives in the sealed snapshot (a restart does not reset it); at the bound exports
+    /// are refused until the caller rekeys, and the new key restores.
+    #[test]
+    fn exports_are_bounded_per_key_and_rekey_resets_the_count() {
+        let alice = client("alice");
+        alice.lock_meta().unwrap().max_exports = 2;
+        let first = alice.export_state().unwrap();
+        let second = alice.export_state().unwrap();
+        assert_eq!(alice.exports_under_key().unwrap(), 2);
+        assert_eq!(alice.export_state().err(), Some(ErrorCode::LimitExceeded));
+        // A restart keeps the count: the restored client is at 2 as well.
+        let restored = Client::restore(&second, key()).unwrap();
+        assert_eq!(restored.exports_under_key().unwrap(), 2);
+        restored.lock_meta().unwrap().max_exports = 2;
+        assert_eq!(
+            restored.export_state().err(),
+            Some(ErrorCode::LimitExceeded)
+        );
+        let new_key = Zeroizing::new([9; KEY_LEN]);
+        restored.rekey(Zeroizing::new([9; KEY_LEN])).unwrap();
+        let rekeyed = restored.export_state().unwrap();
+        assert_eq!(restored.exports_under_key().unwrap(), 1);
+        assert_eq!(
+            Client::restore(&rekeyed, key()).err(),
+            Some(ErrorCode::SnapshotAuth)
+        );
+        assert!(Client::restore(&rekeyed, new_key).is_ok());
+        assert!(Client::restore(&first, key()).is_ok()); // the old snapshot still restores with the old key
     }
 
     #[test]
