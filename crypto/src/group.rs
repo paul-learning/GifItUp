@@ -84,7 +84,7 @@ pub enum Incoming {
     },
     /// A commit, staged and **not applied**: decide with [`Client::merge_staged`] or [`Client::discard_staged`].
     Commit {
-        token: u64,
+        token: u32,
         sender: LeafInfo,
         /// The epoch the commit applies to.
         epoch: u64,
@@ -95,11 +95,68 @@ pub enum Incoming {
     },
 }
 
+/// [`Incoming`] flattened for the FFI layers (a record both bindings can carry): `is_commit` says which fields count.
+/// For an application message `token` and `epoch` are 0 and `added`/`removed` are empty; for a commit `plaintext`
+/// and `message_ref` are empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
+pub struct IncomingMessage {
+    pub is_commit: bool,
+    pub token: u32,
+    pub plaintext: Vec<u8>,
+    pub sender: LeafInfo,
+    pub message_ref: Vec<u8>,
+    pub epoch: u64,
+    pub added: Vec<LeafInfo>,
+    pub removed: Vec<LeafInfo>,
+    pub self_removed: bool,
+}
+
+impl From<Incoming> for IncomingMessage {
+    fn from(incoming: Incoming) -> Self {
+        match incoming {
+            Incoming::Application {
+                plaintext,
+                sender,
+                message_ref,
+            } => Self {
+                is_commit: false,
+                token: 0,
+                plaintext,
+                sender,
+                message_ref,
+                epoch: 0,
+                added: Vec::new(),
+                removed: Vec::new(),
+                self_removed: false,
+            },
+            Incoming::Commit {
+                token,
+                sender,
+                epoch,
+                added,
+                removed,
+                self_removed,
+            } => Self {
+                is_commit: true,
+                token,
+                plaintext: Vec::new(),
+                sender,
+                message_ref: Vec::new(),
+                epoch,
+                added,
+                removed,
+                self_removed,
+            },
+        }
+    }
+}
+
 /// A welcome, parsed in memory and **not joined**: [`Client::join_welcome`] or [`Client::discard_welcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(not(target_arch = "wasm32"), derive(uniffi::Record))]
 pub struct WelcomeInfo {
-    pub token: u64,
+    pub token: u32,
     pub group_id: Vec<u8>,
     pub sender: LeafInfo,
     pub members: Vec<LeafInfo>,
@@ -108,9 +165,9 @@ pub struct WelcomeInfo {
 /// Commits and welcomes that were processed but not decided on. In memory only, and one per group for commits.
 #[derive(Default)]
 pub(crate) struct Staging {
-    next_token: u64,
-    commits: HashMap<u64, (Vec<u8>, StagedCommit)>,
-    welcomes: HashMap<u64, (Vec<u8>, StagedWelcome)>,
+    next_token: u32,
+    commits: HashMap<u32, (Vec<u8>, StagedCommit)>,
+    welcomes: HashMap<u32, (Vec<u8>, StagedWelcome)>,
 }
 
 impl Staging {
@@ -118,9 +175,12 @@ impl Staging {
         self.commits.is_empty() && self.welcomes.is_empty()
     }
 
-    fn token(&mut self) -> u64 {
-        self.next_token += 1;
-        self.next_token
+    fn token(&mut self) -> Result<u32, ErrorCode> {
+        self.next_token = self
+            .next_token
+            .checked_add(1)
+            .ok_or(ErrorCode::LimitExceeded)?;
+        Ok(self.next_token)
     }
 
     fn has_commit_for(&self, group_id: &[u8]) -> bool {
@@ -359,7 +419,7 @@ impl Client {
             ProcessedMessageContent::StagedCommitMessage(staged) => {
                 let (added, removed) = inspect_commit(group, &sender, &staged)?;
                 let self_removed = staged.self_removed();
-                let token = staging.token();
+                let token = staging.token()?;
                 staging.commits.insert(token, (group_id.to_vec(), *staged));
                 Ok(Incoming::Commit {
                     token,
@@ -377,7 +437,7 @@ impl Client {
     }
 
     /// Applies a staged commit. Returns the new epoch.
-    pub fn merge_staged(&self, token: u64) -> Result<u64, ErrorCode> {
+    pub fn merge_staged(&self, token: u32) -> Result<u64, ErrorCode> {
         let mut groups = self.lock_groups()?;
         let mut staging = self.lock_staging()?;
         let (group_id, staged) = staging
@@ -393,7 +453,7 @@ impl Client {
 
     /// Drops a staged commit without applying it. The message's secret is used up, so the commit cannot be
     /// processed again: the caller treats the group as stuck (ADR-0016).
-    pub fn discard_staged(&self, token: u64) -> Result<(), ErrorCode> {
+    pub fn discard_staged(&self, token: u32) -> Result<(), ErrorCode> {
         let mut staging = self.lock_staging()?;
         staging
             .commits
@@ -458,7 +518,7 @@ impl Client {
             .cloned()
             .ok_or(ErrorCode::Refused)?;
         let mut staging = self.lock_staging()?;
-        let token = staging.token();
+        let token = staging.token()?;
         staging
             .welcomes
             .insert(token, (expected_group_id.to_vec(), staged));
@@ -471,7 +531,7 @@ impl Client {
     }
 
     /// Joins the group of an inspected welcome. Returns the group id.
-    pub fn join_welcome(&self, token: u64) -> Result<Vec<u8>, ErrorCode> {
+    pub fn join_welcome(&self, token: u32) -> Result<Vec<u8>, ErrorCode> {
         let mut groups = self.lock_groups()?;
         let mut staging = self.lock_staging()?;
         let (group_id, staged) = staging
@@ -487,7 +547,7 @@ impl Client {
     }
 
     /// Drops an inspected welcome without joining. The KeyPackage it used is gone either way.
-    pub fn discard_welcome(&self, token: u64) -> Result<(), ErrorCode> {
+    pub fn discard_welcome(&self, token: u32) -> Result<(), ErrorCode> {
         let mut staging = self.lock_staging()?;
         staging
             .welcomes
@@ -894,7 +954,7 @@ mod tests {
         message.tls_serialize_detached().unwrap()
     }
 
-    fn staged_commit(incoming: Incoming) -> (u64, LeafInfo, Vec<LeafInfo>, Vec<LeafInfo>, bool) {
+    fn staged_commit(incoming: Incoming) -> (u32, LeafInfo, Vec<LeafInfo>, Vec<LeafInfo>, bool) {
         match incoming {
             Incoming::Commit {
                 token,

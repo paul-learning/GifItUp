@@ -12,6 +12,7 @@ pub mod error;
 mod fingerprint;
 pub mod group;
 pub mod identity;
+mod list;
 mod provider;
 mod snapshot;
 #[cfg(feature = "test-panic")]

@@ -42,6 +42,14 @@ internal fun <T : JsAny?> guarded(block: () -> T): T {
     return result.value as T
 }
 
+/** [guarded] for a call that returns nothing. */
+internal fun guardedUnit(block: () -> Unit) {
+    guarded<JsAny?> {
+        block()
+        null
+    }
+}
+
 /**
  * Default-deny classification by JS type: only a plain `Error` (not a subclass such as
  * `WebAssembly.RuntimeError` or `RangeError`) whose message is exactly a known code name is a typed error.

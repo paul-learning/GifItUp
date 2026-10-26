@@ -2,14 +2,24 @@ package app.gifitup.mls
 
 import app.gifitup.shared.data.crypto.AuthPurpose
 import app.gifitup.shared.data.crypto.CreatedKeyPackage
+import app.gifitup.shared.data.crypto.EncryptedMessage
+import app.gifitup.shared.data.crypto.IncomingMessage
+import app.gifitup.shared.data.crypto.LeafInfo
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
+import app.gifitup.shared.data.crypto.PreparedCommit
 import app.gifitup.shared.data.crypto.PublicIdentity
+import app.gifitup.shared.data.crypto.WelcomeInfo
 import uniffi.gifitup_crypto.ErrorCode
 import uniffi.gifitup_crypto.NativeMlsClient
 import uniffi.gifitup_crypto.AuthPurpose as NativeAuthPurpose
+import uniffi.gifitup_crypto.EncryptedMessage as NativeEncryptedMessage
+import uniffi.gifitup_crypto.IncomingMessage as NativeIncomingMessage
+import uniffi.gifitup_crypto.LeafInfo as NativeLeafInfo
+import uniffi.gifitup_crypto.PreparedCommit as NativePreparedCommit
+import uniffi.gifitup_crypto.WelcomeInfo as NativeWelcomeInfo
 
 /** [MlsClientFactory] over the uniffi bindings (Android and JVM; ADR-0007). */
 object UniffiMlsClientFactory : MlsClientFactory {
@@ -40,6 +50,7 @@ object UniffiMlsClientFactory : MlsClientFactory {
  * Errors arrive as closed codes; anything else from the bindings means the native side is in an unknown
  * state, so this client refuses every later call (ADR-0007).
  */
+@Suppress("TooManyFunctions") // One method per MlsClient operation; the interface is the API (ADR-0007).
 internal class UniffiMlsClient(
     private val native: NativeMlsClient,
 ) : MlsClient {
@@ -67,6 +78,74 @@ internal class UniffiMlsClient(
     override fun fingerprint(signatureKey: ByteArray): ByteArray = call { native.fingerprint(signatureKey) }
 
     override fun exportState(): ByteArray = call { native.exportState() }
+
+    override fun rekeyAndExport(newKey: ByteArray): ByteArray =
+        try {
+            call { native.rekeyAndExport(newKey) }
+        } finally {
+            newKey.fill(0)
+        }
+
+    override fun exportsUnderKey(): Long = call { native.exportsUnderKey().toLong() }
+
+    override fun setAppState(state: ByteArray) = call { native.setAppState(state) }
+
+    override fun appState(): ByteArray = call { native.appState() }
+
+    override fun createGroup(): ByteArray = call { native.createGroup() }
+
+    override fun prepareAdd(
+        groupId: ByteArray,
+        keyPackages: List<ByteArray>,
+    ): PreparedCommit = call { native.prepareAdd(groupId, keyPackages).toShared() }
+
+    override fun prepareRemove(
+        groupId: ByteArray,
+        leafIndexes: List<Int>,
+    ): PreparedCommit =
+        call {
+            if (leafIndexes.any { it < 0 }) throw MlsException(MlsErrorCode.InvalidInput)
+            native.prepareRemove(groupId, leafIndexes.map { it.toUInt() }).toShared()
+        }
+
+    override fun prepareUpdate(groupId: ByteArray): PreparedCommit = call { native.prepareUpdate(groupId).toShared() }
+
+    override fun mergePending(groupId: ByteArray): Long = call { native.mergePending(groupId).toLong() }
+
+    override fun clearPending(groupId: ByteArray) = call { native.clearPending(groupId) }
+
+    override fun hasPendingCommit(groupId: ByteArray): Boolean = call { native.hasPendingCommit(groupId) }
+
+    override fun encrypt(
+        groupId: ByteArray,
+        plaintext: ByteArray,
+    ): EncryptedMessage = call { native.encrypt(groupId, plaintext).toShared() }
+
+    override fun stageIncoming(
+        groupId: ByteArray,
+        message: ByteArray,
+    ): IncomingMessage = call { native.stageIncoming(groupId, message).toShared() }
+
+    override fun mergeStaged(token: Int): Long = call { native.mergeStaged(token.toUInt()).toLong() }
+
+    override fun discardStaged(token: Int) = call { native.discardStaged(token.toUInt()) }
+
+    override fun inspectWelcome(
+        welcome: ByteArray,
+        expectedGroupId: ByteArray,
+    ): WelcomeInfo = call { native.inspectWelcome(welcome, expectedGroupId).toShared() }
+
+    override fun joinWelcome(token: Int): ByteArray = call { native.joinWelcome(token.toUInt()) }
+
+    override fun discardWelcome(token: Int) = call { native.discardWelcome(token.toUInt()) }
+
+    override fun forgetGroup(groupId: ByteArray) = call { native.forgetGroup(groupId) }
+
+    override fun members(groupId: ByteArray): List<LeafInfo> = call { native.members(groupId).map { it.toShared() } }
+
+    override fun memberCount(groupId: ByteArray): Int = call { native.memberCount(groupId).toInt() }
+
+    override fun epoch(groupId: ByteArray): Long = call { native.epoch(groupId).toLong() }
 
     override fun signAuth(
         purpose: AuthPurpose,
@@ -129,6 +208,29 @@ private fun ErrorCode.toShared(): MlsErrorCode =
         is ErrorCode.Poisoned -> MlsErrorCode.Poisoned
         is ErrorCode.Internal -> MlsErrorCode.Internal
     }
+
+private fun NativeLeafInfo.toShared() = LeafInfo(username, signatureKey, leafIndex.toInt())
+
+private fun NativePreparedCommit.toShared() =
+    PreparedCommit(commit, welcome, epoch.toLong(), added.map { it.toShared() }, removed.map { it.toShared() })
+
+private fun NativeEncryptedMessage.toShared() = EncryptedMessage(message, messageRef)
+
+private fun NativeIncomingMessage.toShared(): IncomingMessage =
+    if (isCommit) {
+        IncomingMessage.Commit(
+            token.toInt(),
+            sender.toShared(),
+            epoch.toLong(),
+            added.map { it.toShared() },
+            removed.map { it.toShared() },
+            selfRemoved,
+        )
+    } else {
+        IncomingMessage.Application(plaintext, sender.toShared(), messageRef)
+    }
+
+private fun NativeWelcomeInfo.toShared() = WelcomeInfo(token.toInt(), groupId, sender.toShared(), members.map { it.toShared() })
 
 private fun uniffi.gifitup_crypto.PublicIdentity.toShared() = PublicIdentity(username, signaturePublicKey)
 
