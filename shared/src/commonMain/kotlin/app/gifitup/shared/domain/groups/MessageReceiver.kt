@@ -34,7 +34,7 @@ internal class MessageReceiver(
                 handle(id, entry)
                 applied++
             }
-            if (page.messages.isNotEmpty()) answerForGroup(id, delivery.ack(id.bytes, store.recordOf(id).cursor))
+            if (page.messages.isNotEmpty()) store.answerForGroup(mls, id, delivery.ack(id.bytes, store.recordOf(id).cursor))
             caughtUp = page.messages.isEmpty() || store.recordOf(id).cursor >= page.lastSeq
         }
         return SyncOutcome.CaughtUp(applied)
@@ -44,24 +44,9 @@ internal class MessageReceiver(
         id: KeyBytes,
         cursor: Long,
     ): MessagePage {
-        val page = answerForGroup(id, delivery.fetch(id.bytes, cursor))
+        val page = store.answerForGroup(mls, id, delivery.fetch(id.bytes, cursor))
         if (page.oldestSeq > cursor + 1 && page.lastSeq > cursor) store.freeze(id, GroupStatus.FROZEN_GAP)
         return page
-    }
-
-    /**
-     * A group the server no longer shows us (not a member, or unknown: the same answer, ADR-0015) is "no longer
-     * available": the MLS state is deleted and the group stays read-only. We can't tell removal from withholding.
-     */
-    private suspend fun <T> answerForGroup(
-        id: KeyBytes,
-        result: ApiResult<T>,
-    ): T {
-        if (result is ApiResult.Failed && result.error == ApiError.NOT_FOUND) {
-            store.markGone(mls, id)
-            halt(SyncOutcome.Stopped(GroupStatus.REMOVED))
-        }
-        return answer(result)
     }
 
     private suspend fun handle(
@@ -71,7 +56,7 @@ internal class MessageReceiver(
         val record = store.recordOf(id)
         when {
             entry.seq != record.cursor + 1 -> store.freeze(id, GroupStatus.FROZEN_GAP)
-            entry.seq in record.quarantined -> store.advance(id, entry.seq)
+            entry.seq in record.quarantined || record.ownSeqs.any { it.matches(entry.seq, entry.payload) } -> store.advance(id, entry.seq)
             entry.kind == MessageKind.APPLICATION -> application(id, entry)
             else -> commit(id, entry)
         }
@@ -193,7 +178,15 @@ internal class MessageReceiver(
         // Flags only ever name leaves of the group (at most 50), so keeping those still in the roster bounds the list.
         val present = crate { mls.members(id.bytes) }.map { KeyBytes(it.signatureKey) }.toSet()
         val unverified = (record.unverified + decision.unverified).distinct().filter { it in present }
-        store.put(id, record.copy(cursor = seq, failures = record.failures - seq, unverified = unverified))
+        store.put(
+            id,
+            record.copy(
+                cursor = seq,
+                failures = record.failures - seq,
+                unverified = unverified,
+                ownSeqs = record.ownSeqs.filter { it.seq > seq },
+            ),
+        )
         if (commit.selfRemoved) store.markGone(mls, id) else store.persist()
     }
 }

@@ -46,7 +46,7 @@ internal class SyncStore(
         seq: Long,
     ) {
         val record = recordOf(id)
-        put(id, record.copy(cursor = seq, failures = record.failures - seq))
+        put(id, record.copy(cursor = seq, failures = record.failures - seq, ownSeqs = record.ownSeqs.filter { it.seq > seq }))
         persist()
     }
 

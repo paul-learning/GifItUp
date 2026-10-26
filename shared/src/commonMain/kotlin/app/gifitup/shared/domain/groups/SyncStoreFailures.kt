@@ -3,6 +3,8 @@ package app.gifitup.shared.domain.groups
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
+import app.gifitup.shared.data.network.ApiError
+import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.domain.contacts.KeyBytes
 
 private const val MAX_ATTEMPTS = 3
@@ -59,4 +61,21 @@ internal suspend fun SyncStore.forget(
     }
     drop(id)
     persist()
+}
+
+/**
+ * The value of a Delivery Service answer about a group. A group the server no longer shows us (not a member, or
+ * unknown: the same answer, ADR-0015) is "no longer available": the MLS state is deleted and the group stays
+ * read-only. We can't tell removal from withholding.
+ */
+internal suspend fun <T> SyncStore.answerForGroup(
+    mls: MlsClient,
+    id: KeyBytes,
+    result: ApiResult<T>,
+): T {
+    if (result is ApiResult.Failed && result.error == ApiError.NOT_FOUND) {
+        markGone(mls, id)
+        halt(SyncOutcome.Stopped(GroupStatus.REMOVED))
+    }
+    return answer(result)
 }

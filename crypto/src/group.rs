@@ -393,10 +393,12 @@ impl Client {
             return Err(ErrorCode::WrongEpoch);
         }
         // Our own pending commit has to be resolved first (merged or cleared): merging a competing commit would
-        // leave the pending one and its path secrets behind (SEC-14). An echo of our own commit lands here as
-        // `PendingOperation` too; the engine catches echoes by device id before it stages anything.
+        // leave the pending one and its path secrets behind (SEC-14). Application messages of the same epoch are
+        // still processed meanwhile: a committer must read what was posted before its commit, or merging the commit
+        // would make those messages undecryptable for it. The content type is in the clear (RFC 9420 section 6.3).
         let mut staging = self.lock_staging()?;
-        if group.pending_commit().is_some() || staging.has_commit_for(group_id) {
+        let is_commit = protocol_message.content_type() == ContentType::Commit;
+        if is_commit && (group.pending_commit().is_some() || staging.has_commit_for(group_id)) {
             return Err(ErrorCode::PendingOperation);
         }
         let processed = group
@@ -1333,6 +1335,41 @@ mod tests {
             alice.merge_pending(&group_id).err(),
             Some(ErrorCode::PendingOperation)
         );
+    }
+
+    /// While our own commit is pending, application messages of the epoch are still read (the committer must read what
+    /// was posted before its commit), and the commit can be merged afterwards.
+    #[test]
+    fn application_messages_are_read_while_our_commit_is_pending() {
+        let (alice, bob, group_id) = pair();
+        let prepared = alice.prepare_update(&group_id).unwrap();
+        let sealed = bob.seal(&group_id, b"before your commit");
+        match alice.stage_incoming(&group_id, &sealed).unwrap() {
+            Incoming::Application { plaintext, .. } => assert_eq!(plaintext, b"before your commit"),
+            _ => panic!("expected an application message"),
+        }
+        assert!(alice.has_pending_commit(&group_id).unwrap());
+        alice.merge_pending(&group_id).unwrap();
+        bob.process(&group_id, &prepared.commit).unwrap();
+        assert_eq!(
+            alice.epoch(&group_id).unwrap(),
+            bob.epoch(&group_id).unwrap()
+        );
+    }
+
+    /// SEC-4 of #172: an application message is also read while an incoming commit is staged (same epoch); a second
+    /// commit is still refused.
+    #[test]
+    fn application_messages_are_read_while_an_incoming_commit_is_staged() {
+        let (alice, bob, group_id) = pair();
+        let prepared = alice.prepare_update(&group_id).unwrap();
+        let sealed = alice.seal(&group_id, b"same epoch");
+        let staged = bob.stage_incoming(&group_id, &prepared.commit).unwrap();
+        assert!(matches!(staged, Incoming::Commit { .. }));
+        match bob.stage_incoming(&group_id, &sealed).unwrap() {
+            Incoming::Application { plaintext, .. } => assert_eq!(plaintext, b"same epoch"),
+            _ => panic!("expected an application message"),
+        }
     }
 
     /// SEC-14: while our own commit is pending, nothing incoming is staged.

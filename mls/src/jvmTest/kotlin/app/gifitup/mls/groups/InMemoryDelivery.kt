@@ -48,6 +48,18 @@ class InMemoryDelivery {
     /** Lets a test make one kind of call fail: `"ack"` for example. */
     var failing = emptySet<String>()
 
+    /** Calls that are applied at the server but whose answer is lost: the client sees a network error. */
+    var lostAnswers = emptySet<String>()
+
+    /** Makes every post fail with this answer (the server refusing for good). */
+    var refusePosts: ApiError? = null
+
+    /** A lying server: the seq it names in its answer to a post is this much higher than the real one. */
+    var misnameSeqBy = 0L
+
+    /** Runs when a post reaches the server, before it is applied (device id, group id). */
+    var onPost: (suspend (String, ByteArray) -> Unit)? = null
+
     fun viewFor(deviceId: String): DeliveryPort = View(deviceId)
 
     /** Forgets the messages up to and including [seq] (cleanup), as the server does after acks. */
@@ -153,14 +165,33 @@ class InMemoryDelivery {
         override suspend fun post(
             groupId: ByteArray,
             envelope: DeliveryEnvelope,
-        ): ApiResult<PostedMessage> =
-            ensure("post") {
-                val found = member(groupId)
-                when {
-                    found == null -> ApiResult.Failed(ApiError.NOT_FOUND)
-                    else -> repeat(found.first, envelope) ?: apply(found.first, found.second, envelope)
+        ): ApiResult<PostedMessage> {
+            onPost?.invoke(device, groupId)
+            val answer =
+                ensure("post") {
+                    val found = member(groupId)
+                    when {
+                        refusePosts != null -> ApiResult.Failed(refusePosts!!)
+                        found == null -> ApiResult.Failed(ApiError.NOT_FOUND)
+                        else -> repeat(found.first, envelope) ?: apply(found.first, found.second, envelope)
+                    }
+                }
+            return when {
+                "post" in lostAnswers && answer is ApiResult.Ok -> {
+                    ApiResult.Failed(ApiError.NETWORK)
+                }
+
+                misnameSeqBy != 0L && answer is ApiResult.Ok -> {
+                    ApiResult.Ok(
+                        PostedMessage(answer.value.seq + misnameSeqBy, answer.value.epoch),
+                    )
+                }
+
+                else -> {
+                    answer
                 }
             }
+        }
 
         private fun repeat(
             group: Group,
