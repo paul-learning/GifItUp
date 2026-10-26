@@ -905,7 +905,7 @@ mod tests {
                 self_removed,
                 ..
             } => (token, sender, added, removed, self_removed),
-            other => panic!("expected a commit, got {other:?}"),
+            _ => panic!("expected a commit"),
         }
     }
 
@@ -1034,7 +1034,7 @@ mod tests {
                 );
                 assert_eq!(message_ref, sent.message_ref, "sender and receiver agree");
             }
-            other => panic!("{other:?}"),
+            _ => panic!("unexpected result"),
         }
         let mut data = b"GifItUp v1 message ref".to_vec();
         data.extend_from_slice(&sent.message);
@@ -1273,7 +1273,7 @@ mod tests {
         match bob.stage_incoming(&group_id, &sent) {
             Ok(Incoming::Application { plaintext, .. }) => assert_eq!(plaintext, b"genuine"),
             Err(ErrorCode::Replay | ErrorCode::Mls) => {}
-            other => panic!("{other:?}"),
+            _ => panic!("unexpected result"),
         }
     }
 
