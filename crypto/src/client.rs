@@ -73,10 +73,13 @@ impl Client {
     /// consumes secrets that the snapshot already holds, so a snapshot without the staged item could never be
     /// completed (ADR-0016).
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
-        if !self.lock_staging()?.is_empty() {
+        // Lock order groups, then staging (as every other call), held until the snapshot is sealed: a concurrent
+        // stage_incoming cannot slip in between the check and the copy.
+        let groups = self.lock_groups()?;
+        let staging = self.lock_staging()?;
+        if !staging.is_empty() {
             return Err(ErrorCode::PendingOperation);
         }
-        let groups = self.lock_groups()?;
         let key_package_refs = self.lock_key_package_refs()?;
         let values = self
             .provider

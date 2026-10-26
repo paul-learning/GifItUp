@@ -174,6 +174,12 @@ impl Client {
             .iter()
             .map(|kp| leaf_of_key_package(kp, group))
             .collect::<Result<Vec<_>, _>>()?;
+        let mut keys: Vec<&[u8]> = added.iter().map(|l| l.signature_key.as_slice()).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        if keys.len() != added.len() {
+            return Err(ErrorCode::Refused); // one leaf per signature key, in a batch too
+        }
         let epoch = group.epoch().as_u64();
         let (commit, welcome, _group_info) = group
             .add_members(&self.provider, &self.signer, &parsed)
@@ -254,6 +260,9 @@ impl Client {
     pub fn merge_pending(&self, group_id: &[u8]) -> Result<u64, ErrorCode> {
         let mut groups = self.lock_groups()?;
         let group = groups.get_mut(group_id).ok_or(ErrorCode::UnknownGroup)?;
+        if self.lock_staging()?.has_commit_for(group_id) {
+            return Err(ErrorCode::PendingOperation);
+        }
         if group.pending_commit().is_none() {
             return Err(ErrorCode::UnknownToken);
         }
@@ -323,6 +332,8 @@ impl Client {
         if protocol_message.epoch() != group.epoch() {
             return Err(ErrorCode::WrongEpoch);
         }
+        // An echo of our own pending commit lands here too (`PendingOperation`): the engine catches echoes by device
+        // id before it stages anything.
         // Our own pending commit has to be resolved first (merged or cleared): merging a competing commit would
         // leave the pending one and its path secrets behind (SEC-14). The engine skips our own echoes by device id.
         let mut staging = self.lock_staging()?;
@@ -490,10 +501,13 @@ impl Client {
     /// from the next snapshot (#37 SEC-4). Staged items of the group go with it.
     pub fn forget_group(&self, group_id: &[u8]) -> Result<(), ErrorCode> {
         let mut groups = self.lock_groups()?;
+        // Staged items of the id go first, even when no such group exists (a staged welcome is for a group not yet
+        // joined).
+        let mut staging = self.lock_staging()?;
+        staging.commits.retain(|_, (id, _)| id != group_id);
+        staging.welcomes.retain(|_, (id, _)| id != group_id);
+        drop(staging);
         let mut group = groups.remove(group_id).ok_or(ErrorCode::UnknownGroup)?;
-        self.lock_staging()?
-            .commits
-            .retain(|_, (id, _)| id != group_id);
         group.delete(self.provider.storage()).map_err(mls)
     }
 
@@ -1178,6 +1192,52 @@ mod tests {
         assert_eq!(
             alice.stage_incoming(&group_id, &too_many).err(),
             Some(ErrorCode::LimitExceeded)
+        );
+    }
+
+    /// CR-3 and CR-6: a batch repeating a signature key is refused; forgetting a group drops its staged welcomes.
+    #[test]
+    fn a_repeated_key_in_a_batch_is_refused_and_forgetting_drops_staged_welcomes() {
+        let (alice, _bob, group_id) = pair();
+        let carol = client("carol");
+        let kp = key_package(&carol);
+        let kp2 = key_package(&carol);
+        assert_eq!(
+            alice.prepare_add(&group_id, &[kp, kp2]).err(),
+            Some(ErrorCode::Refused)
+        );
+        assert!(!alice.has_pending_commit(&group_id).unwrap());
+        let prepared = alice
+            .prepare_add(&group_id, &[key_package(&carol)])
+            .unwrap();
+        alice.merge_pending(&group_id).unwrap();
+        let welcome = prepared.welcome.unwrap();
+        let info = carol.inspect_welcome(&welcome, &group_id).unwrap();
+        assert_eq!(
+            carol.forget_group(&group_id).err(),
+            Some(ErrorCode::UnknownGroup)
+        );
+        assert_eq!(
+            carol.join_welcome(info.token).err(),
+            Some(ErrorCode::UnknownToken)
+        );
+    }
+
+    /// CR-1: a staged commit and our own pending commit never coexist, in either order.
+    #[test]
+    fn a_staged_commit_blocks_merging_ours() {
+        let (alice, bob, group_id) = pair();
+        let theirs = bob
+            .prepare_add(&group_id, &[key_package(&client("carol"))])
+            .unwrap();
+        alice.stage_incoming(&group_id, &theirs.commit).unwrap();
+        assert_eq!(
+            alice.prepare_update(&group_id).err(),
+            Some(ErrorCode::PendingOperation)
+        );
+        assert_eq!(
+            alice.merge_pending(&group_id).err(),
+            Some(ErrorCode::PendingOperation)
         );
     }
 
