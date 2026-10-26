@@ -41,6 +41,7 @@ class InMemoryDelivery {
     private val groups = mutableMapOf<List<Byte>, Group>()
     private val welcomes = mutableMapOf<String, MutableList<PendingWelcomeEntry>>()
     private var nextWelcome = 0
+    private var fetchBlocked = false
 
     /** Calls of any kind, newest last, to check orders such as "stored before acknowledged". */
     val calls = mutableListOf<String>()
@@ -57,8 +58,17 @@ class InMemoryDelivery {
     /** A lying server: the seq it names in its answer to a post is this much higher than the real one. */
     var misnameSeqBy = 0L
 
+    /** Makes every fetch fail with a network error from the next accepted post on, until it is set back to false. */
+    var blockFetchesAfterNextPost = false
+
     /** Runs when a post reaches the server, before it is applied (device id, group id). */
     var onPost: (suspend (String, ByteArray) -> Unit)? = null
+
+    /** Lets fetches work again after [blockFetchesAfterNextPost] took effect. */
+    fun unblockFetches() {
+        blockFetchesAfterNextPost = false
+        fetchBlocked = false
+    }
 
     fun viewFor(deviceId: String): DeliveryPort = View(deviceId)
 
@@ -184,6 +194,7 @@ class InMemoryDelivery {
                         else -> repeat(found.first, envelope) ?: apply(found.first, found.second, envelope)
                     }
                 }
+            if (blockFetchesAfterNextPost && answer is ApiResult.Ok) fetchBlocked = true
             return when {
                 "post" in lostAnswers && answer is ApiResult.Ok -> {
                     ApiResult.Failed(ApiError.NETWORK)
@@ -275,7 +286,9 @@ class InMemoryDelivery {
         ): ApiResult<MessagePage> =
             ensure("fetch") {
                 val found = member(groupId)
-                if (found == null) {
+                if (fetchBlocked) {
+                    ApiResult.Failed(ApiError.NETWORK)
+                } else if (found == null) {
                     ApiResult.Failed(ApiError.NOT_FOUND)
                 } else {
                     val (group, me) = found

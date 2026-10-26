@@ -65,7 +65,9 @@ internal class CommitSide(
         val pending = pendingOf(prepared, members.map { it.deviceId }, emptyList())
         store.put(id, GroupRecord.joinedAt(0, emptyList()).copy(pending = pending))
         store.persist()
-        return GroupCreation(groupId, finish(id, pending) ?: SyncOutcome.InFlight(ApiError.EPOCH_CONFLICT))
+        val outcome = finish(id, pending) ?: SyncOutcome.Rejected(ApiError.EPOCH_CONFLICT)
+        // A refused creation forgot the group again: there is nothing to resume, so no id is handed out.
+        return GroupCreation(groupId.takeUnless { outcome is SyncOutcome.Rejected }, outcome)
     }
 
     suspend fun add(
@@ -163,8 +165,8 @@ internal class CommitSide(
         seq: Long,
     ): SyncOutcome {
         if (pending.epoch != 0L) {
-            val outcome = receiver.sync(id, upTo = seq - 1)
-            if (outcome !is SyncOutcome.CaughtUp) halt(outcome)
+            val stopped = receiver.readAhead(id, seq - 1)
+            if (stopped != null) return stopped
         }
         crate { mls.mergePending(id.bytes) }
         poster.recordSent(id, pending, seq)
@@ -229,3 +231,18 @@ private fun MlsClient.forgetQuietly(groupId: ByteArray) {
         // A dead client is reported by the caller's halt; nothing else can be done for a group that was never stored.
     }
 }
+
+/**
+ * Reads the log up to [upTo] before the merge. If the Delivery Service can't be used meanwhile, the accepted commit
+ * stays pending for `resume` (returned as in flight); any other stop ends the call as it is.
+ */
+internal suspend fun MessageReceiver.readAhead(
+    id: KeyBytes,
+    upTo: Long,
+): SyncOutcome? =
+    try {
+        val outcome = sync(id, upTo)
+        if (outcome is SyncOutcome.CaughtUp) null else outcome
+    } catch (stop: Halt) {
+        (stop.outcome as? SyncOutcome.Unavailable)?.let { SyncOutcome.InFlight(it.error) } ?: throw stop
+    }

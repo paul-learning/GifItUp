@@ -182,11 +182,30 @@ class GroupCommitTest {
     fun aRefusedCreationLeavesNoGroupBehind() =
         runTest {
             val alice = party("alice")
+            val recording = RecordingClient(alice.mls)
+            val engine = alice.newEngine(recording)
             // The creator cannot be in the list of added devices: the server refuses that.
-            val created = alice.engine.createGroup(listOf(NewMember(alice.deviceId, party("bob").keyPackage())))
+            val created = engine.createGroup(listOf(NewMember(alice.deviceId, party("bob").keyPackage())))
             assertEquals(SyncOutcome.Rejected(ApiError.ENVELOPE_INVALID), created.outcome)
-            assertTrue(alice.engine.statuses().isEmpty())
-            assertTrue(alice.mls.exportState().isNotEmpty())
+            assertNull(created.groupId, "nothing to resume")
+            assertTrue(engine.statuses().isEmpty())
+            assertEquals(recording.created, recording.forgotten)
+        }
+
+    @Test
+    fun aCommitAcceptedButNotReadBeforeTheMergeStaysPendingAndResumes() =
+        runTest {
+            val (alice, bob, groupId) = aliceAndBob()
+            val carol = party("carol")
+            ds.blockFetchesAfterNextPost = true
+            assertEquals(SyncOutcome.InFlight(ApiError.NETWORK), alice.engine.addMembers(groupId, listOf(member(carol))))
+            assertNotNull(alice.engine.recordOf(groupId)?.pending)
+            assertEquals(2, alice.mls.memberCount(groupId), "not merged before the read")
+            ds.unblockFetches()
+            assertIs<SyncOutcome.Sent>(alice.engine.resume(groupId))
+            assertEquals(3, alice.mls.memberCount(groupId))
+            join(carol)
+            assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
         }
 
     /** SEC-1: a creation whose request never reached the server is posted again, not read as "removed". */
