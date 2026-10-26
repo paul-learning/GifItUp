@@ -21,7 +21,7 @@ import kotlinx.coroutines.sync.withLock
  * - A group the server no longer shows us is "no longer available": its MLS state is deleted, the group stays read-only.
  */
 class GroupSyncEngine(
-    mls: MlsClient,
+    private val mls: MlsClient,
     delivery: DeliveryPort,
     pinsSource: ContactPinsSource,
     saver: SnapshotSaver,
@@ -57,8 +57,22 @@ class GroupSyncEngine(
     ): SyncOutcome =
         mutex.withLock {
             halting {
-                store.countFailure(KeyBytes(groupId), seq)
+                val id = KeyBytes(groupId)
+                // Only the message the cursor stands in front of can have been the one that killed the client.
+                if (store.find(id)?.cursor == seq - 1) store.countFailure(id, seq)
                 SyncOutcome.Retry(seq)
+            }
+        }
+
+    /**
+     * Deletes everything of a group on this device: its MLS state (if any is left) and its sync record. The first step
+     * of a rejoin, and the way to free one of the 50 group slots held by a stopped group.
+     */
+    suspend fun forget(groupId: ByteArray): SyncOutcome =
+        mutex.withLock {
+            halting {
+                store.forget(mls, KeyBytes(groupId))
+                SyncOutcome.CaughtUp(0)
             }
         }
 

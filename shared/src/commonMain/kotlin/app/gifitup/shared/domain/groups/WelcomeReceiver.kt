@@ -31,9 +31,23 @@ internal class WelcomeReceiver(
     ): WelcomeOutcome {
         val existing = store.find(KeyBytes(welcome.groupId))
         return when {
-            existing == null -> join(welcome, pins)
-            existing.status == GroupStatus.ACTIVE -> WelcomeOutcome.AlreadyMember(welcome.groupId).also { drop(welcome.id) }
-            else -> WelcomeOutcome.Skipped(welcome.groupId)
+            existing == null && store.state.groups.size >= SyncStateCodec.MAX_GROUPS -> {
+                // Stopped and removed groups count too until the user forgets them; the welcome is dropped, unparsed.
+                drop(welcome.id)
+                WelcomeOutcome.Rejected(RejectReason.GROUP_LIMIT)
+            }
+
+            existing == null -> {
+                join(welcome, pins)
+            }
+
+            existing.status == GroupStatus.ACTIVE -> {
+                WelcomeOutcome.AlreadyMember(welcome.groupId).also { drop(welcome.id) }
+            }
+
+            else -> {
+                WelcomeOutcome.Skipped(welcome.groupId)
+            }
         }
     }
 
@@ -51,7 +65,7 @@ internal class WelcomeReceiver(
             }
         val checks = (info.members + info.sender).map { it to pins.check(it.username, it.signatureKey) }
         return if (checks.any { it.second == PinCheck.MISMATCH }) {
-            store.lookup { mls.discardWelcome(info.token) }
+            crate { mls.discardWelcome(info.token) }
             rejected(welcome.id, null, RejectReason.CONTACT_MISMATCH)
         } else {
             val unverified = CommitJudge.unverifiedKeys(info.members.map { it to pins.check(it.username, it.signatureKey) }, emptyList())

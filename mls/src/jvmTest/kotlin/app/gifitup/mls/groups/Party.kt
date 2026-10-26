@@ -102,6 +102,19 @@ class Party(
         mls.mergePending(groupId)
     }
 
+    /** Removes [other] with a commit posted at the current epoch. */
+    suspend fun remove(
+        groupId: ByteArray,
+        other: Party,
+    ) {
+        val key = other.mls.publicIdentity().signaturePublicKey
+        val leaf = mls.members(groupId).single { it.signatureKey.contentEquals(key) }.leafIndex
+        val prepared = mls.prepareRemove(groupId, listOf(leaf))
+        val env = envelope(MessageKind.COMMIT, prepared.epoch, emptyList(), listOf(other.deviceId), emptyMap(), prepared.commit)
+        check(view.post(groupId, env) is ApiResult.Ok)
+        mls.mergePending(groupId)
+    }
+
     /** Posts a commit that adds [other] but whose envelope lies about the numbers. */
     suspend fun addWithEnvelope(
         groupId: ByteArray,

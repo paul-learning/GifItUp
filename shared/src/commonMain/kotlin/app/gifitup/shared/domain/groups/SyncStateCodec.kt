@@ -84,9 +84,15 @@ internal object SyncStateCodec {
         if (cursor < 0) invalid()
         val last = reader.optional()
         val prev = reader.optional()
-        val failures = reader.counted(MAX_FAILURES, reader.u8()) { reader.i64() to reader.u8() }.toMap()
+        val failureList = reader.counted(MAX_FAILURES, reader.u8()) { reader.i64() to reader.u8() }
         val quarantined = reader.counted(MAX_QUARANTINED, reader.u16()) { reader.i64() }
         val unverified = reader.counted(MAX_UNVERIFIED, reader.u8()) { KeyBytes(reader.bytes(KEY_BYTES)) }
+        val failures = failureList.toMap()
+        if (failures.size != failureList.size || quarantined.toSet().size != quarantined.size ||
+            unverified.toSet().size != unverified.size
+        ) {
+            invalid()
+        }
         return GroupRecord(cursor, status, failures, quarantined, unverified, last, prev)
     }
 

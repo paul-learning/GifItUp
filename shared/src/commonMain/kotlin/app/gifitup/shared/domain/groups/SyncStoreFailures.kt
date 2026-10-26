@@ -2,6 +2,8 @@ package app.gifitup.shared.domain.groups
 
 import app.gifitup.shared.data.contacts.KeyBytes
 import app.gifitup.shared.data.crypto.MlsClient
+import app.gifitup.shared.data.crypto.MlsErrorCode
+import app.gifitup.shared.data.crypto.MlsException
 
 private const val MAX_ATTEMPTS = 3
 
@@ -39,7 +41,22 @@ internal suspend fun SyncStore.markGone(
     mls: MlsClient,
     id: KeyBytes,
 ) {
-    lookup { mls.forgetGroup(id.bytes) }
+    crate { mls.forgetGroup(id.bytes) }
     put(id, recordOf(id).copy(status = GroupStatus.REMOVED))
+    persist()
+}
+
+/** Removes the group's record and whatever MLS state is left of it (a group already gone from the client is fine). */
+internal suspend fun SyncStore.forget(
+    mls: MlsClient,
+    id: KeyBytes,
+) {
+    if (find(id) == null) halt(SyncOutcome.NotJoined)
+    try {
+        mls.forgetGroup(id.bytes)
+    } catch (e: MlsException) {
+        if (e.code != MlsErrorCode.UnknownGroup) crate { throw e }
+    }
+    drop(id)
     persist()
 }

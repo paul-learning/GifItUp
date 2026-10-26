@@ -167,6 +167,37 @@ class GroupSyncTest {
         }
 
     @Test
+    fun aFlagDisappearsWhenItsLeafIsRemoved() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            val otherBob = Party("bob", ds, deviceSuffix = "-2")
+            alice.add(groupId, otherBob)
+            bob.engine.sync(groupId)
+            assertEquals(
+                1,
+                bob.engine
+                    .recordOf(groupId)
+                    ?.unverified
+                    ?.size,
+            )
+            alice.remove(groupId, otherBob)
+            assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
+            assertEquals(emptyList(), bob.engine.recordOf(groupId)?.unverified)
+        }
+
+    /** CR-5: only the message in front of the cursor can have killed the client. */
+    @Test
+    fun aFailureIsRecordedOnlyForTheNextMessage() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            val seq = alice.say(groupId, "one")
+            bob.engine.recordFailure(groupId, seq + 5)
+            assertEquals(emptyMap(), bob.engine.recordOf(groupId)?.failures)
+            bob.engine.recordFailure(groupId, seq)
+            assertEquals(mapOf(seq to 1), bob.engine.recordOf(groupId)?.failures)
+        }
+
+    @Test
     fun aJumpInTheLogIsAGapAndFreezesTheGroup() =
         runTest {
             val (alice, bob, groupId) = joinedPair()
@@ -230,6 +261,40 @@ class GroupSyncTest {
             assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
             assertEquals(seq, bob.engine.recordOf(groupId)?.cursor)
             assertTrue(bob.received.isEmpty())
+        }
+
+    /** SEC-1: the sender label is the server's word; a commit labelled as ours must not be skipped. */
+    @Test
+    fun aCommitLabelledAsOursIsStillApplied() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            alice.add(groupId, party("carol"))
+            ds.relabel(groupId, ds.lastSeq(groupId), bob.deviceId)
+            assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
+            assertEquals(3, bob.mls.memberCount(groupId))
+        }
+
+    /** SEC-2: the 50th group is the last; a welcome for another is dropped, and forgetting a group frees its slot. */
+    @Test
+    fun theGroupCapDropsFurtherWelcomesAndForgettingFreesASlot() =
+        runTest {
+            val bob = party("bob")
+            val groups = (1..50).map { party("host$it").createGroupWith(bob) }
+            assertEquals(
+                50,
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .count { it is WelcomeOutcome.Joined },
+            )
+            val extra = party("extra").createGroupWith(bob)
+            val report = bob.engine.processWelcomes()
+            assertEquals(WelcomeOutcome.Rejected(RejectReason.GROUP_LIMIT), report.results.single())
+            assertEquals(null, bob.engine.recordOf(extra))
+            assertEquals(SyncOutcome.CaughtUp(0), bob.engine.forget(groups.first()))
+            assertEquals(null, bob.engine.recordOf(groups.first()))
+            bob.restart()
+            assertEquals(49, bob.engine.statuses().size)
         }
 
     @Test

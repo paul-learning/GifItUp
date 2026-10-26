@@ -37,13 +37,9 @@ internal class SyncStore(
         state = state.with(id, record)
     }
 
-    /** A crate call whose only expected failure is a dead client (anything else is a storage-level surprise). */
-    fun <T> lookup(call: () -> T): T =
-        try {
-            call()
-        } catch (e: MlsException) {
-            halt(if (e.code == MlsErrorCode.Poisoned) SyncOutcome.Poisoned(null) else SyncOutcome.StorageFailed)
-        }
+    fun drop(id: KeyBytes) {
+        state = SyncState(state.groups - id)
+    }
 
     suspend fun advance(
         id: KeyBytes,

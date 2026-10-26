@@ -74,6 +74,19 @@ class InMemoryDelivery {
             Logged(GroupMessageEntry(e.seq, e.senderDeviceId, e.kind, e.epoch, e.added, e.removed, change(e.payload)), old.clientMsgId)
     }
 
+    /** Changes who the log says sent a message (the label is the server's word). */
+    fun relabel(
+        groupId: ByteArray,
+        seq: Long,
+        sender: String,
+    ) {
+        val group = groups.getValue(groupId.toList())
+        val index = group.log.indexOfFirst { it.entry.seq == seq }
+        val old = group.log[index]
+        val e = old.entry
+        group.log[index] = Logged(GroupMessageEntry(e.seq, sender, e.kind, e.epoch, e.added, e.removed, e.payload), old.clientMsgId)
+    }
+
     /** Appends a copy of an existing message as a new one: the server delivering a ciphertext twice. */
     fun duplicate(
         groupId: ByteArray,

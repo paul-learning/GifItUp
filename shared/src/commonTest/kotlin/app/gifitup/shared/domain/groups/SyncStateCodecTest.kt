@@ -76,6 +76,18 @@ class SyncStateCodecTest {
     }
 
     @Test
+    fun repeatedFailuresQuarantinesOrKeysAreRefused() {
+        val key = KeyBytes(ByteArray(32) { 3 })
+        for (bad in listOf(
+            record().copy(quarantined = listOf(4L, 4L)),
+            record().copy(unverified = listOf(key, key)),
+        )) {
+            val encoded = SyncStateCodec.encode(SyncState(mapOf(id(1) to bad)))
+            assertFailsWith<SyncStateException> { SyncStateCodec.decode(encoded) }
+        }
+    }
+
+    @Test
     fun anOversizedRecordIsNotWritten() {
         val bloated = record().copy(quarantined = List(SyncStateCodec.MAX_QUARANTINED + 1) { it.toLong() })
         assertFailsWith<SyncStateException> { SyncStateCodec.encode(SyncState(mapOf(id(1) to bloated))) }

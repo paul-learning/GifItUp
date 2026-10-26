@@ -72,7 +72,7 @@ internal class MessageReceiver(
         val record = store.recordOf(id)
         when {
             entry.seq != record.cursor + 1 -> store.freeze(id, GroupStatus.FROZEN_GAP)
-            entry.seq in record.quarantined || entry.senderDeviceId == ownDeviceId -> store.advance(id, entry.seq)
+            entry.seq in record.quarantined || entry.isOwnApplication(ownDeviceId) -> store.advance(id, entry.seq)
             entry.kind == MessageKind.APPLICATION -> application(id, entry)
             else -> commit(id, entry)
         }
@@ -97,7 +97,7 @@ internal class MessageReceiver(
 
             // An application entry that carries a commit: the server mislabelled it; a commit can't be skipped.
             is IncomingMessage.Commit -> {
-                store.lookup { mls.discardStaged(staged.token) }
+                crate { mls.discardStaged(staged.token) }
                 store.freeze(id, GroupStatus.FROZEN_COMMIT_REFUSED)
             }
         }
@@ -150,7 +150,7 @@ internal class MessageReceiver(
         entry: GroupMessageEntry,
     ) {
         val pins = pinsSource.load() ?: halt(SyncOutcome.LookupIncomplete)
-        val roster = store.lookup { mls.members(id.bytes) }
+        val roster = crate { mls.members(id.bytes) }
         val staged =
             try {
                 mls.stageIncoming(id.bytes, entry.payload)
@@ -164,7 +164,7 @@ internal class MessageReceiver(
             }
 
             is CommitDecision.Discard -> {
-                store.lookup { mls.discardStaged(staged.token) }
+                crate { mls.discardStaged(staged.token) }
                 store.freeze(id, decision.status)
             }
         }
@@ -191,8 +191,18 @@ internal class MessageReceiver(
             store.freeze(id, GroupStatus.FROZEN_COMMIT_REFUSED)
         }
         val record = store.recordOf(id)
-        val unverified = (record.unverified + decision.unverified).distinct().takeLast(SyncStateCodec.MAX_UNVERIFIED)
+        // Flags only ever name leaves of the group (at most 50), so keeping those still in the roster bounds the list.
+        val present = crate { mls.members(id.bytes) }.map { KeyBytes(it.signatureKey) }.toSet()
+        val unverified = (record.unverified + decision.unverified).distinct().filter { it in present }
         store.put(id, record.copy(cursor = seq, failures = record.failures - seq, unverified = unverified))
         if (commit.selfRemoved) store.markGone(mls, id) else store.persist()
     }
 }
+
+/**
+ * Our own application messages come back in the log and can't be decrypted by us, so they move the cursor. The label is
+ * the server's word, so only an application message is skipped on it: a commit labelled as ours is applied like any
+ * other (a hostile server must not hide a removal this way, SEC-1). The send side (PR C2) knows the seq of each of its
+ * own commits from the answer to the post.
+ */
+private fun GroupMessageEntry.isOwnApplication(ownDeviceId: String) = kind == MessageKind.APPLICATION && senderDeviceId == ownDeviceId

@@ -1,5 +1,7 @@
 package app.gifitup.shared.domain.groups
 
+import app.gifitup.shared.data.crypto.MlsErrorCode
+import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.ApiResult
 
@@ -67,7 +69,7 @@ sealed interface WelcomeOutcome {
     ) : WelcomeOutcome
 }
 
-enum class RejectReason { UNUSABLE, CONTACT_MISMATCH }
+enum class RejectReason { UNUSABLE, CONTACT_MISMATCH, GROUP_LIMIT }
 
 /** The results for the welcomes handled, and why the run stopped early, if it did. */
 class WelcomesReport(
@@ -87,4 +89,12 @@ internal fun <T> answer(result: ApiResult<T>): T =
     when (result) {
         is ApiResult.Ok -> result.value
         is ApiResult.Failed -> halt(SyncOutcome.Unavailable(result.error))
+    }
+
+/** A crate call whose only expected failure is a dead client (anything else is a storage-level surprise). */
+internal fun <T> crate(call: () -> T): T =
+    try {
+        call()
+    } catch (e: MlsException) {
+        halt(if (e.code == MlsErrorCode.Poisoned) SyncOutcome.Poisoned(null) else SyncOutcome.StorageFailed)
     }
