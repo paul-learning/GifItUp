@@ -135,7 +135,8 @@ impl Client {
         if state.len() > crate::snapshot::MAX_APP_STATE_BYTES {
             return Err(ErrorCode::LimitExceeded);
         }
-        self.lock_meta()?.app_state = state;
+        let mut old = std::mem::replace(&mut self.lock_meta()?.app_state, state);
+        zeroize::Zeroize::zeroize(&mut old);
         Ok(())
     }
 
@@ -149,6 +150,10 @@ impl Client {
     /// restores.
     pub fn rekey(&self, new_key: SnapshotKey) -> Result<(), ErrorCode> {
         let mut meta = self.lock_meta()?;
+        // The same key again would reset the count and defeat the bound.
+        if *meta.snapshot_key == *new_key {
+            return Err(ErrorCode::InvalidInput);
+        }
         meta.snapshot_key = new_key;
         meta.exports = 0;
         Ok(())
@@ -382,6 +387,7 @@ mod tests {
             Some(ErrorCode::LimitExceeded)
         );
         let new_key = Zeroizing::new([9; KEY_LEN]);
+        assert_eq!(restored.rekey(key()).err(), Some(ErrorCode::InvalidInput));
         restored.rekey(Zeroizing::new([9; KEY_LEN])).unwrap();
         let rekeyed = restored.export_state().unwrap();
         assert_eq!(restored.exports_under_key().unwrap(), 1);
