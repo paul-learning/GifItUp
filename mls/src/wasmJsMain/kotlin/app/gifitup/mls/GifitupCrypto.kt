@@ -137,7 +137,9 @@ internal external class JsCreatedKeyPackage : JsAny {
 internal external class JsLeafInfo : JsAny {
     val username: String
     val signatureKey: Uint8Array
-    val leafIndex: Int
+
+    /** A `u32` as a JS number; `Double` so no Int conversion happens before [toShared] wraps it. */
+    val leafIndex: Double
 
     fun free()
 }
