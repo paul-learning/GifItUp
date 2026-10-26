@@ -98,6 +98,18 @@ impl Client {
     /// consumes secrets that the snapshot already holds, so a snapshot without the staged item could never be
     /// completed (ADR-0016).
     pub fn export_state(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.seal_state(None)
+    }
+
+    /// Exports under a **new** snapshot key and, only if that succeeded, switches to it and restarts the export
+    /// count. On any error nothing changes (the old key stays in use), so the caller can keep storing snapshots
+    /// under the key it already has wrapped. It stores the returned snapshot with the new key wrapped and only
+    /// then drops the old key: until then the old snapshot is the one that restores.
+    pub fn rekey_and_export(&self, new_key: SnapshotKey) -> Result<Vec<u8>, ErrorCode> {
+        self.seal_state(Some(new_key))
+    }
+
+    fn seal_state(&self, new_key: Option<SnapshotKey>) -> Result<Vec<u8>, ErrorCode> {
         // Lock order groups, staging, key package refs, meta (as every other call), held until the snapshot is
         // sealed: a concurrent stage_incoming cannot slip in between the check and the copy.
         let groups = self.lock_groups()?;
@@ -107,9 +119,13 @@ impl Client {
         }
         let key_package_refs = self.lock_key_package_refs()?;
         let mut meta = self.lock_meta()?;
-        if meta.exports >= meta.max_exports {
-            return Err(ErrorCode::LimitExceeded); // rekey first
-        }
+        let exports = match &new_key {
+            // The same key again would restart the count and defeat the bound.
+            Some(key) if *meta.snapshot_key == **key => return Err(ErrorCode::InvalidInput),
+            Some(_) => 1,
+            None if meta.exports >= meta.max_exports => return Err(ErrorCode::LimitExceeded), // rekey first
+            None => meta.exports + 1,
+        };
         let values = self
             .provider
             .storage
@@ -123,10 +139,16 @@ impl Client {
             key_package_refs: encode_refs(&key_package_refs)?,
             values: values.clone(),
             app_state: meta.app_state.clone(),
-            exports: meta.exports + 1,
+            exports,
         }
-        .seal(&meta.snapshot_key, self.provider.crypto())?;
-        meta.exports += 1;
+        .seal(
+            new_key.as_ref().unwrap_or(&meta.snapshot_key),
+            self.provider.crypto(),
+        )?;
+        meta.exports = exports;
+        if let Some(key) = new_key {
+            meta.snapshot_key = key;
+        }
         Ok(sealed)
     }
 
@@ -143,20 +165,6 @@ impl Client {
     /// The sync engine's opaque state (empty until set).
     pub fn app_state(&self) -> Result<Vec<u8>, ErrorCode> {
         Ok(self.lock_meta()?.app_state.clone())
-    }
-
-    /// Replaces the snapshot key and resets the export count. The caller exports next and stores that snapshot
-    /// with the new key wrapped, and only then drops the old key: until then the old snapshot is the one that
-    /// restores.
-    pub fn rekey(&self, new_key: SnapshotKey) -> Result<(), ErrorCode> {
-        let mut meta = self.lock_meta()?;
-        // The same key again would reset the count and defeat the bound.
-        if *meta.snapshot_key == *new_key {
-            return Err(ErrorCode::InvalidInput);
-        }
-        meta.snapshot_key = new_key;
-        meta.exports = 0;
-        Ok(())
     }
 
     /// Exports made under the current key; the caller rekeys well before [`MAX_EXPORTS_PER_KEY`].
@@ -387,9 +395,13 @@ mod tests {
             Some(ErrorCode::LimitExceeded)
         );
         let new_key = Zeroizing::new([9; KEY_LEN]);
-        assert_eq!(restored.rekey(key()).err(), Some(ErrorCode::InvalidInput));
-        restored.rekey(Zeroizing::new([9; KEY_LEN])).unwrap();
-        let rekeyed = restored.export_state().unwrap();
+        assert_eq!(
+            restored.rekey_and_export(key()).err(),
+            Some(ErrorCode::InvalidInput)
+        );
+        let rekeyed = restored
+            .rekey_and_export(Zeroizing::new([9; KEY_LEN]))
+            .unwrap();
         assert_eq!(restored.exports_under_key().unwrap(), 1);
         assert_eq!(
             Client::restore(&rekeyed, key()).err(),
@@ -397,6 +409,27 @@ mod tests {
         );
         assert!(Client::restore(&rekeyed, new_key).is_ok());
         assert!(Client::restore(&first, key()).is_ok()); // the old snapshot still restores with the old key
+    }
+
+    /// CR-2: a failed rekey export changes nothing: the old key and count stay.
+    #[test]
+    fn a_failed_rekey_export_keeps_the_old_key() {
+        let (alice, bob, group_id) = pair();
+        let theirs = bob
+            .prepare_add(
+                &group_id,
+                &[crate::test_support::key_package(&client("carol"))],
+            )
+            .unwrap();
+        alice.stage_incoming(&group_id, &theirs.commit).unwrap();
+        assert_eq!(
+            alice.rekey_and_export(Zeroizing::new([9; KEY_LEN])).err(),
+            Some(ErrorCode::PendingOperation)
+        );
+        assert_eq!(alice.exports_under_key().unwrap(), 0);
+        alice.discard_staged(1).unwrap();
+        let sealed = alice.export_state().unwrap();
+        assert!(Client::restore(&sealed, key()).is_ok());
     }
 
     #[test]
