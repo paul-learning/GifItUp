@@ -189,6 +189,35 @@ class GroupCommitTest {
             assertTrue(alice.mls.exportState().isNotEmpty())
         }
 
+    /** SEC-1: a creation whose request never reached the server is posted again, not read as "removed". */
+    @Test
+    fun aLostCreationRequestIsPostedAgainAndNotTakenForARemoval() =
+        runTest {
+            val alice = party("alice")
+            val bob = party("bob")
+            ds.failing = setOf("create")
+            val created = alice.engine.createGroup(listOf(member(bob)))
+            assertEquals(SyncOutcome.InFlight(ApiError.NETWORK), created.outcome)
+            val groupId = assertNotNull(created.groupId)
+            ds.failing = emptySet()
+            assertIs<SyncOutcome.Sent>(alice.engine.resume(groupId))
+            join(bob)
+            assertEquals(GroupStatus.ACTIVE, alice.engine.recordOf(groupId)?.status)
+        }
+
+    /** SEC-2: a KeyPackage the crate refuses leaves no half-made group behind. */
+    @Test
+    fun aRefusedKeyPackageForgetsTheGroupTheCallMade() =
+        runTest {
+            val alice = party("alice")
+            val recording = RecordingClient(alice.mls)
+            val engine = alice.newEngine(recording)
+            assertEquals(SyncOutcome.InvalidRequest, engine.createGroup(listOf(NewMember(party("bob").deviceId, ByteArray(10)))).outcome)
+            assertEquals(1, recording.created.size)
+            assertEquals(recording.created, recording.forgotten)
+            assertTrue(engine.statuses().isEmpty())
+        }
+
     @Test
     fun badRequestsAreRefusedBeforeAnythingIsStored() =
         runTest {

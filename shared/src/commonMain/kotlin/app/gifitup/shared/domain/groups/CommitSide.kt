@@ -9,7 +9,11 @@ import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.MessageKind
 import app.gifitup.shared.domain.contacts.KeyBytes
 
-/** A claimed KeyPackage with the device it belongs to (the caller has checked it against the contact book, ADR-0014). */
+/**
+ * A claimed KeyPackage with the device it belongs to (the caller has checked it against the contact book, ADR-0014). The
+ * engine cannot check that the device id and the KeyPackage belong together: the caller takes both from one contact-book
+ * entry.
+ */
 class NewMember(
     val deviceId: String,
     val keyPackage: ByteArray,
@@ -17,7 +21,10 @@ class NewMember(
     override fun toString(): String = "NewMember(deviceId=$deviceId)"
 }
 
-/** A device to remove: its id for the envelope and the signature key its leaf carries. */
+/**
+ * A device to remove: its id for the envelope and the signature key its leaf carries. The engine cannot check that they
+ * belong together: the caller takes both from one contact-book entry (or the member list).
+ */
 class RemoveTarget(
     val deviceId: String,
     val signatureKey: ByteArray,
@@ -48,7 +55,13 @@ internal class CommitSide(
         if (members.size !in 1..MAX_CHANGES || !members.all { isDeviceId(it.deviceId) }) halt(SyncOutcome.InvalidRequest)
         val groupId = crate { mls.createGroup() }
         val id = KeyBytes(groupId)
-        val prepared = userInput { mls.prepareAdd(groupId, members.map { it.keyPackage }) }
+        val prepared =
+            try {
+                userInput { mls.prepareAdd(groupId, members.map { it.keyPackage }) }
+            } catch (stop: Halt) {
+                mls.forgetQuietly(groupId) // nothing was stored; the group the crate made for this call must not stay behind
+                throw stop
+            }
         val pending = pendingOf(prepared, members.map { it.deviceId }, emptyList())
         store.put(id, GroupRecord.joinedAt(0, emptyList()).copy(pending = pending))
         store.persist()
@@ -79,7 +92,9 @@ internal class CommitSide(
     /** Posts the pending commit again, unchanged: a lost answer, or a restart with a commit still pending. */
     suspend fun resume(id: KeyBytes): SyncOutcome {
         val pending = activeRecord(store, id).pending ?: halt(SyncOutcome.CaughtUp(0))
-        poster.checkFresh(id, pending)
+        // A creation has nothing to be fresh against: the server may never have seen the group (a lost request), and
+        // asking it would read "not found" as "removed".
+        if (pending.epoch != 0L) poster.checkFresh(id, pending)
         return finish(id, pending) ?: SyncOutcome.Rejected(ApiError.EPOCH_CONFLICT)
     }
 
@@ -206,3 +221,11 @@ private val DEVICE_ID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 
 /** A device id as the server hands them out: a canonical lowercase UUID (it is stored with the pending commit). */
 private fun isDeviceId(value: String) = DEVICE_ID.matches(value)
+
+private fun MlsClient.forgetQuietly(groupId: ByteArray) {
+    try {
+        forgetGroup(groupId)
+    } catch (ignored: MlsException) {
+        // A dead client is reported by the caller's halt; nothing else can be done for a group that was never stored.
+    }
+}
