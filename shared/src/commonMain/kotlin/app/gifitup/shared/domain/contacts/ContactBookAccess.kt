@@ -1,8 +1,8 @@
 package app.gifitup.shared.domain.contacts
 
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.storage.ContactLoad
-import app.gifitup.shared.data.storage.ContactStore
+import app.gifitup.shared.domain.contacts.ContactBook
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.ContactStore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.cancellation.CancellationException

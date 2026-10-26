@@ -1,16 +1,16 @@
 package app.gifitup.cli
 
-import app.gifitup.shared.data.contacts.AcceptResult
-import app.gifitup.shared.data.contacts.Contact
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.contacts.ContactStatus
 import app.gifitup.shared.data.network.Session
-import app.gifitup.shared.data.storage.ContactLoad
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.contacts.AcceptContact
 import app.gifitup.shared.domain.contacts.AcceptOutcome
+import app.gifitup.shared.domain.contacts.AcceptResult
 import app.gifitup.shared.domain.contacts.BlindAcceptForDevCli
+import app.gifitup.shared.domain.contacts.Contact
+import app.gifitup.shared.domain.contacts.ContactBook
 import app.gifitup.shared.domain.contacts.ContactBookAccess
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.ContactStatus
 import app.gifitup.shared.domain.contacts.RefreshContacts
 import java.io.PrintStream
 

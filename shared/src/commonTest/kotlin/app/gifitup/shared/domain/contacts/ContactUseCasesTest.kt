@@ -1,12 +1,5 @@
 package app.gifitup.shared.domain.contacts
 
-import app.gifitup.shared.data.contacts.AcceptResult
-import app.gifitup.shared.data.contacts.Contact
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.contacts.ContactStatus
-import app.gifitup.shared.data.contacts.KeyBytes
-import app.gifitup.shared.data.contacts.Observation
-import app.gifitup.shared.data.contacts.TrustConflict
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.Base64Url
 import app.gifitup.shared.data.network.FakeAuthServer
@@ -24,6 +17,13 @@ import app.gifitup.shared.domain.auth.InMemoryKeyStore
 import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.RegisterDevice
 import app.gifitup.shared.domain.auth.unguarded
+import app.gifitup.shared.domain.contacts.AcceptResult
+import app.gifitup.shared.domain.contacts.Contact
+import app.gifitup.shared.domain.contacts.ContactBook
+import app.gifitup.shared.domain.contacts.ContactStatus
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.contacts.Observation
+import app.gifitup.shared.domain.contacts.TrustConflict
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest

@@ -2,8 +2,6 @@ package app.gifitup.shared.domain.keypackages
 
 import app.gifitup.protocol.ProtocolJson
 import app.gifitup.protocol.UploadKeyPackagesRequest
-import app.gifitup.shared.data.contacts.ContactStatus
-import app.gifitup.shared.data.contacts.TrustConflict
 import app.gifitup.shared.data.crypto.FakeMlsClient
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.Base64Url
@@ -26,6 +24,8 @@ import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.RegisterDevice
 import app.gifitup.shared.domain.auth.unguarded
 import app.gifitup.shared.domain.contacts.ContactBookAccess
+import app.gifitup.shared.domain.contacts.ContactStatus
+import app.gifitup.shared.domain.contacts.TrustConflict
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode

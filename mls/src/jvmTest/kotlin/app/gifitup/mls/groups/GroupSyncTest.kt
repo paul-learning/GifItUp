@@ -1,7 +1,7 @@
 package app.gifitup.mls.groups
 
-import app.gifitup.shared.data.contacts.KeyBytes
 import app.gifitup.shared.data.network.ApiError
+import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.ContactPins
 import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.groups.PinCheck

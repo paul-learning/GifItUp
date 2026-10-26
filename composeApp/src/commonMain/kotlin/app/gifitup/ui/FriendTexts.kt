@@ -1,6 +1,6 @@
 package app.gifitup.ui
 
-import app.gifitup.shared.data.contacts.TrustConflict
+import app.gifitup.shared.domain.contacts.TrustConflict
 import app.gifitup.shared.presentation.contacts.FriendStatus
 import app.gifitup.shared.presentation.contacts.FriendsProblem
 

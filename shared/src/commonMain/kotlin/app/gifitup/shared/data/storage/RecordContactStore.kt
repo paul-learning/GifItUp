@@ -1,32 +1,13 @@
 package app.gifitup.shared.data.storage
 
-import app.gifitup.shared.data.contacts.Contact
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.contacts.ContactStatus
-import app.gifitup.shared.data.contacts.KeyBytes
-import app.gifitup.shared.data.contacts.Observation
-import app.gifitup.shared.data.contacts.TrustConflict
-
-/** What a store found: the book, or nothing usable (ADR-0014). Never "empty because it was missing or damaged". */
-sealed interface ContactLoad {
-    class Book(
-        val book: ContactBook,
-    ) : ContactLoad
-
-    /** No record, a damaged or oversized one, one of another identity, or no identity at all: claims are refused. */
-    data object Unavailable : ContactLoad
-}
-
-/**
- * The persisted [ContactBook]. A save is atomic and durable when it returns, and throws when it can't be (the caller
- * then treats the claim as blocked). The record is created empty together with the identity ([IdentityStore.save]),
- * so a missing record next to an identity is [ContactLoad.Unavailable], not a fresh book.
- */
-interface ContactStore {
-    suspend fun load(): ContactLoad
-
-    suspend fun save(book: ContactBook)
-}
+import app.gifitup.shared.domain.contacts.Contact
+import app.gifitup.shared.domain.contacts.ContactBook
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.ContactStatus
+import app.gifitup.shared.domain.contacts.ContactStore
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.contacts.Observation
+import app.gifitup.shared.domain.contacts.TrustConflict
 
 /** [ContactStore] over the app's [LocalStore] under one versioned key, bound to the stored identity. */
 class RecordContactStore(

@@ -1,12 +1,12 @@
 package app.gifitup.cli
 
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.storage.ContactLoad
 import app.gifitup.shared.data.storage.ContactRecordCodec
-import app.gifitup.shared.data.storage.ContactStore
 import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredIdentity
+import app.gifitup.shared.domain.contacts.ContactBook
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.ContactStore
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock

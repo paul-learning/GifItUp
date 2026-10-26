@@ -1,7 +1,7 @@
 package app.gifitup.shared.domain.contacts
 
-import app.gifitup.shared.data.contacts.AcceptResult
-import app.gifitup.shared.data.contacts.Observation
+import app.gifitup.shared.domain.contacts.AcceptResult
+import app.gifitup.shared.domain.contacts.Observation
 
 /** Opt-in for the dev CLI's blind accept; an error to use it anywhere else without saying so (ADR-0014). */
 @RequiresOptIn(
