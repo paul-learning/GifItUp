@@ -22,7 +22,7 @@ class SyncStateCodecTest {
         listOf(KeyBytes(ByteArray(32) { 3 })),
         ByteArray(16) { 1 },
         null,
-        listOf(12L, 13L),
+        listOf(OwnSend(12, ByteArray(32) { 1 }), OwnSend(13, ByteArray(32) { 2 })),
     )
 
     private fun sample() = SyncState(mapOf(id(1) to record(), id(2) to record(cursor = 0, status = GroupStatus.FROZEN_GAP)))
@@ -38,7 +38,8 @@ class SyncStateCodecTest {
         assertEquals(listOf(KeyBytes(ByteArray(32) { 3 })), first.unverified)
         assertContentEquals(ByteArray(16) { 1 }, first.lastMsgId)
         assertEquals(null, first.pending)
-        assertEquals(listOf(12L, 13L), first.ownSeqs)
+        assertEquals(listOf(12L, 13L), first.ownSeqs.map { it.seq })
+        assertContentEquals(ByteArray(32) { 2 }, first.ownSeqs.last().tail)
         assertEquals(GroupStatus.FROZEN_GAP, decoded.groups.getValue(id(2)).status)
     }
 
@@ -59,7 +60,7 @@ class SyncStateCodecTest {
     @Test
     fun unknownVersionsStatusesAndOversizedCountsAreRefused() {
         val bytes = SyncStateCodec.encode(sample())
-        assertFailsWith<SyncStateException> { SyncStateCodec.decode(bytes.copyOf().also { it[0] = 2 }) }
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(bytes.copyOf().also { it[0] = 3 }) }
         val statusAt = 1 + 2 + 1 + 16 + Long.SIZE_BYTES
         assertFailsWith<SyncStateException> {
             SyncStateCodec.decode(

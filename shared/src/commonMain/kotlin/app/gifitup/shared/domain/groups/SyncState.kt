@@ -50,12 +50,39 @@ class PendingSend(
 }
 
 /**
+ * An accepted send of ours: the [seq] the server named and the last [TAIL_BYTES] of the ciphertext we posted. The server
+ * can name any seq and any sender, so the receive side skips an entry only if both match; a message of someone else
+ * (or a commit) with another tail is decrypted like any other.
+ */
+class OwnSend(
+    val seq: Long,
+    val tail: ByteArray,
+) {
+    fun matches(
+        entrySeq: Long,
+        payload: ByteArray,
+    ) = entrySeq == seq && tailOf(payload).contentEquals(tail)
+
+    companion object {
+        const val TAIL_BYTES = 32
+
+        /** The tail of a ciphertext, or null if it is too short to tell apart. */
+        fun of(
+            seq: Long,
+            payload: ByteArray,
+        ): OwnSend? = payload.takeIf { it.size >= TAIL_BYTES }?.let { OwnSend(seq, tailOf(it)) }
+
+        private fun tailOf(payload: ByteArray) = payload.copyOfRange(maxOf(0, payload.size - TAIL_BYTES), payload.size)
+    }
+}
+
+/**
  * The sync state of one group. [cursor] is the highest seq applied; [failures] counts failed attempts per seq for
  * application messages; [quarantined] are seqs skipped for good; [unverified] are signature keys of members that
  * share a name with another leaf and are not pinned (shown as "new, unverified device", SEC-18).
  * [lastMsgId] is the client message id of the last send the server accepted and [pending] the one in flight
- * (freshness, ADR-0015). [ownSeqs] are the seqs of our accepted sends that the cursor has not passed yet: the only
- * entries that are skipped without a decrypt, because we recorded them ourselves.
+ * (freshness, ADR-0015). [ownSeqs] are our accepted sends that the cursor has not passed yet, each with the end of its
+ * ciphertext: the only entries that are skipped without a decrypt, and only when the log entry is that very message.
  */
 @Suppress("LongParameterList") // One property per stored field; the codec lists them in the same order.
 class GroupRecord(
@@ -66,7 +93,7 @@ class GroupRecord(
     val unverified: List<KeyBytes>,
     val lastMsgId: ByteArray?,
     val pending: PendingSend?,
-    val ownSeqs: List<Long>,
+    val ownSeqs: List<OwnSend>,
 ) {
     @Suppress("LongParameterList") // Mirrors the constructor.
     fun copy(
@@ -77,7 +104,7 @@ class GroupRecord(
         unverified: List<KeyBytes> = this.unverified,
         lastMsgId: ByteArray? = this.lastMsgId,
         pending: PendingSend? = this.pending,
-        ownSeqs: List<Long> = this.ownSeqs,
+        ownSeqs: List<OwnSend> = this.ownSeqs,
     ) = GroupRecord(cursor, status, failures, quarantined, unverified, lastMsgId, pending, ownSeqs)
 
     companion object {

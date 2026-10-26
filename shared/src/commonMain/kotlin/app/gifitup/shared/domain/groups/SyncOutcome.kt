@@ -59,6 +59,14 @@ sealed interface SyncOutcome {
         val error: ApiError,
     ) : SyncOutcome
 
+    /**
+     * An older message of this group was still pending and did not go through ([outcome] says why: in flight or refused);
+     * the new text was neither sealed nor stored. Send it again once the older one is settled.
+     */
+    data class PendingFirst(
+        val outcome: SyncOutcome,
+    ) : SyncOutcome
+
     /** The text is longer than one padded block holds (896 bytes). */
     data object TooLong : SyncOutcome
 

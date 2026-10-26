@@ -27,8 +27,11 @@ internal class SendSide(
     ): SyncOutcome {
         val record = activeRecord(id)
         if (plaintext.size > MAX_CONTENT) halt(SyncOutcome.TooLong)
+        // Fresh first, then settle: re-posting an old pending message into a log that already dropped it would be
+        // accepted as new and make a stale state look fresh (SEC-1).
+        checkFresh(id, record.pending)
         record.pending?.let { settle(id, it) }
-        checkFresh(id)
+        if (store.recordOf(id).ownSeqs.size >= SyncStateCodec.MAX_OWN_SEQS) halt(SyncOutcome.Busy)
         if (!fitsAnother(id)) halt(SyncOutcome.Busy)
         val sealed = crate { mls.encrypt(id.bytes, plaintext) }
         val pending =
@@ -49,6 +52,7 @@ internal class SendSide(
     /** Posts the pending message again (a fresh start, or after [SyncOutcome.InFlight]); nothing pending is nothing to do. */
     suspend fun resume(id: KeyBytes): SyncOutcome {
         val pending = activeRecord(id).pending
+        if (pending != null) checkFresh(id, pending)
         return if (pending == null) SyncOutcome.CaughtUp(0) else post(id, pending)
     }
 
@@ -78,21 +82,27 @@ internal class SendSide(
         return record
     }
 
-    /** Settles an older pending message first: one send in flight per group. */
+    /** Settles an older pending message first (one send in flight per group); if it does not go through, the new text waits. */
     private suspend fun settle(
         id: KeyBytes,
         pending: PendingSend,
     ) {
         val outcome = post(id, pending)
-        if (outcome !is SyncOutcome.Sent) halt(outcome)
+        if (outcome !is SyncOutcome.Sent) halt(SyncOutcome.PendingFirst(outcome))
     }
 
-    /** The server's last client message id for this device must be the last one the server accepted from us. */
-    private suspend fun checkFresh(id: KeyBytes) {
+    /**
+     * The server's last client message id for this device must be the last one the server accepted from us, or the one
+     * we have pending (its answer may have been lost).
+     */
+    private suspend fun checkFresh(
+        id: KeyBytes,
+        pending: PendingSend?,
+    ) {
         val state = store.answerForGroup(mls, id, delivery.status(id.bytes))
         val mine = store.recordOf(id).lastMsgId
         val theirs = state.lastClientMsgId
-        val fresh = if (mine == null) theirs == null else theirs != null && mine.contentEquals(theirs)
+        val fresh = sameId(theirs, mine) || (pending != null && sameId(theirs, pending.clientMsgId))
         if (!fresh) store.freeze(id, GroupStatus.READ_ONLY_ROLLBACK)
     }
 
@@ -118,7 +128,7 @@ internal class SendSide(
             record.copy(
                 lastMsgId = pending.clientMsgId,
                 pending = null,
-                ownSeqs = (record.ownSeqs + seq).takeLast(SyncStateCodec.MAX_OWN_SEQS),
+                ownSeqs = (record.ownSeqs + listOfNotNull(OwnSend.of(seq, pending.payload))).takeLast(SyncStateCodec.MAX_OWN_SEQS),
             ),
         )
         store.persist()
@@ -164,3 +174,8 @@ internal class SendSide(
         val REFUSED = setOf(ApiError.ENVELOPE_INVALID, ApiError.PAYLOAD_TOO_LARGE, ApiError.BAD_REQUEST)
     }
 }
+
+private fun sameId(
+    a: ByteArray?,
+    b: ByteArray?,
+) = if (a == null || b == null) a == b else a.contentEquals(b)

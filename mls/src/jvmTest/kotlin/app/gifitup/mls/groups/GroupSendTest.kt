@@ -103,6 +103,22 @@ class GroupSendTest {
         }
 
     @Test
+    fun anOlderMessageThatDoesNotGoThroughKeepsTheNewTextWaiting() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            ds.failing = setOf("post")
+            assertEquals(SyncOutcome.InFlight(ApiError.NETWORK), alice.engine.send(groupId, "first".encodeToByteArray()))
+            assertEquals(
+                SyncOutcome.PendingFirst(SyncOutcome.InFlight(ApiError.NETWORK)),
+                alice.engine.send(groupId, "second".encodeToByteArray()),
+            )
+            ds.failing = emptySet()
+            assertIs<SyncOutcome.Sent>(alice.engine.resume(groupId))
+            bob.engine.sync(groupId)
+            assertEquals(listOf("first"), texts(bob), "the second text was never sealed")
+        }
+
+    @Test
     fun aRefusedMessageIsDroppedForGoodAndTheNextOneWorks() =
         runTest {
             val (alice, bob, groupId) = joinedPair()
@@ -132,6 +148,51 @@ class GroupSendTest {
             assertEquals(SyncOutcome.Stopped(GroupStatus.READ_ONLY_ROLLBACK), alice.engine.send(groupId, "m4".encodeToByteArray()))
             bob.engine.sync(groupId)
             assertEquals(listOf("m1", "m2"), texts(bob))
+        }
+
+    /** SEC-1: freshness is checked before an old pending message is posted again, also when the log forgot it. */
+    @Test
+    fun anOldPendingMessageIsNotPostedAgainIntoALogThatForgotIt() =
+        runTest {
+            val (alice, _, groupId) = joinedPair()
+            ds.lostAnswers = setOf("post")
+            alice.engine.send(groupId, "p".encodeToByteArray())
+            ds.lostAnswers = emptySet()
+            val oldState = alice.saved.copyOf()
+            assertIs<SyncOutcome.Sent>(alice.engine.resume(groupId))
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "q".encodeToByteArray()))
+            ds.trim(groupId, ds.lastSeq(groupId))
+            val last = ds.lastSeq(groupId)
+            alice.saved = oldState
+            alice.restart()
+            assertEquals(SyncOutcome.Stopped(GroupStatus.READ_ONLY_ROLLBACK), alice.engine.resume(groupId))
+            assertEquals(last, ds.lastSeq(groupId), "nothing was posted into the emptied log")
+        }
+
+    /** SEC-2: the seq the server names for our post decides nothing unless the entry is our very message. */
+    @Test
+    fun aWrongSeqInTheAnswerDoesNotMakeUsSkipSomeoneElsesMessage() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            ds.misnameSeqBy = 1
+            val named = assertIs<SyncOutcome.Sent>(bob.engine.send(groupId, "mine".encodeToByteArray())).seq
+            ds.misnameSeqBy = 0
+            alice.engine.sync(groupId)
+            val real = alice.engine.send(groupId, "from alice".encodeToByteArray())
+            assertEquals(named, (real as SyncOutcome.Sent).seq, "the server's named seq now holds Alice's message")
+            repeat(3) { bob.engine.sync(groupId) }
+            assertEquals(listOf("from alice"), texts(bob))
+        }
+
+    /** SEC-3: more than 100 sends without a sync would push own seqs out of the list; sending waits for a sync. */
+    @Test
+    fun sendingWaitsForASyncAfterAHundredOwnMessages() =
+        runTest {
+            val (alice, _, groupId) = joinedPair()
+            repeat(100) { assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "m$it".encodeToByteArray())) }
+            assertEquals(SyncOutcome.Busy, alice.engine.send(groupId, "one too many".encodeToByteArray()))
+            alice.engine.sync(groupId)
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "after the sync".encodeToByteArray()))
         }
 
     @Test

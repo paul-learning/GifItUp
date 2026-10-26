@@ -56,7 +56,7 @@ internal class MessageReceiver(
         val record = store.recordOf(id)
         when {
             entry.seq != record.cursor + 1 -> store.freeze(id, GroupStatus.FROZEN_GAP)
-            entry.seq in record.quarantined || entry.seq in record.ownSeqs -> store.advance(id, entry.seq)
+            entry.seq in record.quarantined || record.ownSeqs.any { it.matches(entry.seq, entry.payload) } -> store.advance(id, entry.seq)
             entry.kind == MessageKind.APPLICATION -> application(id, entry)
             else -> commit(id, entry)
         }
@@ -184,7 +184,7 @@ internal class MessageReceiver(
                 cursor = seq,
                 failures = record.failures - seq,
                 unverified = unverified,
-                ownSeqs = record.ownSeqs.filter { it > seq },
+                ownSeqs = record.ownSeqs.filter { it.seq > seq },
             ),
         )
         if (commit.selfRemoved) store.markGone(mls, id) else store.persist()

@@ -13,7 +13,7 @@ import app.gifitup.shared.domain.contacts.KeyBytes
  * all [SyncStateException]. The result is at most about 40 KiB for 50 groups, far below the 256 KiB cap of the crate.
  */
 internal object SyncStateCodec {
-    const val VERSION = 1
+    const val VERSION = 2
     const val MAX_GROUPS = 50
     const val MAX_FAILURES = 8
     const val MAX_QUARANTINED = 100
@@ -82,7 +82,11 @@ internal object SyncStateCodec {
         PendingSendCodec.write(out, record.pending)
         if (record.ownSeqs.size > MAX_OWN_SEQS) invalid()
         out.u16(record.ownSeqs.size)
-        record.ownSeqs.forEach { out.i64(it) }
+        record.ownSeqs.forEach {
+            if (it.tail.size != OwnSend.TAIL_BYTES) invalid()
+            out.i64(it.seq)
+            out.raw(it.tail)
+        }
     }
 
     /** No repeated failure, quarantined seq, unverified key or own seq. */
@@ -90,11 +94,11 @@ internal object SyncStateCodec {
         failures: Pair<Int, Int>,
         quarantined: List<Long>,
         unverified: List<KeyBytes>,
-        ownSeqs: List<Long>,
+        ownSeqs: List<OwnSend>,
     ) = failures.first == failures.second &&
         quarantined.toSet().size == quarantined.size &&
         unverified.toSet().size == unverified.size &&
-        ownSeqs.toSet().size == ownSeqs.size
+        ownSeqs.map { it.seq }.toSet().size == ownSeqs.size
 
     private fun readGroup(reader: ByteReader): GroupRecord {
         val cursor = reader.i64()
@@ -105,7 +109,7 @@ internal object SyncStateCodec {
         val quarantined = reader.counted(MAX_QUARANTINED, reader.u16()) { reader.i64() }
         val unverified = reader.counted(MAX_UNVERIFIED, reader.u8()) { KeyBytes(reader.bytes(KEY_BYTES)) }
         val pending = PendingSendCodec.read(reader)
-        val ownSeqs = reader.counted(MAX_OWN_SEQS, reader.u16()) { reader.i64() }
+        val ownSeqs = reader.counted(MAX_OWN_SEQS, reader.u16()) { OwnSend(reader.i64(), reader.bytes(OwnSend.TAIL_BYTES)) }
         val failures = failureList.toMap()
         if (!allDistinct(failureList.size to failures.size, quarantined, unverified, ownSeqs)) invalid()
         return GroupRecord(cursor, status, failures, quarantined, unverified, last, pending, ownSeqs)

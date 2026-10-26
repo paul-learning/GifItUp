@@ -1357,6 +1357,21 @@ mod tests {
         );
     }
 
+    /// SEC-4 of #172: an application message is also read while an incoming commit is staged (same epoch); a second
+    /// commit is still refused.
+    #[test]
+    fn application_messages_are_read_while_an_incoming_commit_is_staged() {
+        let (alice, bob, group_id) = pair();
+        let prepared = alice.prepare_update(&group_id).unwrap();
+        let sealed = alice.seal(&group_id, b"same epoch");
+        let staged = bob.stage_incoming(&group_id, &prepared.commit).unwrap();
+        assert!(matches!(staged, Incoming::Commit { .. }));
+        match bob.stage_incoming(&group_id, &sealed).unwrap() {
+            Incoming::Application { plaintext, .. } => assert_eq!(plaintext, b"same epoch"),
+            _ => panic!("expected an application message"),
+        }
+    }
+
     /// SEC-14: while our own commit is pending, nothing incoming is staged.
     #[test]
     fn nothing_is_staged_while_our_own_commit_is_pending() {

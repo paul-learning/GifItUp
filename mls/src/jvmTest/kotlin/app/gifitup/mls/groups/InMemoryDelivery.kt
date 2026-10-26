@@ -54,6 +54,9 @@ class InMemoryDelivery {
     /** Makes every post fail with this answer (the server refusing for good). */
     var refusePosts: ApiError? = null
 
+    /** A lying server: the seq it names in its answer to a post is this much higher than the real one. */
+    var misnameSeqBy = 0L
+
     /** Runs when a post reaches the server, before it is applied (device id, group id). */
     var onPost: (suspend (String, ByteArray) -> Unit)? = null
 
@@ -173,7 +176,21 @@ class InMemoryDelivery {
                         else -> repeat(found.first, envelope) ?: apply(found.first, found.second, envelope)
                     }
                 }
-            return if ("post" in lostAnswers && answer is ApiResult.Ok) ApiResult.Failed(ApiError.NETWORK) else answer
+            return when {
+                "post" in lostAnswers && answer is ApiResult.Ok -> {
+                    ApiResult.Failed(ApiError.NETWORK)
+                }
+
+                misnameSeqBy != 0L && answer is ApiResult.Ok -> {
+                    ApiResult.Ok(
+                        PostedMessage(answer.value.seq + misnameSeqBy, answer.value.epoch),
+                    )
+                }
+
+                else -> {
+                    answer
+                }
+            }
         }
 
         private fun repeat(
