@@ -141,6 +141,14 @@ class InMemoryDelivery {
         override suspend fun createGroup(
             groupId: ByteArray,
             commit: DeliveryEnvelope,
+        ): ApiResult<PostedMessage> {
+            val answer = created(groupId, commit)
+            return if ("create" in lostAnswers && answer is ApiResult.Ok) ApiResult.Failed(ApiError.NETWORK) else answer
+        }
+
+        private fun created(
+            groupId: ByteArray,
+            commit: DeliveryEnvelope,
         ): ApiResult<PostedMessage> =
             ensure("create") {
                 val key = groupId.toList()
@@ -150,7 +158,7 @@ class InMemoryDelivery {
                         repeat(existing, commit) ?: ApiResult.Failed(ApiError.ENVELOPE_INVALID)
                     }
 
-                    commit.epoch != 0L || commit.added.isEmpty() -> {
+                    commit.epoch != 0L || commit.added.isEmpty() || device in commit.added -> {
                         ApiResult.Failed(ApiError.ENVELOPE_INVALID)
                     }
 

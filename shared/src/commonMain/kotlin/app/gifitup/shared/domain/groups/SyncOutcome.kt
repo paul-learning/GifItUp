@@ -67,6 +67,12 @@ sealed interface SyncOutcome {
         val outcome: SyncOutcome,
     ) : SyncOutcome
 
+    /** A commit of this group is still pending: [GroupSyncEngine.resume] it before anything else is sent. */
+    data object CommitPending : SyncOutcome
+
+    /** The request can't be made as asked (no members, too many, a KeyPackage that fails, an unknown member to remove). */
+    data object InvalidRequest : SyncOutcome
+
     /** The text is longer than one padded block holds (896 bytes). */
     data object TooLong : SyncOutcome
 

@@ -29,7 +29,10 @@ class Party(
     private val ds: InMemoryDelivery,
     deviceSuffix: String = "",
 ) {
-    val deviceId = "dev-$name$deviceSuffix"
+    val deviceId =
+        java.util.UUID
+            .nameUUIDFromBytes("$name$deviceSuffix".toByteArray())
+            .toString()
     val view = ds.viewFor(deviceId)
     var mls: MlsClient = UniffiMlsClientFactory.create(name, key())
     var saved: ByteArray = mls.exportState()

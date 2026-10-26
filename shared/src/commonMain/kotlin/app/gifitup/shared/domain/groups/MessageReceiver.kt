@@ -23,19 +23,23 @@ internal class MessageReceiver(
     private val sink: IncomingSink,
     private val store: SyncStore,
 ) {
-    suspend fun sync(id: KeyBytes): SyncOutcome {
-        val record = store.find(id) ?: halt(SyncOutcome.NotJoined)
-        if (record.status != GroupStatus.ACTIVE) halt(SyncOutcome.Stopped(record.status))
+    /** Applies the log up to [upTo] (everything by default); a committer reads what came before its commit this way. */
+    suspend fun sync(
+        id: KeyBytes,
+        upTo: Long = Long.MAX_VALUE,
+    ): SyncOutcome {
+        activeRecord(store, id)
         var applied = 0
         var caughtUp = false
         while (!caughtUp) {
             val page = fetchPage(id, store.recordOf(id).cursor)
-            page.messages.forEach { entry ->
+            val due = page.messages.filter { it.seq <= upTo }
+            due.forEach { entry ->
                 handle(id, entry)
                 applied++
             }
-            if (page.messages.isNotEmpty()) store.answerForGroup(mls, id, delivery.ack(id.bytes, store.recordOf(id).cursor))
-            caughtUp = page.messages.isEmpty() || store.recordOf(id).cursor >= page.lastSeq
+            if (due.isNotEmpty()) store.answerForGroup(mls, id, delivery.ack(id.bytes, store.recordOf(id).cursor))
+            caughtUp = due.isEmpty() || store.recordOf(id).cursor >= minOf(page.lastSeq, upTo)
         }
         return SyncOutcome.CaughtUp(applied)
     }
