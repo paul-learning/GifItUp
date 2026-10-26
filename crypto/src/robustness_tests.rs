@@ -76,13 +76,15 @@ fn mutated_welcomes_never_panic() {
         .add_member(&group_id, &key_package(&bob))
         .unwrap()
         .welcome;
-    check(&seed, 2, |bytes| bob.join_from_welcome(bytes).is_ok());
+    check(&seed, 2, |bytes| {
+        bob.join_from_welcome(bytes, &group_id).is_ok()
+    });
 }
 
 #[test]
 fn mutated_messages_never_panic() {
     let (alice, bob, group_id) = pair();
-    let seed = alice.encrypt(&group_id, b"hello").unwrap();
+    let seed = alice.seal(&group_id, b"hello");
     check(&seed, 3, |bytes| bob.process(&group_id, bytes).is_ok());
 }
 

@@ -109,6 +109,7 @@ internal inline fun <T> translated(block: () -> T): T =
         throw MlsException(MlsErrorCode.Poisoned)
     }
 
+@Suppress("CyclomaticComplexMethod") // One branch per closed error code; splitting would hide the exhaustive `when`.
 private fun ErrorCode.toShared(): MlsErrorCode =
     when (this) {
         is ErrorCode.InvalidInput -> MlsErrorCode.InvalidInput
@@ -119,6 +120,12 @@ private fun ErrorCode.toShared(): MlsErrorCode =
         is ErrorCode.SnapshotInvalid -> MlsErrorCode.SnapshotInvalid
         is ErrorCode.SnapshotVersion -> MlsErrorCode.SnapshotVersion
         is ErrorCode.SnapshotAuth -> MlsErrorCode.SnapshotAuth
+        is ErrorCode.PendingOperation -> MlsErrorCode.PendingOperation
+        is ErrorCode.WrongEpoch -> MlsErrorCode.WrongEpoch
+        is ErrorCode.Replay -> MlsErrorCode.Replay
+        is ErrorCode.Refused -> MlsErrorCode.Refused
+        is ErrorCode.LimitExceeded -> MlsErrorCode.LimitExceeded
+        is ErrorCode.UnknownToken -> MlsErrorCode.UnknownToken
         is ErrorCode.Poisoned -> MlsErrorCode.Poisoned
         is ErrorCode.Internal -> MlsErrorCode.Internal
     }

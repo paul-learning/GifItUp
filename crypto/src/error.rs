@@ -26,6 +26,25 @@ pub enum ErrorCode {
     SnapshotVersion,
     #[error("SnapshotAuth")]
     SnapshotAuth,
+    /// A staged commit or welcome, or a pending commit, is in the way: finish or drop it first (ADR-0016).
+    #[error("PendingOperation")]
+    PendingOperation,
+    /// The message belongs to another epoch than the group's current one.
+    #[error("WrongEpoch")]
+    WrongEpoch,
+    /// The message was processed before (its secret is used up). Dropped silently only for a message the
+    /// caller already knows (ADR-0016).
+    #[error("Replay")]
+    Replay,
+    /// The commit, welcome or proposal breaks a rule of ours (ADR-0002, ADR-0016); nothing was applied.
+    #[error("Refused")]
+    Refused,
+    /// A limit of ADR-0015/ADR-0016 (leaves, changes, sizes) would be exceeded.
+    #[error("LimitExceeded")]
+    LimitExceeded,
+    /// No staged commit or welcome under that token, or nothing pending to merge or clear.
+    #[error("UnknownToken")]
+    UnknownToken,
     /// A panic or a poisoned lock: the client is unusable and must be dropped (ADR-0007).
     #[error("Poisoned")]
     Poisoned,
@@ -39,8 +58,6 @@ pub(crate) fn mls<E>(_: E) -> ErrorCode {
 }
 
 /// Maps a failure to parse untrusted input to [`ErrorCode::InvalidInput`], dropping its details.
-/// Only the test-only spike group code uses it until #22.
-#[cfg(test)]
 pub(crate) fn input<E>(_: E) -> ErrorCode {
     ErrorCode::InvalidInput
 }
