@@ -1,4 +1,4 @@
-package app.gifitup.shared.data.contacts
+package app.gifitup.shared.domain.contacts
 
 /** A signature key (32 bytes) with value equality, so it can key a map. The device id next to it is only a label. */
 class KeyBytes(

@@ -1,4 +1,4 @@
-package app.gifitup.shared.data.contacts
+package app.gifitup.shared.domain.contacts
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

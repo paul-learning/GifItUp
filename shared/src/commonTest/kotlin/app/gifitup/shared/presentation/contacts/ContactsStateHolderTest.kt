@@ -1,13 +1,5 @@
 package app.gifitup.shared.presentation.contacts
 
-import app.gifitup.shared.data.contacts.Contact
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.contacts.ContactStatus
-import app.gifitup.shared.data.contacts.KeyBytes
-import app.gifitup.shared.data.contacts.Observation
-import app.gifitup.shared.data.contacts.Sighting
-import app.gifitup.shared.data.contacts.TrustConflict
-import app.gifitup.shared.data.contacts.Verdict
 import app.gifitup.shared.data.crypto.FingerprintEmojis
 import app.gifitup.shared.data.network.Base64Url
 import app.gifitup.shared.data.network.FakeAuthServer
@@ -25,10 +17,18 @@ import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.RegisterDevice
 import app.gifitup.shared.domain.auth.unguarded
 import app.gifitup.shared.domain.contacts.AcceptContact
+import app.gifitup.shared.domain.contacts.Contact
+import app.gifitup.shared.domain.contacts.ContactBook
 import app.gifitup.shared.domain.contacts.ContactBookAccess
+import app.gifitup.shared.domain.contacts.ContactStatus
 import app.gifitup.shared.domain.contacts.ContactsUseCases
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.contacts.Observation
 import app.gifitup.shared.domain.contacts.RefreshContacts
 import app.gifitup.shared.domain.contacts.ShowFingerprints
+import app.gifitup.shared.domain.contacts.Sighting
+import app.gifitup.shared.domain.contacts.TrustConflict
+import app.gifitup.shared.domain.contacts.Verdict
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first

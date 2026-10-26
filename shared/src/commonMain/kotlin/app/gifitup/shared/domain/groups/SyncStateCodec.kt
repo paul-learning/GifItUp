@@ -1,6 +1,6 @@
 package app.gifitup.shared.domain.groups
 
-import app.gifitup.shared.data.contacts.KeyBytes
+import app.gifitup.shared.domain.contacts.KeyBytes
 
 /**
  * The binary form of [SyncState] (ADR-0016), version 1: `version ‖ group count (u16)` and per group `id (u8 length,

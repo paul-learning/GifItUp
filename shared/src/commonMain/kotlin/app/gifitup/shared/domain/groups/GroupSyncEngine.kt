@@ -1,7 +1,7 @@
 package app.gifitup.shared.domain.groups
 
-import app.gifitup.shared.data.contacts.KeyBytes
 import app.gifitup.shared.data.crypto.MlsClient
+import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 

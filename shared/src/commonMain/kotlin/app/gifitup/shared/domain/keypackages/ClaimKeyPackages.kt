@@ -1,8 +1,5 @@
 package app.gifitup.shared.domain.keypackages
 
-import app.gifitup.shared.data.contacts.KeyBytes
-import app.gifitup.shared.data.contacts.Sighting
-import app.gifitup.shared.data.contacts.Verdict
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
@@ -13,7 +10,6 @@ import app.gifitup.shared.data.network.ClaimedKeyPackage
 import app.gifitup.shared.data.network.ClaimedKeyPackages
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
-import app.gifitup.shared.data.storage.ContactLoad
 import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.domain.auth.AuthError
@@ -25,6 +21,10 @@ import app.gifitup.shared.domain.auth.failed
 import app.gifitup.shared.domain.auth.toAuth
 import app.gifitup.shared.domain.contacts.BookUpdate
 import app.gifitup.shared.domain.contacts.ContactBookAccess
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.contacts.Sighting
+import app.gifitup.shared.domain.contacts.Verdict
 
 /** One device of the claimed member. Everything here came from the untrusted server and passed the crate's checks. */
 sealed interface ClaimedDeviceKey {

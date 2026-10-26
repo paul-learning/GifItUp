@@ -1,11 +1,11 @@
 package app.gifitup.cli
 
-import app.gifitup.shared.data.contacts.Contact
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.contacts.ContactStatus
-import app.gifitup.shared.data.contacts.KeyBytes
-import app.gifitup.shared.data.storage.ContactLoad
 import app.gifitup.shared.data.storage.StoredIdentity
+import app.gifitup.shared.domain.contacts.Contact
+import app.gifitup.shared.domain.contacts.ContactBook
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.ContactStatus
+import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermissions

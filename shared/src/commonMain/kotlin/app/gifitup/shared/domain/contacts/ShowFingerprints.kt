@@ -1,6 +1,5 @@
 package app.gifitup.shared.domain.contacts
 
-import app.gifitup.shared.data.contacts.KeyBytes
 import app.gifitup.shared.data.crypto.FingerprintEmoji
 import app.gifitup.shared.data.crypto.FingerprintEmojis
 import app.gifitup.shared.data.storage.IdentityStore
@@ -8,6 +7,7 @@ import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.auth.DeviceLock
 import app.gifitup.shared.domain.auth.GuardedMlsFactory
+import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.keypackages.StoredClient
 
 /**

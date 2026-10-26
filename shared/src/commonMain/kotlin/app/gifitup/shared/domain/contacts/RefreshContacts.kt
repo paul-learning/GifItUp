@@ -1,15 +1,11 @@
 package app.gifitup.shared.domain.contacts
 
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.contacts.KeyBytes
-import app.gifitup.shared.data.contacts.Sighting
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.MemberList
 import app.gifitup.shared.data.network.Session
-import app.gifitup.shared.data.storage.ContactLoad
 import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.domain.auth.AuthError
@@ -18,6 +14,10 @@ import app.gifitup.shared.domain.auth.DeviceLock
 import app.gifitup.shared.domain.auth.GuardedMlsFactory
 import app.gifitup.shared.domain.auth.failed
 import app.gifitup.shared.domain.auth.toAuth
+import app.gifitup.shared.domain.contacts.ContactBook
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.contacts.Sighting
 import app.gifitup.shared.domain.keypackages.StoredClient
 
 /**

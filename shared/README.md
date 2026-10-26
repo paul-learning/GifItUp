@@ -10,7 +10,8 @@ Layers (`CLAUDE.md`, *Architecture rules*), each a package under `app.gifitup.sh
 - `domain`: use cases. They call `data` directly (`GifItUpApi`, the storage interfaces, `MlsClient`; no separate port
   interfaces, owner decision on #133, 2026-10-21) and import only the Kotlin standard library, `kotlinx.coroutines` and
   shared's own `domain` and `data` packages. detekt's `ForbiddenImport` rule enforces that for import lines
-  (`config/detekt/detekt.yml`); a fully qualified name in code is not checked.
+  (`config/detekt/detekt.yml`); a fully qualified name in code is not checked. Business rules that data stores (the contact book, ADR-0014)
+  live here with their port (`ContactStore`); `data` implements the port (ADR-0004, 2026-10-26 amendment).
 - `data`: network (the Ktor client and the closed `ApiError` codes), local storage seams and the crypto facade. Ktor,
   serialization and `protocol` wire models stay in here: domain and presentation see only data's own types.
 

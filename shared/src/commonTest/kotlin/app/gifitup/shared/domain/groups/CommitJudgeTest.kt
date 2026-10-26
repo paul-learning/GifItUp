@@ -1,10 +1,10 @@
 package app.gifitup.shared.domain.groups
 
-import app.gifitup.shared.data.contacts.KeyBytes
 import app.gifitup.shared.data.crypto.IncomingMessage
 import app.gifitup.shared.data.crypto.LeafInfo
 import app.gifitup.shared.data.network.GroupMessageEntry
 import app.gifitup.shared.data.network.MessageKind
+import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

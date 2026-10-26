@@ -1,6 +1,6 @@
 package app.gifitup.shared.domain.groups
 
-import app.gifitup.shared.data.contacts.KeyBytes
+import app.gifitup.shared.domain.contacts.KeyBytes
 
 /**
  * Where a group stands (ADR-0016). Everything except [ACTIVE] stops sending and syncing for that group; old messages

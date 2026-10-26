@@ -1,9 +1,9 @@
 package app.gifitup.shared.domain.groups
 
-import app.gifitup.shared.data.contacts.KeyBytes
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
+import app.gifitup.shared.domain.contacts.KeyBytes
 
 private const val MAX_ATTEMPTS = 3
 

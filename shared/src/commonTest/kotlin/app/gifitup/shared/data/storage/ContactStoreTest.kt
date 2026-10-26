@@ -1,11 +1,12 @@
 package app.gifitup.shared.data.storage
 
-import app.gifitup.shared.data.contacts.Contact
-import app.gifitup.shared.data.contacts.ContactBook
-import app.gifitup.shared.data.contacts.ContactStatus
-import app.gifitup.shared.data.contacts.KeyBytes
-import app.gifitup.shared.data.contacts.Observation
-import app.gifitup.shared.data.contacts.TrustConflict
+import app.gifitup.shared.domain.contacts.Contact
+import app.gifitup.shared.domain.contacts.ContactBook
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.ContactStatus
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.contacts.Observation
+import app.gifitup.shared.domain.contacts.TrustConflict
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals

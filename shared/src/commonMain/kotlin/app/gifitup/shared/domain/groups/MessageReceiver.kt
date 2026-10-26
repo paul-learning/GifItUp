@@ -1,6 +1,5 @@
 package app.gifitup.shared.domain.groups
 
-import app.gifitup.shared.data.contacts.KeyBytes
 import app.gifitup.shared.data.crypto.IncomingMessage
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsErrorCode
@@ -10,6 +9,7 @@ import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.GroupMessageEntry
 import app.gifitup.shared.data.network.MessageKind
 import app.gifitup.shared.data.network.MessagePage
+import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
