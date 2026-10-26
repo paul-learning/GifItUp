@@ -80,7 +80,12 @@ class FakeMlsClient private constructor(
 
     // Group operations need real MLS: they are covered against the real client by the contract tests in `:mls`
     // (ADR-0016). The fake refuses them like a client whose rules forbid the call.
-    override fun rekeyAndExport(newKey: ByteArray): ByteArray = live { fail(MlsErrorCode.Refused) }
+    override fun rekeyAndExport(newKey: ByteArray): ByteArray =
+        try {
+            live { fail(MlsErrorCode.Refused) }
+        } finally {
+            newKey.fill(0)
+        }
 
     override fun exportsUnderKey(): Long = live { 0 }
 
