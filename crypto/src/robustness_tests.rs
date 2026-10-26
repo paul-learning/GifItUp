@@ -104,7 +104,7 @@ fn mutated_snapshots_never_panic() {
         .encode_inner()
         .unwrap();
     check(&inner, 5, |bytes| {
-        Snapshot::decode_inner(bytes).is_ok_and(|snapshot| {
+        Snapshot::decode_inner(bytes, false).is_ok_and(|snapshot| {
             let resealed = snapshot.seal(&key(), &RustCrypto::default()).unwrap();
             catch(|| Client::restore(&resealed, key())).is_ok()
         })
