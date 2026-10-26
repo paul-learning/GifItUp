@@ -323,8 +323,10 @@ impl Client {
         if protocol_message.epoch() != group.epoch() {
             return Err(ErrorCode::WrongEpoch);
         }
+        // Our own pending commit has to be resolved first (merged or cleared): merging a competing commit would
+        // leave the pending one and its path secrets behind (SEC-14). The engine skips our own echoes by device id.
         let mut staging = self.lock_staging()?;
-        if staging.has_commit_for(group_id) {
+        if group.pending_commit().is_some() || staging.has_commit_for(group_id) {
             return Err(ErrorCode::PendingOperation);
         }
         let processed = group
@@ -662,11 +664,13 @@ fn inspect_commit(
         let key = kp.leaf_node().signature_key().as_slice().to_vec();
         let taken = group.members().any(|m| m.signature_key == key)
             || added.iter().any(|l: &LeafInfo| l.signature_key == key);
-        if taken || kp.ciphersuite() != CIPHERSUITE || kp.last_resort() {
+        let username = credential_username(kp.leaf_node().credential())?;
+        // The same rules as for a KeyPackage we add ourselves (suite, lifetime, not last-resort, name).
+        if taken || crate::identity::check_key_package(kp, &username).is_err() {
             return Err(ErrorCode::Refused);
         }
         added.push(LeafInfo {
-            username: credential_username(kp.leaf_node().credential())?,
+            username,
             signature_key: key,
             leaf_index: u32::MAX,
         });
@@ -1144,6 +1148,55 @@ mod tests {
             Some(ErrorCode::Refused)
         );
         assert_eq!(alice.epoch(&group_id).unwrap(), 1);
+    }
+
+    /// SEC-16: the change limit holds when a commit is received, not only when we prepare one (OpenMLS itself refuses
+    /// a repeated signature key on both sides).
+    #[test]
+    fn a_received_commit_over_the_change_limit_is_refused() {
+        let (alice, bob, group_id) = pair();
+        let eleven: Vec<Vec<u8>> = (0..11)
+            .map(|i| key_package(&client(&format!("user{i:02}"))))
+            .collect();
+        let raw_add = |packages: &[Vec<u8>]| {
+            with_group(&bob, &group_id, |group, client| {
+                let kps: Vec<KeyPackage> = packages
+                    .iter()
+                    .map(|b| client.parse_key_package(b).unwrap())
+                    .collect();
+                let (commit, _w, _i) = group
+                    .add_members(&client.provider, &client.signer, &kps)
+                    .unwrap();
+                let bytes = commit_bytes(&commit);
+                group
+                    .clear_pending_commit(client.provider.storage())
+                    .unwrap();
+                bytes
+            })
+        };
+        let too_many = raw_add(&eleven);
+        assert_eq!(
+            alice.stage_incoming(&group_id, &too_many).err(),
+            Some(ErrorCode::LimitExceeded)
+        );
+    }
+
+    /// SEC-14: while our own commit is pending, nothing incoming is staged.
+    #[test]
+    fn nothing_is_staged_while_our_own_commit_is_pending() {
+        let (alice, bob, group_id) = pair();
+        let theirs = bob
+            .prepare_add(&group_id, &[key_package(&client("carol"))])
+            .unwrap();
+        alice
+            .prepare_add(&group_id, &[key_package(&client("dave"))])
+            .unwrap();
+        assert_eq!(
+            alice.stage_incoming(&group_id, &theirs.commit).err(),
+            Some(ErrorCode::PendingOperation)
+        );
+        alice.clear_pending(&group_id).unwrap();
+        assert!(alice.stage_incoming(&group_id, &theirs.commit).is_ok());
     }
 
     #[test]
