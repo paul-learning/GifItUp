@@ -7,7 +7,7 @@ androidx-activity = "1.13.0"
 # Navigation and ViewModel for the shared UI (ADR-0013); lifecycle matches what Compose Multiplatform 1.12 already brings.
 androidx-navigation = "2.9.2"
 androidx-lifecycle = "2.11.0"
-kotlinx-serialization = "1.11.0"
+kotlinx-serialization = "1.12.0"
 ktor = "3.6.0"
 logback = "1.6.5"
 # The version of the dev CLI's no-op slf4j provider (#79 PR B). It pulls slf4j-api to the same version in the CLI only;
