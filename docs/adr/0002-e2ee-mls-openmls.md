@@ -41,7 +41,7 @@ Details: [docs/spikes/openmls-android.md](../spikes/openmls-android.md), [docs/s
 - **Android:**
   - uniffi proc-macros (no UDL); bindings generated in library mode from the unstripped host build; JNA at runtime
   - `cargo-ndk` via Gradle tasks registered as AGP generated sources
-  - ABIs arm64-v8a + x86_64, minSdk 26
+  - ABIs arm64-v8a + x86_64, minSdk 26 in the spike (raised to 28 on 2026-10-27, #24: owner decision "go for minsdk 28", for the OS animated-WebP decoder; Android 8 and 8.1 are dropped)
   - about 2.0 MiB `.so` (980 KiB gzipped) for arm64
 - **Web:**
   - wasm-bindgen `--target web`, consumed as a local npm package from Kotlin/Wasm through hand-written `external` declarations

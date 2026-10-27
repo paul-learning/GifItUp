@@ -36,7 +36,7 @@ Everything else in M1 below that this slice doesn't need comes after it.
 - Client: onboarding (redeem invite → choose username → generate keys → register), secure local key storage (Android Keystore / browser IndexedDB plus wrapping). (#16, #17)
 - Client: contacts (the inviter and the invitees, ADR-0014). (#18) In four PRs: the server list, the contact book and the claim check, a local key fingerprint in the crate, and the Friends screen (done). Contact requests and discovery beyond the invite neighbours: #147.
 - Build logic: convention plugins, detekt 2.x when stable (#34, moved from M0).
-- Follow-ups from the M0 reviews (#52–#58): still open is SSH key handling (#53); Android hardening (#54) is done, with `minSdk` left at 26; the deny-list gaps, threat-model updates, protocol-versioning and presentation-layer ADRs and the cleanups are done.
+- Follow-ups from the M0 reviews (#52–#58): still open is SSH key handling (#53); Android hardening (#54) is done (`minSdk` was left at 26 there and raised to 28 in #24, owner decision 2026-10-27); the deny-list gaps, threat-model updates, protocol-versioning and presentation-layer ADRs and the cleanups are done.
 - 🏛️ Architecture review M1 · 🛡️ Security review M1 — #19, #20
 
 ## M2 — Encrypted GIF messaging MVP ⬜ → first friends alpha
@@ -50,7 +50,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 - Client: chat list + conversation screen UI (GIF grid, timestamps, sender, caption input and caption below the GIF). (#25)
 - Key fingerprints in contact/chat info and in-chat "member/device added" notices, which mitigate the first-contact MITM risk (#31).
 - Cross-platform interop test: an Android client and a Web client in the same group (CI). (#26)
-- Release: Android APK through GitHub Releases, web app served by Caddy, alpha with friends. Before it, ask the friends which Android versions they run and decide `minSdk` (kept at 26 for now, owner decision on #54; 28 would drop Android 8), and remove the debug key's fingerprint from the App Links file on the VM (`docs/ops/deploy.md`). (#27)
+- Release: Android APK through GitHub Releases, web app served by Caddy, alpha with friends. Before it, remove the debug key's fingerprint from the App Links file on the VM (`docs/ops/deploy.md`). (#27)
 - 🏛️ Architecture review M2 · 🛡️ Security review M2 — #28, #29
 
 ## M3 — Hardening & everyday use ⬜

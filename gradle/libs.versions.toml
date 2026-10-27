@@ -34,7 +34,7 @@ npm-ws = "8.22.0"
 
 android-compileSdk = "37"
 android-targetSdk = "37"
-android-minSdk = "26"
+android-minSdk = "28"
 android-ndk = "30.0.16248370"
 
 [libraries]
