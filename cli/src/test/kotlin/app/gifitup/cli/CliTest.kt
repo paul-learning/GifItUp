@@ -54,6 +54,38 @@ class CliTest {
     }
 
     @Test
+    fun parsesTheChatCommandsWithExactlyTheirOptions() {
+        val group = "AQIDBAUGBwgJCgsMDQ4PEA"
+        assertEquals("ben", Invocation.parse(listOf("chat-create") + base + listOf("--target", "ben")).target)
+        listOf("chat-add", "chat-remove").forEach {
+            val parsed = Invocation.parse(listOf(it) + base + listOf("--group", group, "--target", "ben"))
+            assertEquals("ben", parsed.target)
+            assertEquals(16, parsed.group?.size)
+        }
+        listOf("chat-send", "chat-sync", "chat-resume").forEach {
+            assertEquals(it, Invocation.parse(listOf(it) + base + listOf("--group", group)).command)
+        }
+        assertEquals("chat-welcomes", Invocation.parse(listOf("chat-welcomes") + base).command)
+        assertEquals(
+            setOf("chat-create", "chat-add", "chat-remove", "chat-send", "chat-sync", "chat-resume", "chat-welcomes"),
+            Invocation.CHAT_COMMANDS,
+        )
+
+        val bad =
+            listOf(
+                listOf("chat-create") + base, // no target
+                listOf("chat-add") + base + listOf("--target", "ben"), // no group
+                listOf("chat-add") + base + listOf("--group", group), // no target
+                listOf("chat-send") + base + listOf("--group", group, "--text", "hello"), // the text comes from stdin only
+                listOf("chat-sync") + base + listOf("--group", group, "--seq", "3"),
+                listOf("chat-welcomes") + base + listOf("--group", group),
+                listOf("chat-send") + base + listOf("--group", "AAAA"), // a group id under 16 bytes
+                listOf("group-post") + base + listOf("--group", group, "--target", "ben"), // the wire driver takes no target
+            )
+        bad.forEach { args -> assertFailsWith<CliError>(args.joinToString(" ")) { Invocation.parse(args) } }
+    }
+
+    @Test
     fun badCommandLinesAreUsageErrors() {
         val cases =
             listOf(
@@ -79,6 +111,13 @@ class CliTest {
                 listOf("invites") + base + listOf("--id", ID),
             )
         cases.forEach { assertEquals(EXIT_USAGE, assertFailsWith<CliError>("$it") { Invocation.parse(it) }.exit) }
+    }
+
+    @Test
+    fun aMessageCannotMoveTheCursorOrReorderTheLineAroundIt() {
+        val hostile = "a\u001b[2Jb\u202Ec\u2028d\u200Be\ng"
+        assertEquals("a?[2Jb?c?d?e?g", printable(hostile))
+        assertEquals("hello wörld 👍", printable("hello wörld 👍"))
     }
 
     @Test

@@ -37,6 +37,9 @@ class EndToEndTest {
     private val processes by lazy { Processes(work) }
     private val secrets = mutableListOf<String>()
 
+    /** The texts the chat step sends: they may appear in the CLI's own output, never in the server's or the database's. */
+    private val plaintexts = mutableListOf<String>()
+
     @Test
     fun registerLoginAndDevicesAgainstTheRealServer() {
         val db = EndToEndDatabase.fresh()
@@ -59,6 +62,7 @@ class EndToEndTest {
             contacts(cli)
             trust(cli, dbEnv)
             groups(cli, dbEnv)
+            chat(cli, dbEnv)
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
@@ -377,6 +381,119 @@ class EndToEndTest {
     }
 
     /**
+     * Real MLS groups through the app's sync engine (#22, ADR-0016) with the server and the CLI as separate processes: a
+     * group is created from a claimed KeyPackage, the member joins from its welcome, messages are encrypted, read and
+     * acknowledged, a third member is added and removed (the removed device finds the group gone), and a commit the server
+     * refuses (only the creator may remove another member) leaves the group working. The texts the test sends must appear
+     * nowhere in the server's, Migrate's or Admin's output or in Postgres' log. Fresh accounts: a device may log in 10 times an hour.
+     */
+    @Suppress("LongMethod") // One scripted scenario with three accounts; splitting it would hide the order that matters.
+    private fun chat(
+        cli: Cli,
+        dbEnv: Map<String, String>,
+    ) {
+        fun register(name: String): Path {
+            val state = work.resolve("state-$name")
+            assertEquals(0, cli.run("register", state, "--username", "e2e_$name", stdin = createInvite(dbEnv)).exit, "register $name")
+            return state
+        }
+
+        fun ok(
+            state: Path,
+            command: String,
+            vararg args: String,
+            stdin: String = "",
+        ): List<String> {
+            val finished = cli.run(command, state, *args, stdin = stdin)
+            assertEquals(0, finished.exit, "$command exit code")
+            return finished.stdout.lines().filter { it.isNotBlank() }
+        }
+
+        fun refused(
+            state: Path,
+            command: String,
+            exit: Int,
+            message: String,
+            vararg args: String,
+        ) {
+            val finished = cli.run(command, state, *args)
+            assertEquals(exit, finished.exit, "$command exit code")
+            assertTrue("gifitup-cli: $message" in finished.stderr, "$command: the closed message")
+        }
+
+        fun say(text: String): String = text.also { plaintexts += it }
+        val iris = register("iris")
+        val jack = register("jack")
+        val kim = register("kim")
+        assertEquals(0, cli.run("keypackages-refill", jack).exit, "jack refills")
+        assertEquals(0, cli.run("keypackages-refill", kim).exit, "kim refills")
+
+        val created = ok(iris, "chat-create", "--target", "e2e_jack").single()
+        val group = Regex("^created group (\\S+) at seq 1$").matchEntire(created)?.groupValues?.get(1) ?: fail("chat-create: $created")
+        refused(iris, "chat-send", EXIT_REFUSED, "this device is not in that group", "--group", "AQIDBAUGBwgJCgsMDQ4PEA")
+        refused(
+            iris,
+            "chat-remove",
+            EXIT_REFUSED,
+            "this device is not in that group",
+            "--group",
+            "AQIDBAUGBwgJCgsMDQ4PEA",
+            "--target",
+            "e2e_jack",
+        )
+
+        assertEquals(listOf("joined group $group"), ok(jack, "chat-welcomes"))
+        assertEquals(listOf("sent at seq 2"), ok(iris, "chat-send", "--group", group, stdin = say("hello jack")))
+        assertEquals(
+            listOf("message 2 from e2e_iris: hello jack", "synced, 1 log entries"),
+            ok(jack, "chat-sync", "--group", group),
+            "jack reads the message after its join point only",
+        )
+        assertEquals(listOf("sent at seq 3"), ok(jack, "chat-send", "--group", group, stdin = say("hi iris")))
+
+        // Adding a third member: iris first reads what jack sent (it is shown), then commits; her own entries are skipped.
+        val added = ok(iris, "chat-add", "--group", group, "--target", "e2e_kim")
+        assertEquals(listOf("message 3 from e2e_jack: hi iris", "added the devices of e2e_kim, commit at seq 4"), added)
+        assertEquals(listOf("joined group $group"), ok(kim, "chat-welcomes"))
+        assertEquals(listOf("sent at seq 5"), ok(kim, "chat-send", "--group", group, stdin = say("hey all")))
+        refused(kim, "chat-remove", EXIT_REFUSED, "that can't be done", "--group", group, "--target", "e2e_nobody")
+        assertEquals(
+            listOf("message 5 from e2e_kim: hey all", "synced, 3 log entries"),
+            ok(jack, "chat-sync", "--group", group),
+            "jack applies the add commit, skips his own message and reads kim's",
+        )
+        assertEquals(
+            listOf("message 5 from e2e_kim: hey all", "synced, 2 log entries"),
+            ok(iris, "chat-sync", "--group", group),
+            "iris skips her own commit and reads kim's message",
+        )
+
+        // Only the creator may remove another member: the server refuses jack's commit and the group goes on.
+        assertTrue(CLAIMED_USABLE_ANY.matches(ok(jack, "keypackages-claim", "--target", "e2e_kim").single()), "jack pins kim")
+        refused(
+            jack,
+            "chat-remove",
+            EXIT_SERVER,
+            "the server refused it: the server refused the envelope (a rule of the group was broken)",
+            "--group",
+            group,
+            "--target",
+            "e2e_kim",
+        )
+        assertEquals(
+            listOf("removed the devices of e2e_kim, commit at seq 6"),
+            ok(iris, "chat-remove", "--group", group, "--target", "e2e_kim"),
+        )
+        assertEquals(listOf("sent at seq 7"), ok(iris, "chat-send", "--group", group, stdin = say("after removal")))
+        assertEquals(
+            listOf("message 7 from e2e_iris: after removal", "synced, 2 log entries"),
+            ok(jack, "chat-sync", "--group", group),
+            "jack's refused commit left nothing pending: he applies the removal and reads the next message",
+        )
+        refused(kim, "chat-sync", EXIT_REFUSED, "this group is no longer available", "--group", group)
+    }
+
+    /**
      * Trust on first use (#18, ADR-0014): a claim pins the key; the admin deletes the account and the name is registered
      * again (a new account id); the next claim is blocked as a reassigned username, the old account is gone, and the
      * blind dev-CLI accept lets the claim through; a damaged contact book refuses claims. Fresh accounts, so the
@@ -463,6 +580,12 @@ class EndToEndTest {
         (processOutput + ("postgres" to EndToEndDatabase.serverLog())).forEach { (name, text) ->
             secrets.forEachIndexed { i, secret -> assertFalse(secret in text, "secret #$i appears in the $name output") }
         }
+        // What the chat step sent was encrypted before it left the CLI: no process but the CLI itself may have seen it.
+        (processOutput + ("postgres" to EndToEndDatabase.serverLog()))
+            .filterNot { (name, _) -> name.startsWith("cli ") }
+            .forEach { (name, text) ->
+                plaintexts.forEach { plaintext -> assertFalse(plaintext in text, "a chat text appears in the $name output") }
+            }
         // Session tokens are never known to the test, so their shape is what's checked (#104 SEC-3).
         processOutput.forEach { (name, text) ->
             assertFalse(TOKEN_SHAPED.containsMatchIn(text), "a token-shaped string in the $name output")
@@ -513,6 +636,7 @@ class EndToEndTest {
 
         fun claimedUsable(name: String) = Regex("^[0-9a-f-]{36} {2}crate-valid, key pinned \\(credential $name\\)$")
 
+        val CLAIMED_USABLE_ANY = Regex("^[0-9a-f-]{36} {2}crate-valid, key pinned \\(credential [a-z0-9_]+\\)$")
         val CLAIMED_EMPTY = Regex("^[0-9a-f-]{36} {2}empty \\(no KeyPackage left\\)$")
         val CREATED_LINE = Regex("^invite [0-9a-f-]{36} created, expires \\S+; link in \\S+$")
         val CONTACT_LINE = Regex("^[0-9a-f-]{36}  [a-z0-9_]+  (ok|unconfirmed|blocked|gone)  devices \\d+(  [a-z_]+)?$")

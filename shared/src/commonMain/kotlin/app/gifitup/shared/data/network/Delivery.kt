@@ -55,7 +55,7 @@ class MessagePage(
 
 /**
  * The caller's view of a group. [lastSentSeq] and [lastClientMsgId] are both null before its first send. They are the
- * freshness anchor of ADR-0015; the client's check against its own stored id is planned (#22), not done here.
+ * freshness anchor of ADR-0015; the client's check against its own stored id is `Poster.checkFresh` (ADR-0016), not done here.
  */
 class GroupState(
     val epoch: Long,

@@ -21,6 +21,7 @@ fun main(args: Array<String>) {
                     mls = UniffiMlsClientFactory,
                     random = { size -> ByteArray(size).also(random::nextBytes) },
                     readInvite = ::readInvite,
+                    readText = ::readText,
                     out = System.out,
                     err = System.err,
                 )
@@ -42,4 +43,11 @@ private fun readInvite(): String {
     System.err.print("invite code or link: ")
     System.err.flush()
     return readlnOrNull() ?: throw CliError("no invite on stdin", EXIT_USAGE)
+}
+
+/** The text of a chat message: one line from stdin (never argv: it would show up in process lists and shell history). */
+private fun readText(): String {
+    System.err.print("message: ")
+    System.err.flush()
+    return readlnOrNull() ?: throw CliError("no text on stdin", EXIT_USAGE)
 }
