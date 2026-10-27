@@ -168,7 +168,17 @@ class MediaScannerTest {
         assertEquals(Rejection.MALFORMED, rejected(riff(vp8x(40, 30, animated = false), chunk("VP8L", losslessPayload(41, 30)))))
         assertEquals(Rejection.MALFORMED, rejected(riff(vp8x(40, 30, animated = false), lossy(40, 31))))
         assertEquals(Rejection.MALFORMED, rejected(riff(vp8x(40, 30, animated = true), anmfWithImage(20, 20, 21, 20))))
-        assertEquals(20, accepted(riff(vp8x(40, 30, animated = true), anmfWithImage(20, 20, 20, 20))).frames * 20)
+        assertEquals(1, accepted(riff(vp8x(40, 30, animated = true), anmfWithImage(20, 20, 20, 20))).frames)
+        // A frame whose chunks are junk, or that holds no image, is not a frame.
+        val junkFrame = chunk("ANMF", le24(0) + le24(0) + le24(19) + le24(19) + le24(100) + byteArrayOf(0) + chunk("JUNK", ByteArray(6)))
+        assertEquals(Rejection.MALFORMED, rejected(riff(vp8x(40, 30, animated = true), junkFrame)))
+        val twoImages =
+            chunk(
+                "ANMF",
+                le24(0) + le24(0) + le24(19) + le24(19) + le24(100) + byteArrayOf(0) + chunk("VP8L", losslessPayload(20, 20)) +
+                    chunk("VP8L", losslessPayload(20, 20)),
+            )
+        assertEquals(Rejection.MALFORMED, rejected(riff(vp8x(40, 30, animated = true), twoImages)))
         assertEquals(
             Rejection.MALFORMED,
             rejected(riff(vp8x(40, 30, animated = true), anmfWithImage(20, 20, 20, 20), chunk("VP8L", losslessPayload(40, 30)))),
@@ -185,6 +195,15 @@ class MediaScannerTest {
         le24(0) + le24(0) + le24(frameWidth - 1) + le24(frameHeight - 1) + le24(100) + byteArrayOf(0) +
             chunk("VP8L", losslessPayload(imageWidth, imageHeight)),
     )
+
+    @Test
+    fun theLzwMinimumCodeSizeMustBeInTheGifRange() {
+        fun withLzw(size: Int) =
+            ascii("GIF89a") + le16(1) + le16(1) + byteArrayOf(0, 0, 0, 0x2C) + ByteArray(4) + le16(1) + le16(1) +
+                byteArrayOf(0, size.toByte(), 1, 0, 0, 0x3B)
+        for (size in listOf(0, 1, 9, 12, 255)) assertEquals(Rejection.MALFORMED, rejected(withLzw(size)), "size $size")
+        for (size in 2..8) assertEquals(1, accepted(withLzw(size)).frames, "size $size")
+    }
 
     @Test
     fun theScanCoversOnlyTheFileNotWhatFollowsIt() {

@@ -14,6 +14,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentLength
+import io.ktor.utils.io.cancel
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.io.readByteArray
@@ -47,23 +48,33 @@ class KtorMediaFetcher(
         }
 
     @Suppress("TooGenericExceptionCaught")
-    override suspend fun fetch(reference: GifReference): FetchResult =
-        try {
+    override suspend fun fetch(reference: GifReference): FetchResult {
+        var decided: FetchResult? = null
+        return try {
             // execute { } hands over the response as it arrives; a plain get() would buffer the whole body first.
             client.prepareGet(reference.url) { header(HttpHeaders.Accept, ACCEPT) }.execute { response ->
-                val declared = response.contentLength() ?: 0
-                when {
-                    response.status != HttpStatusCode.OK -> FetchResult.Failed
-                    declared > MediaScanner.MAX_BYTES -> FetchResult.TooLarge
-                    else -> readCapped(response)
-                }
+                val result = answerOf(response).also { decided = it }
+                // The rest of a body we don't want is dropped now; otherwise execute { } waits for it, up to the timeout.
+                if (result !is FetchResult.Bytes) response.bodyAsChannel().cancel(null)
+                result
             }
         } catch (e: CancellationException) {
             throw e
         } catch (ignored: Throwable) {
-            // Ktor's fetch engine throws kotlin.Error, and every platform has its own network exceptions.
-            FetchResult.Failed
+            // Ktor's fetch engine throws kotlin.Error, and every platform has its own network exceptions. Dropping the
+            // rest of the body can end the call with the cancellation's error; the decision made before it stands.
+            decided ?: FetchResult.Failed
         }
+    }
+
+    private suspend fun answerOf(response: HttpResponse): FetchResult {
+        val declared = response.contentLength() ?: 0
+        return when {
+            response.status != HttpStatusCode.OK -> FetchResult.Failed
+            declared > MediaScanner.MAX_BYTES -> FetchResult.TooLarge
+            else -> readCapped(response)
+        }
+    }
 
     /** Reads at most [MediaScanner.MAX_BYTES] + 1 bytes off the wire: one more than the cap is enough to refuse. */
     private suspend fun readCapped(response: HttpResponse): FetchResult {

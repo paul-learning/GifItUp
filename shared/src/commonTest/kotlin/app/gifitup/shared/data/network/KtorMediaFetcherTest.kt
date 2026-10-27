@@ -16,7 +16,10 @@ import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -24,6 +27,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 class KtorMediaFetcherTest {
     private val url = "https://static.klipy.com/ii/0123456789abcdef0123456789abcdef/ab/cd/funny_cat-1.webp"
@@ -116,30 +121,46 @@ class KtorMediaFetcherTest {
             assertEquals(MediaScanner.MAX_BYTES, assertIs<FetchResult.Bytes>(exact).data.size)
         }
 
-    @Test
-    fun theBodyIsReadWhileItArrivesAndStopsAtTheCap() =
-        runTest {
-            // A body that never ends: the producer is held back by the channel, so it can't be far ahead of the reader.
-            val channel = ByteChannel()
-            var produced = 0L
-            val chunk = ByteArray(64 * 1024)
-            val producer =
-                launch(Dispatchers.Default) {
-                    try {
-                        while (true) {
-                            channel.writeFully(chunk)
-                            produced += chunk.size
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (ignored: Throwable) {
-                        // The reader went away.
-                    }
+    /** A body that keeps coming (up to 64 MiB), held back by the channel so it can't be far ahead of the reader. */
+    private fun CoroutineScope.endlessBody(): Pair<ByteChannel, Job> {
+        val channel = ByteChannel()
+        val chunk = ByteArray(64 * 1024)
+        val producer =
+            launch(Dispatchers.Default) {
+                try {
+                    repeat(1024) { channel.writeFully(chunk) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (ignored: Throwable) {
+                    // The reader went away.
                 }
+            }
+        return channel to producer
+    }
+
+    @Test
+    fun theBodyIsReadWhileItArrivesAndTheRestIsDroppedAtOnce() =
+        runTest {
+            val (channel, producer) = endlessBody()
+            val started = TimeSource.Monotonic.markNow()
             val result = fetcher { respond(channel, HttpStatusCode.OK) }.fetch(reference)
-            producer.cancel()
+            val took = started.elapsedNow()
+            producer.cancelAndJoin()
             assertEquals(FetchResult.TooLarge, result)
-            assertTrue(produced < MediaScanner.MAX_BYTES + 4L * 1024 * 1024, "the body was not buffered: $produced bytes were taken")
+            // Not buffered (the heap would be gone) and not waited for (the request timeout is 30 s).
+            assertTrue(took < 10.seconds, "took $took")
+        }
+
+    @Test
+    fun theRestOfAnUnwantedBodyIsDroppedAtOnceToo() =
+        runTest {
+            val (channel, producer) = endlessBody()
+            val started = TimeSource.Monotonic.markNow()
+            val result = fetcher { respond(channel, HttpStatusCode.NotFound) }.fetch(reference)
+            val took = started.elapsedNow()
+            producer.cancelAndJoin()
+            assertEquals(FetchResult.Failed, result)
+            assertTrue(took < 10.seconds, "took $took")
         }
 
     @Test
