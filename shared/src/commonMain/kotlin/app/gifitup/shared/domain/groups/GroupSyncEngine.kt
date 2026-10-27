@@ -2,6 +2,7 @@ package app.gifitup.shared.domain.groups
 
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.SecureRandomSource
+import app.gifitup.shared.data.network.MessageKind
 import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
  *   knows it posted.
  * - A group the server no longer shows us is "no longer available": its MLS state is deleted, the group stays read-only.
  */
+@Suppress("TooManyFunctions") // The engine's public API: one method per operation, each a one-line delegation.
 class GroupSyncEngine(
     private val mls: MlsClient,
     delivery: DeliveryPort,
@@ -35,7 +37,9 @@ class GroupSyncEngine(
     private val store = SyncStore(mls, saver)
     private val messages = MessageReceiver(mls, delivery, pinsSource, sink, store)
     private val welcomes = WelcomeReceiver(mls, delivery, pinsSource, store)
-    private val sender = SendSide(mls, delivery, store, random)
+    private val poster = Poster(mls, delivery, store)
+    private val sender = SendSide(mls, store, poster, random)
+    private val commits = CommitSide(mls, store, poster, messages, random)
 
     /** The groups this engine knows and where each stands. */
     fun statuses(): Map<KeyBytes, GroupStatus> = store.state.groups.mapValues { it.value.status }
@@ -61,8 +65,38 @@ class GroupSyncEngine(
         plaintext: ByteArray,
     ): SyncOutcome = mutex.withLock { halting { sender.send(KeyBytes(groupId), plaintext) } }
 
-    /** Posts the pending message of a group again, unchanged. */
-    suspend fun resume(groupId: ByteArray): SyncOutcome = mutex.withLock { halting { sender.resume(KeyBytes(groupId)) } }
+    /** Posts the pending message or commit of a group again, unchanged. */
+    suspend fun resume(groupId: ByteArray): SyncOutcome =
+        mutex.withLock {
+            halting {
+                val id = KeyBytes(groupId)
+                if (store.find(id)?.pending?.kind == MessageKind.COMMIT) commits.resume(id) else sender.resume(id)
+            }
+        }
+
+    /**
+     * Creates a group with [members] (1 to 10 claimed KeyPackages with their device ids) and posts its first commit.
+     * The group exists on this device from the moment the commit is stored; if the outcome is [SyncOutcome.InFlight],
+     * call [resume] with the returned group id.
+     */
+    suspend fun createGroup(members: List<NewMember>): GroupCreation =
+        mutex.withLock {
+            var created: ByteArray? = null
+            val outcome = halting { commits.create(members).also { created = it.groupId }.outcome }
+            GroupCreation(created, outcome)
+        }
+
+    /** Adds 1 to 10 members with one commit; reads and applies the log first, and retries after an epoch conflict. */
+    suspend fun addMembers(
+        groupId: ByteArray,
+        members: List<NewMember>,
+    ): SyncOutcome = mutex.withLock { halting { commits.add(KeyBytes(groupId), members) } }
+
+    /** Removes 1 to 10 members (by device id and signature key) with one commit; a ghost leaf can be removed too. */
+    suspend fun removeMembers(
+        groupId: ByteArray,
+        targets: List<RemoveTarget>,
+    ): SyncOutcome = mutex.withLock { halting { commits.remove(KeyBytes(groupId), targets) } }
 
     /**
      * Counts a failed attempt on [seq] of a group; used by the caller after a `Poisoned` outcome, on a freshly restored

@@ -3,33 +3,31 @@ package app.gifitup.shared.domain.groups
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.ApiError
-import app.gifitup.shared.data.network.ApiResult
-import app.gifitup.shared.data.network.DeliveryEnvelope
 import app.gifitup.shared.data.network.MessageKind
 import app.gifitup.shared.domain.contacts.KeyBytes
 
 /**
- * Send side of the group lifecycle (ADR-0016). A message is sealed, **stored with the snapshot**, and only then posted;
- * the server's answer moves it from pending to sent. A post whose outcome is unknown is posted again, unchanged and
- * with the same client message id, until the server answers (ADR-0015 makes the repeat safe). Before anything is sealed
- * the freshness check runs: the server's last client message id for this device must be the one we stored, otherwise
- * this state is older than a send the server accepted, and the group becomes read-only (rollback, ADR-0002).
+ * Send side for application messages (ADR-0016). A message is sealed, **stored with the snapshot**, and only then
+ * posted; the server's answer moves it from pending to sent. A post whose outcome is unknown is posted again, unchanged
+ * and with the same client message id, until the server answers (ADR-0015 makes the repeat safe). Before anything is
+ * sealed the freshness check runs ([Poster.checkFresh]).
  */
 internal class SendSide(
     private val mls: MlsClient,
-    private val delivery: DeliveryPort,
     private val store: SyncStore,
+    private val poster: Poster,
     private val random: SecureRandomSource,
 ) {
     suspend fun send(
         id: KeyBytes,
         plaintext: ByteArray,
     ): SyncOutcome {
-        val record = activeRecord(id)
+        val record = activeRecord(store, id)
         if (plaintext.size > MAX_CONTENT) halt(SyncOutcome.TooLong)
+        if (record.pending?.kind == MessageKind.COMMIT) halt(SyncOutcome.CommitPending)
         // Fresh first, then settle: re-posting an old pending message into a log that already dropped it would be
         // accepted as new and make a stale state look fresh (SEC-1).
-        checkFresh(id, record.pending)
+        poster.checkFresh(id, record.pending)
         record.pending?.let { settle(id, it) }
         if (store.recordOf(id).ownSeqs.size >= SyncStateCodec.MAX_OWN_SEQS) halt(SyncOutcome.Busy)
         if (!fitsAnother(id)) halt(SyncOutcome.Busy)
@@ -51,8 +49,8 @@ internal class SendSide(
 
     /** Posts the pending message again (a fresh start, or after [SyncOutcome.InFlight]); nothing pending is nothing to do. */
     suspend fun resume(id: KeyBytes): SyncOutcome {
-        val pending = activeRecord(id).pending
-        if (pending != null) checkFresh(id, pending)
+        val pending = activeRecord(store, id).pending
+        if (pending != null) poster.checkFresh(id, pending)
         return if (pending == null) SyncOutcome.CaughtUp(0) else post(id, pending)
     }
 
@@ -76,12 +74,6 @@ internal class SendSide(
         }
     }
 
-    private fun activeRecord(id: KeyBytes): GroupRecord {
-        val record = store.find(id) ?: halt(SyncOutcome.NotJoined)
-        if (record.status != GroupStatus.ACTIVE) halt(SyncOutcome.Stopped(record.status))
-        return record
-    }
-
     /** Settles an older pending message first (one send in flight per group); if it does not go through, the new text waits. */
     private suspend fun settle(
         id: KeyBytes,
@@ -91,77 +83,31 @@ internal class SendSide(
         if (outcome !is SyncOutcome.Sent) halt(SyncOutcome.PendingFirst(outcome))
     }
 
-    /**
-     * The server's last client message id for this device must be the last one the server accepted from us, or the one
-     * we have pending (its answer may have been lost).
-     */
-    private suspend fun checkFresh(
-        id: KeyBytes,
-        pending: PendingSend?,
-    ) {
-        val state = store.answerForGroup(mls, id, delivery.status(id.bytes))
-        val mine = store.recordOf(id).lastMsgId
-        val theirs = state.lastClientMsgId
-        val fresh = sameId(theirs, mine) || (pending != null && sameId(theirs, pending.clientMsgId))
-        if (!fresh) store.freeze(id, GroupStatus.READ_ONLY_ROLLBACK)
-    }
-
     private suspend fun post(
         id: KeyBytes,
         pending: PendingSend,
-    ): SyncOutcome {
-        val envelope = envelopeOf(pending)
-        return when (val result = delivery.post(id.bytes, envelope)) {
-            is ApiResult.Ok -> sent(id, pending, result.value.seq)
-            is ApiResult.Failed -> failed(id, result.error)
-        }
-    }
+    ): SyncOutcome =
+        when (val posted = poster.post(id, pending)) {
+            is Posted.Accepted -> {
+                poster.recordSent(id, pending, posted.seq)
+                SyncOutcome.Sent(posted.seq)
+            }
 
-    private suspend fun sent(
-        id: KeyBytes,
-        pending: PendingSend,
-        seq: Long,
-    ): SyncOutcome {
-        val record = store.recordOf(id)
-        store.put(
-            id,
-            record.copy(
-                lastMsgId = pending.clientMsgId,
-                pending = null,
-                ownSeqs = (record.ownSeqs + listOfNotNull(OwnSend.of(seq, pending.payload))).takeLast(SyncStateCodec.MAX_OWN_SEQS),
-            ),
-        )
-        store.persist()
-        return SyncOutcome.Sent(seq)
-    }
+            is Posted.Refused -> {
+                store.put(id, store.recordOf(id).copy(pending = null))
+                store.persist()
+                SyncOutcome.Rejected(posted.error)
+            }
 
-    private suspend fun failed(
-        id: KeyBytes,
-        error: ApiError,
-    ): SyncOutcome {
-        if (error == ApiError.NOT_FOUND) {
-            store.markGone(mls, id)
-            halt(SyncOutcome.Stopped(GroupStatus.REMOVED))
-        }
-        return if (error in REFUSED) {
-            store.put(id, store.recordOf(id).copy(pending = null))
-            store.persist()
-            SyncOutcome.Rejected(error)
-        } else {
-            SyncOutcome.InFlight(error)
-        }
-    }
+            is Posted.Unknown -> {
+                SyncOutcome.InFlight(posted.error)
+            }
 
-    private fun envelopeOf(pending: PendingSend) =
-        DeliveryEnvelope(
-            pending.clientMsgId,
-            pending.kind,
-            pending.epoch,
-            pending.added,
-            pending.removed,
-            pending.welcome?.let { welcome -> pending.added.associateWith { welcome } }.orEmpty(),
-            pending.payload,
-        )
+            // An application message has no epoch, so the server can't answer this; treat it as unknown.
+            Posted.Conflict -> {
+                SyncOutcome.InFlight(ApiError.EPOCH_CONFLICT)
+            }
+        }
 
     private companion object {
         /** One padded block holds this much content (ADR-0006 B7). */
@@ -169,13 +115,15 @@ internal class SendSide(
 
         /** An application message on the wire (ADR-0015). */
         const val MAX_PAYLOAD = 2 * 1024
-
-        /** Answers that no repeat can change. */
-        val REFUSED = setOf(ApiError.ENVELOPE_INVALID, ApiError.PAYLOAD_TOO_LARGE, ApiError.BAD_REQUEST)
     }
 }
 
-private fun sameId(
-    a: ByteArray?,
-    b: ByteArray?,
-) = if (a == null || b == null) a == b else a.contentEquals(b)
+/** The record of a group that is syncing; otherwise the call ends here. */
+internal fun activeRecord(
+    store: SyncStore,
+    id: KeyBytes,
+): GroupRecord {
+    val record = store.find(id) ?: halt(SyncOutcome.NotJoined)
+    if (record.status != GroupStatus.ACTIVE) halt(SyncOutcome.Stopped(record.status))
+    return record
+}
