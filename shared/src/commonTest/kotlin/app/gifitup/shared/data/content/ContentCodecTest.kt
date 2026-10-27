@@ -96,6 +96,18 @@ class ContentCodecTest {
     }
 
     @Test
+    fun theUrlCheckNeverThrows() {
+        val odd = listOf("%", "%zz", "https://", "https://[", "https://static.klipy.com/ii/%", "\u0000", "\uD800", "http://[::1", "//", ":")
+        for (candidate in odd) assertFalse(GifReference.validUrl(candidate), candidate)
+        for (candidate in odd) {
+            assertEquals(
+                Decoded.Invalid,
+                decode(json(rest = gifFields(url = candidate.replace("\u0000", "\\u0000").replace("\uD800", "\\ud800")))),
+            )
+        }
+    }
+
+    @Test
     fun badGifFieldsAreInvalid() {
         val bad =
             listOf(

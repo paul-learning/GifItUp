@@ -55,10 +55,12 @@ class GifReference private constructor(
         /** True if [raw] may be fetched: the pattern first, then the platform parser must give the same string back. */
         fun validUrl(raw: String): Boolean = URL_PATTERN.matches(raw) && reserialises(raw)
 
+        // Ktor and each platform throw their own types for a URL they can't parse; all of them mean "not valid".
+        @Suppress("TooGenericExceptionCaught")
         private fun reserialises(raw: String): Boolean =
             try {
                 Url(raw).toString() == raw
-            } catch (_: IllegalArgumentException) {
+            } catch (_: Exception) {
                 false
             }
     }
