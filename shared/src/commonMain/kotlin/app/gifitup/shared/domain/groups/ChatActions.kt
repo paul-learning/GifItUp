@@ -37,7 +37,7 @@ class ChatActions(
     private val access: ContactBookAccess,
     private val claim: ClaimKeyPackages,
     private val random: SecureRandomSource,
-) {
+) : GroupChat {
     private val stored = StoredClient(api.endpoint.origin, mls, identities, keys, lock)
 
     /** Claims [target]'s devices and creates a group with them. */
@@ -85,12 +85,13 @@ class ChatActions(
             }
         }
 
-    suspend fun send(
+    override suspend fun send(
         session: Session,
         groupId: ByteArray,
         text: ByteArray,
         sink: IncomingSink,
-    ): AuthResult<SyncOutcome> = engine(session, sink) { engine, _ -> engine.send(groupId, text) }
+        observer: SendObserver,
+    ): AuthResult<SyncOutcome> = engine(session, sink) { engine, _ -> engine.send(groupId, text, observer) }
 
     suspend fun sync(
         session: Session,
@@ -98,7 +99,7 @@ class ChatActions(
         sink: IncomingSink,
     ): AuthResult<SyncOutcome> = engine(session, sink) { engine, _ -> engine.sync(groupId) }
 
-    suspend fun resume(
+    override suspend fun resume(
         session: Session,
         groupId: ByteArray,
         sink: IncomingSink,

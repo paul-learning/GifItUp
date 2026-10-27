@@ -21,6 +21,7 @@ internal class SendSide(
     suspend fun send(
         id: KeyBytes,
         plaintext: ByteArray,
+        observer: SendObserver = SendObserver.None,
     ): SyncOutcome {
         val record = activeRecord(store, id)
         if (plaintext.size > MAX_CONTENT) halt(SyncOutcome.TooLong)
@@ -28,7 +29,7 @@ internal class SendSide(
         // Fresh first, then settle: re-posting an old pending message into a log that already dropped it would be
         // accepted as new and make a stale state look fresh (SEC-1).
         poster.checkFresh(id, record.pending)
-        record.pending?.let { settle(id, it) }
+        record.pending?.let { settle(id, it, observer) }
         if (store.recordOf(id).ownSeqs.size >= SyncStateCodec.MAX_OWN_SEQS) halt(SyncOutcome.Busy)
         if (!fitsAnother(id)) halt(SyncOutcome.Busy)
         val sealed = crate { mls.encrypt(id.bytes, plaintext) }
@@ -44,7 +45,20 @@ internal class SendSide(
             )
         store.put(id, store.recordOf(id).copy(pending = pending))
         store.persist()
+        observed { observer.sealed(sealed.messageRef) }
         return post(id, pending)
+    }
+
+    /** Runs an observer call; a failing observer never stops the send (only a history record hangs on it). */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun observed(call: suspend () -> Unit) {
+        try {
+            call()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            // The history is not part of the send.
+        }
     }
 
     /** Posts the pending message again (a fresh start, or after [SyncOutcome.InFlight]); nothing pending is nothing to do. */
@@ -78,8 +92,10 @@ internal class SendSide(
     private suspend fun settle(
         id: KeyBytes,
         pending: PendingSend,
+        observer: SendObserver,
     ) {
         val outcome = post(id, pending)
+        observed { observer.earlierSettled(outcome) }
         if (outcome !is SyncOutcome.Sent) halt(SyncOutcome.PendingFirst(outcome))
     }
 

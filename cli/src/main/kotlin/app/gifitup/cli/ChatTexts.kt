@@ -1,11 +1,14 @@
 package app.gifitup.cli
 
+import app.gifitup.shared.data.content.GifReference
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.groups.DeliveredMessage
 import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.groups.RejectReason
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomeOutcome
+import app.gifitup.shared.domain.messages.MessageBody
+import app.gifitup.shared.domain.messages.MessageIntake
 import java.util.Base64
 
 // The fixed text of the chat commands: one line per outcome, never server text, a key or a token.
@@ -52,7 +55,7 @@ internal fun failureLine(outcome: SyncOutcome): String =
         is SyncOutcome.Rejected -> "the server refused it: ${message(AuthError.Api(outcome.error))}"
         is SyncOutcome.PendingFirst -> "an earlier message or commit is still pending: ${failureLine(outcome.outcome)}"
         SyncOutcome.CommitPending -> "a commit of this group is still pending; run chat-resume"
-        SyncOutcome.InvalidRequest -> "that can't be done: unknown member, no KeyPackage left for it, or too many changes"
+        SyncOutcome.InvalidRequest -> "that can't be done: unknown member, no KeyPackage left, too many changes, or a bad caption"
         SyncOutcome.TooLong -> "that line is longer than one message holds (896 bytes)"
         SyncOutcome.Busy -> "too many messages are waiting for a sync; run chat-sync first"
         is SyncOutcome.Retry -> "message ${outcome.seq} could not be decrypted yet; run chat-sync again"
@@ -74,12 +77,41 @@ private fun statusLine(status: GroupStatus): String =
     }
 
 /**
- * The text for the terminal: control characters, line and paragraph separators and invisible format characters
+ * The line for a received message, or `null` for one that is dropped (an annotation). The GIF's slug and caption are
+ * shown, the link is not; a caption is a checked text, but it is masked anyway (see [printable]).
+ */
+internal fun messageLine(message: DeliveredMessage): String? {
+    val what =
+        when (val body = MessageIntake.bodyOf(message.plaintext)) {
+            null -> return null
+            is MessageBody.Gif -> "gif ${body.reference.slug}" + (body.caption?.let { " \"${printable(it)}\"" } ?: "")
+            is MessageBody.GroupMeta -> "group name \"${printable(body.name)}\""
+            MessageBody.Unavailable -> "message unavailable"
+            MessageBody.UpdateNeeded -> "update needed"
+        }
+    return "message ${message.seq} from ${message.senderUsername}: $what"
+}
+
+private const val TEST_GIF_WIDTH = 320
+private const val TEST_GIF_HEIGHT = 240
+
+/** The one GIF the CLI sends (test accounts): shaped like a Klipy link, never fetched. */
+internal val TEST_GIF: GifReference =
+    checkNotNull(
+        GifReference.of(
+            "klipy",
+            "e2e-test-gif",
+            "https://static.klipy.com/ii/0123456789abcdef0123456789abcdef/ab/cd/e2e-test-gif.webp",
+            TEST_GIF_WIDTH,
+            TEST_GIF_HEIGHT,
+        ),
+    )
+
+/**
+ * Text for the terminal: control characters, line and paragraph separators and invisible format characters
  * (bidirectional overrides, zero-width marks) are shown as `?`, so a message can't move the cursor, fake a line or
  * reorder what is printed around it.
  */
-internal fun printableText(message: DeliveredMessage): String = printable(message.plaintext.decodeToString())
-
 internal fun printable(text: String): String = text.map { if (isHidden(it)) '?' else it }.joinToString("")
 
 private fun isHidden(char: Char): Boolean =

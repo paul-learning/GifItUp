@@ -3,10 +3,12 @@ package app.gifitup.mls.groups
 import app.gifitup.mls.UniffiMlsClientFactory
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.domain.groups.GroupStatus
+import app.gifitup.shared.domain.groups.SendObserver
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomeOutcome
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -55,6 +57,54 @@ class GroupSendTest {
             assertEquals(emptyMap(), alice.engine.recordOf(groupId)?.failures)
             assertEquals(emptyList(), alice.engine.recordOf(groupId)?.ownSeqs)
             assertTrue(first.seq < second.seq)
+        }
+
+    private fun observer(onSealed: suspend (ByteArray) -> Unit) =
+        object : SendObserver {
+            override suspend fun sealed(messageRef: ByteArray) = onSealed(messageRef)
+        }
+
+    @Test
+    fun theObserverHearsHowAnOlderPendingMessageWasSettled() =
+        runTest {
+            val (alice, _, groupId) = joinedPair()
+            ds.failing = setOf("post")
+            assertEquals(SyncOutcome.InFlight(ApiError.NETWORK), alice.engine.send(groupId, "first".encodeToByteArray()))
+            ds.failing = emptySet()
+            val heard = mutableListOf<SyncOutcome>()
+            val watching =
+                object : SendObserver {
+                    override suspend fun earlierSettled(outcome: SyncOutcome) {
+                        heard += outcome
+                    }
+                }
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "second".encodeToByteArray(), watching))
+            assertIs<SyncOutcome.Sent>(heard.single())
+            ds.failing = setOf("post")
+            assertEquals(SyncOutcome.InFlight(ApiError.NETWORK), alice.engine.send(groupId, "third".encodeToByteArray()))
+            heard.clear()
+            assertIs<SyncOutcome.PendingFirst>(alice.engine.send(groupId, "fourth".encodeToByteArray(), watching))
+            assertIs<SyncOutcome.InFlight>(heard.single(), "the answer of the older message is reported even if the new one waits")
+        }
+
+    @Test
+    fun theSenderLearnsTheMessageReferenceBeforeThePostAndTheRecipientComputesTheSame() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            var announced: ByteArray? = null
+            var postedAlready: Boolean? = null
+            ds.onPost = { device, _ -> if (device == alice.deviceId) postedAlready = announced == null }
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "one".encodeToByteArray(), observer { announced = it }))
+            assertEquals(false, postedAlready, "the reference was announced before the post")
+            bob.engine.sync(groupId)
+            assertContentEquals(announced, bob.received.single().messageRef)
+        }
+
+    @Test
+    fun anObserverThatFailsDoesNotStopTheSend() =
+        runTest {
+            val (alice, _, groupId) = joinedPair()
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "one".encodeToByteArray(), observer { error("history is broken") }))
         }
 
     @Test
