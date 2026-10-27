@@ -18,6 +18,7 @@ import app.gifitup.shared.domain.auth.TestAccountGuard
 import app.gifitup.shared.domain.contacts.AcceptContact
 import app.gifitup.shared.domain.contacts.ContactBookAccess
 import app.gifitup.shared.domain.contacts.RefreshContacts
+import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.keypackages.ClaimKeyPackages
 import app.gifitup.shared.domain.keypackages.RefillKeyPackages
 import io.ktor.client.engine.HttpClientEngine
@@ -43,71 +44,61 @@ data class Invocation(
     val welcome: String? = null,
 ) {
     companion object {
-        /** The Delivery Service commands (test driver, ADR-0015): required and optional options of each. */
-        private val GROUP_COMMANDS =
+        private val NONE = emptySet<String>()
+
+        /**
+         * Every command with the options it needs and the ones it may take (besides `--server`, `--state-dir`, `--origin`
+         * and the flag). Any other option of the command line is a usage error.
+         */
+        private val SPEC: Map<String, Pair<Set<String>, Set<String>>> =
             mapOf(
-                "group-create" to (setOf("--device") to emptySet()),
-                "group-add" to (setOf("--group", "--device") to emptySet()),
-                "group-remove" to (setOf("--group", "--device") to emptySet()),
-                "group-post" to (setOf("--group") to emptySet()),
+                "register" to (setOf("--username") to NONE),
+                "login" to (NONE to NONE),
+                "devices" to (NONE to NONE),
+                "reset" to (NONE to NONE),
+                "keypackages-refill" to (NONE to NONE),
+                "keypackages-status" to (NONE to NONE),
+                "keypackages-claim" to (setOf("--target") to NONE),
+                "invite-create" to (setOf("--link-file") to NONE),
+                "invites" to (NONE to NONE),
+                "invite-revoke" to (setOf("--id") to NONE),
+                "contacts" to (NONE to NONE),
+                "contacts-accept" to (setOf("--account") to NONE),
+                // The Delivery Service test driver (ADR-0015): random bytes as payloads.
+                "group-create" to (setOf("--device") to NONE),
+                "group-add" to (setOf("--group", "--device") to NONE),
+                "group-remove" to (setOf("--group", "--device") to NONE),
+                "group-post" to (setOf("--group") to NONE),
                 "group-fetch" to (setOf("--group") to setOf("--seq")),
-                "group-status" to (setOf("--group") to emptySet()),
-                "group-ack" to (setOf("--group", "--seq") to emptySet()),
-                "group-leave" to (setOf("--group") to emptySet()),
-                "welcomes" to (emptySet<String>() to emptySet()),
-                "welcome-ack" to (setOf("--welcome") to emptySet()),
+                "group-status" to (setOf("--group") to NONE),
+                "group-ack" to (setOf("--group", "--seq") to NONE),
+                "group-leave" to (setOf("--group") to NONE),
+                "welcomes" to (NONE to NONE),
+                "welcome-ack" to (setOf("--welcome") to NONE),
+                // Real MLS groups through the app's sync engine (ADR-0016, #22).
+                "chat-create" to (setOf("--target") to NONE),
+                "chat-add" to (setOf("--group", "--target") to NONE),
+                "chat-remove" to (setOf("--group", "--target") to NONE),
+                "chat-send" to (setOf("--group") to NONE),
+                "chat-sync" to (setOf("--group") to NONE),
+                "chat-resume" to (setOf("--group") to NONE),
+                "chat-welcomes" to (NONE to NONE),
             )
-        private val COMMANDS =
-            setOf(
-                "register",
-                "login",
-                "devices",
-                "reset",
-                "keypackages-refill",
-                "keypackages-status",
-                "keypackages-claim",
-                "invite-create",
-                "invites",
-                "invite-revoke",
-                "contacts",
-                "contacts-accept",
-            ) + GROUP_COMMANDS.keys
-        private val VALUE_OPTIONS =
-            setOf(
-                "--server",
-                "--state-dir",
-                "--origin",
-                "--username",
-                "--target",
-                "--link-file",
-                "--id",
-                "--account",
-                "--group",
-                "--device",
-                "--seq",
-                "--welcome",
-            )
+        private val GLOBAL_OPTIONS = setOf("--server", "--state-dir", "--origin")
+        private val VALUE_OPTIONS = GLOBAL_OPTIONS + SPEC.values.flatMap { it.first + it.second }
 
         /** The commands of the Delivery Service test driver. */
-        val DELIVERY_COMMANDS: Set<String> = GROUP_COMMANDS.keys
+        val DELIVERY_COMMANDS: Set<String> = SPEC.keys.filter { it.startsWith("group-") || it.startsWith("welcome") }.toSet()
 
-        private val GROUP_OPTIONS = setOf("--group", "--device", "--seq", "--welcome")
+        /** The commands over the app's group sync engine. */
+        val CHAT_COMMANDS: Set<String> = SPEC.keys.filter { it.startsWith("chat-") }.toSet()
+
         private const val MIN_GROUP_ID = 16
         private const val MAX_GROUP_ID = 64
-
-        /** The options that one command needs and no other takes. */
-        private val COMMAND_OPTIONS =
-            mapOf(
-                "register" to "--username",
-                "keypackages-claim" to "--target",
-                "invite-create" to "--link-file",
-                "invite-revoke" to "--id",
-                "contacts-accept" to "--account",
-            )
         private val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
         fun parse(args: List<String>): Invocation {
-            val command = args.firstOrNull()?.takeIf { it in COMMANDS } ?: usage()
+            val command = args.firstOrNull()?.takeIf { it in SPEC } ?: usage()
             val values = mutableMapOf<String, String>()
             var remote = false
             var i = 1
@@ -120,8 +111,7 @@ data class Invocation(
                 }
                 i++
             }
-            if (COMMAND_OPTIONS.any { (owner, option) -> (command == owner) != (option in values) }) usage()
-            if (!idsAreCanonical(values) || !groupOptionsFit(command, values)) usage()
+            if (!optionsFit(command, values) || !idsAreCanonical(values) || !valuesHaveTheirShape(values)) usage()
             return invocation(command, values, remote)
         }
 
@@ -150,18 +140,19 @@ data class Invocation(
         private fun idsAreCanonical(values: Map<String, String>): Boolean =
             listOf("--id", "--account", "--device", "--welcome").all { option -> values[option]?.let(UUID::matches) != false }
 
-        /** Only the group commands take the group options, each takes exactly its own, and the values have their shapes. */
-        private fun groupOptionsFit(
+        /** A command takes exactly its own options: all it needs, none that belongs to another command. */
+        private fun optionsFit(
             command: String,
             values: Map<String, String>,
         ): Boolean {
-            val given = values.keys.filter { it in GROUP_OPTIONS }.toSet()
-            val (required, optional) = GROUP_COMMANDS[command] ?: (emptySet<String>() to emptySet())
-            val shapes =
-                (values["--group"]?.let { groupIdOf(it) != null } != false) &&
-                    (values["--seq"]?.let { it.length in 1..SEQ_DIGITS && it.all(Char::isDigit) } != false)
-            return given.containsAll(required) && (given - required).all { it in optional } && shapes
+            val (required, optional) = SPEC.getValue(command)
+            val given = values.keys - GLOBAL_OPTIONS
+            return given.containsAll(required) && (given - required).all { it in optional }
         }
+
+        private fun valuesHaveTheirShape(values: Map<String, String>): Boolean =
+            (values["--group"]?.let { groupIdOf(it) != null } != false) &&
+                (values["--seq"]?.let { it.length in 1..SEQ_DIGITS && it.all(Char::isDigit) } != false)
 
         /** A group id as printed by the CLI: base64url, 16 to 64 bytes. */
         private fun groupIdOf(text: String): ByteArray? =
@@ -196,6 +187,11 @@ data class Invocation(
   group-fetch --group <id> [--seq <after>]   messages above a cursor; group-status --group <id>
   group-ack --group <id> --seq <n>           acknowledge up to n; group-leave --group <id>
   welcomes                     pending welcomes of this device; welcome-ack --welcome <id>
+  chat-create --target <name>          claim the member's KeyPackages and create an MLS group with them (consumes them)
+  chat-add|chat-remove --group <id> --target <name>   add or remove a member's devices (removal needs the contact book's pins)
+  chat-send --group <id>               encrypt the line on stdin and send it (test accounts: the text is shown by chat-sync)
+  chat-sync --group <id>               fetch, decrypt and apply the group's log; prints each message with its sender
+  chat-resume --group <id>             post a pending message or commit again; chat-welcomes: join pending welcomes
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
 Only test origins (*.invalid, *.test, localhost) unless --remote-test-account and a cli_ username are given.
 Every command logs in and out again; the server allows 10 logins per device per hour."""
@@ -207,11 +203,13 @@ Every command logs in and out again; the server allows 10 logins per device per 
  * "Dev CLI": no client logic of its own). Output is fixed text per result code; tokens, keys and invite codes are never
  * printed. Returns the process exit code.
  */
+@Suppress("LongParameterList") // The CLI's composition root: one injected seam each (engine, MLS, randomness, stdin, output).
 class Cli(
     private val engine: () -> HttpClientEngine,
     private val mls: MlsClientFactory,
     private val random: SecureRandomSource,
     private val readInvite: () -> String,
+    private val readText: () -> String = { throw CliError("no text on stdin", EXIT_USAGE) },
     private val out: PrintStream,
     private val err: PrintStream,
 ) {
@@ -328,6 +326,11 @@ class Cli(
 
             "contacts-accept" -> {
                 contacts.accept(checkNotNull(invocation.account))
+            }
+
+            in Invocation.CHAT_COMMANDS -> {
+                val chat = ChatActions(api, mls, state.identities, state.keys, lock, access, claim, random)
+                ChatCommands(chat, out, readText) { report(it) { } }.run(invocation, session)
             }
 
             in Invocation.DELIVERY_COMMANDS -> {
