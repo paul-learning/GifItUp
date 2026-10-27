@@ -7,8 +7,9 @@ import app.gifitup.shared.domain.media.MediaScanner
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.prepareGet
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -18,9 +19,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.io.readByteArray
 
 /**
- * [MediaFetcher] over Ktor, for Android and the JVM (the web fetches with the browser's `fetch()`, #24 part 4). One
+ * [MediaFetcher] over Ktor, for Android and the JVM. **Not for the web:** a browser follows redirects by itself and
+ * decides about credentials, so the web fetches with its own `fetch()` options (#24 part 4) and the app wires this class
+ * on Android only. One
  * `GET` to the URL of a [GifReference], which already passed the Mode B′ checks (host allow-list, no query, no port):
- * - no cookie storage is installed and no `Referer` or other identifying header is set;
+ * - no cookie storage is installed and no `Referer` or app-specific header is set (the engine's own default headers, such
+ *   as its `User-Agent`, are sent, which the provider sees anyway: ADR-0003);
  * - redirects are **not** followed (a 3xx is a failure);
  * - only a complete `200` counts, the declared length and the bytes that arrive are both capped at
  *   [MediaScanner.MAX_BYTES];
@@ -42,30 +46,30 @@ class KtorMediaFetcher(
             }
         }
 
-    @Suppress("TooGenericExceptionCaught") // Ktor's fetch engine throws kotlin.Error; every failure is the same answer.
+    @Suppress("TooGenericExceptionCaught")
     override suspend fun fetch(reference: GifReference): FetchResult =
         try {
-            val response = client.get(reference.url) { header(HttpHeaders.Accept, ACCEPT) }
-            val declared = response.contentLength() ?: 0
-            when {
-                response.status != HttpStatusCode.OK -> {
-                    FetchResult.Failed
-                }
-
-                declared > MediaScanner.MAX_BYTES -> {
-                    FetchResult.TooLarge
-                }
-
-                else -> {
-                    val body = response.bodyAsChannel().readRemaining(MediaScanner.MAX_BYTES + 1L).readByteArray()
-                    if (body.size > MediaScanner.MAX_BYTES) FetchResult.TooLarge else FetchResult.Bytes(body)
+            // execute { } hands over the response as it arrives; a plain get() would buffer the whole body first.
+            client.prepareGet(reference.url) { header(HttpHeaders.Accept, ACCEPT) }.execute { response ->
+                val declared = response.contentLength() ?: 0
+                when {
+                    response.status != HttpStatusCode.OK -> FetchResult.Failed
+                    declared > MediaScanner.MAX_BYTES -> FetchResult.TooLarge
+                    else -> readCapped(response)
                 }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (ignored: Throwable) {
+            // Ktor's fetch engine throws kotlin.Error, and every platform has its own network exceptions.
             FetchResult.Failed
         }
+
+    /** Reads at most [MediaScanner.MAX_BYTES] + 1 bytes off the wire: one more than the cap is enough to refuse. */
+    private suspend fun readCapped(response: HttpResponse): FetchResult {
+        val body = response.bodyAsChannel().readRemaining(MediaScanner.MAX_BYTES + 1L).readByteArray()
+        return if (body.size > MediaScanner.MAX_BYTES) FetchResult.TooLarge else FetchResult.Bytes(body)
+    }
 
     override fun close() = client.close()
 

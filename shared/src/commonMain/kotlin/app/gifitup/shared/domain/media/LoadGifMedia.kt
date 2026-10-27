@@ -37,7 +37,9 @@ class LoadGifMedia(
 
             is FetchResult.Bytes -> {
                 when (val scanned = MediaScanner.scan(fetched.data)) {
-                    is ScanResult.Accepted -> MediaLoad.Ready(fetched.data, scanned.info)
+                    // Only the scanned part is handed on: bytes after the trailer or the RIFF end are not part of the file.
+                    is ScanResult.Accepted -> MediaLoad.Ready(fetched.data.copyOf(scanned.info.length), scanned.info)
+
                     is ScanResult.Rejected -> MediaLoad.Unavailable(UnavailableReason.REJECTED)
                 }
             }

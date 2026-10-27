@@ -10,6 +10,8 @@ class MediaInfo(
     val width: Int,
     val height: Int,
     val frames: Int,
+    /** The bytes the scan covered, from the start: anything after the GIF trailer or the RIFF end is not part of the file. */
+    val length: Int,
 )
 
 /** Why a file is not shown. Closed; no variant carries anything from the file. */
@@ -117,10 +119,12 @@ private class GifWalker(
     private val bytes = Cursor(data)
     private val budget = StepBudget()
     private var position = 0
+    private var width = 0
+    private var height = 0
 
     fun walk(): MediaInfo {
-        val width = bytes.u16(WIDTH_AT)
-        val height = bytes.u16(WIDTH_AT + 2)
+        width = bytes.u16(WIDTH_AT)
+        height = bytes.u16(WIDTH_AT + 2)
         position = HEADER_SIZE + colorTableSize(bytes.u8(FLAGS_AT))
         var frames = 0
         while (true) {
@@ -137,7 +141,7 @@ private class GifWalker(
                 }
 
                 TRAILER -> {
-                    return finish(width, height, frames)
+                    return finish(frames)
                 }
 
                 else -> {
@@ -147,22 +151,25 @@ private class GifWalker(
         }
     }
 
-    private fun finish(
-        width: Int,
-        height: Int,
-        frames: Int,
-    ): MediaInfo {
+    private fun finish(frames: Int): MediaInfo {
         if (frames == 0 || width == 0 || height == 0) MediaScanner.reject(Rejection.MALFORMED)
-        return MediaInfo(MediaFormat.GIF, width, height, frames)
+        return MediaInfo(MediaFormat.GIF, width, height, frames, position)
     }
 
-    /** Left, top, width, height (2 bytes each), the flags, an optional local color table, the LZW size and the data. */
+    /**
+     * Left, top, width, height (2 bytes each), which must lie inside the screen, the flags, an optional local color
+     * table, the LZW size and the data.
+     */
     private fun imageDescriptor() {
+        // A frame outside the screen would make a decoder allocate for a size the checks never saw.
+        val right = bytes.u16(position) + bytes.u16(position + 4)
+        val bottom = bytes.u16(position + 2) + bytes.u16(position + 6)
+        if (right > width || bottom > height) MediaScanner.reject(Rejection.MALFORMED)
         position += DESCRIPTOR_FIELDS
         val flags = bytes.u8(position++)
         position += colorTableSize(flags)
         val lzwSize = bytes.u8(position++)
-        if (lzwSize !in 1..MAX_LZW_SIZE) MediaScanner.reject(Rejection.MALFORMED)
+        if (lzwSize !in MIN_LZW_SIZE..MAX_LZW_SIZE) MediaScanner.reject(Rejection.MALFORMED)
         skipSubBlocks()
     }
 
@@ -189,7 +196,8 @@ private class GifWalker(
         const val TRAILER = 0x3B
         const val TABLE_FLAG = 0x80
         const val TABLE_BITS = 0x07
-        const val MAX_LZW_SIZE = 11
+        const val MIN_LZW_SIZE = 2
+        const val MAX_LZW_SIZE = 8
     }
 }
 
@@ -221,7 +229,7 @@ private class WebpWalker(
             position = (payload + size + (size and 1)).toInt()
         }
         if (!complete()) MediaScanner.reject(Rejection.MALFORMED)
-        return MediaInfo(MediaFormat.WEBP, width, height, if (animated) frames else 1)
+        return MediaInfo(MediaFormat.WEBP, width, height, if (animated) frames else 1, end.toInt())
     }
 
     /** A canvas, and frames for an animation or an image chunk for a still. */
@@ -241,18 +249,10 @@ private class WebpWalker(
                 height = bytes.u24(payload + CANVAS_AT + 3) + 1
             }
 
-            "VP8 " -> {
-                if (size < LOSSY_SIZE || bytes.u24(payload + 3) != START_CODE) MediaScanner.reject(Rejection.MALFORMED)
-                width = bytes.u16(payload + 6) and DIMENSION_MASK
-                height = bytes.u16(payload + 8) and DIMENSION_MASK
-                sawImage = true
-            }
-
-            "VP8L" -> {
-                if (size < LOSSLESS_SIZE || bytes.u8(payload) != LOSSLESS_SIGNATURE) MediaScanner.reject(Rejection.MALFORMED)
-                val bits = bytes.u32(payload + 1)
-                width = (bits and DIMENSION_MASK.toLong()).toInt() + 1
-                height = ((bits shr DIMENSION_BITS) and DIMENSION_MASK.toLong()).toInt() + 1
+            "VP8 ", "VP8L" -> {
+                val size2 = imageSize(type, payload, size)
+                width = size2.first
+                height = size2.second
                 sawImage = true
             }
 
@@ -268,21 +268,73 @@ private class WebpWalker(
         size: Long,
     ) {
         when (type) {
-            "ANMF" -> frame(payload, size)
-            "VP8 ", "VP8L" -> sawImage = true
+            "ANMF" -> {
+                frame(payload, size)
+            }
+
+            "VP8 ", "VP8L" -> {
+                // A still picture's bitstream must say what the VP8X canvas says; an animation has its images in frames.
+                if (animated || imageSize(type, payload, size) != width to height) MediaScanner.reject(Rejection.MALFORMED)
+                sawImage = true
+            }
         }
     }
 
-    /** An animation frame: its rectangle (x and y in units of two pixels) must lie inside the canvas. */
+    /** The width and height a `VP8 ` or `VP8L` bitstream announces in its own header. */
+    private fun imageSize(
+        type: String,
+        payload: Int,
+        size: Long,
+    ): Pair<Int, Int> =
+        if (type == "VP8 ") {
+            if (size < LOSSY_SIZE || bytes.u24(payload + 3) != START_CODE) MediaScanner.reject(Rejection.MALFORMED)
+            (bytes.u16(payload + 6) and DIMENSION_MASK) to (bytes.u16(payload + 8) and DIMENSION_MASK)
+        } else {
+            if (size < LOSSLESS_SIZE || bytes.u8(payload) != LOSSLESS_SIGNATURE) MediaScanner.reject(Rejection.MALFORMED)
+            val bits = bytes.u32(payload + 1)
+            ((bits and DIMENSION_MASK.toLong()).toInt() + 1) to (((bits shr DIMENSION_BITS) and DIMENSION_MASK.toLong()).toInt() + 1)
+        }
+
+    /**
+     * An animation frame: its rectangle (x and y in units of two pixels) must lie inside the canvas, and the image
+     * inside it must have exactly the size the frame header announces.
+     */
     private fun frame(
         payload: Int,
         size: Long,
     ) {
         if (!animated || size < FRAME_HEADER) MediaScanner.reject(Rejection.MALFORMED)
-        val right = bytes.u24(payload) * 2L + bytes.u24(payload + 6) + 1
-        val bottom = bytes.u24(payload + 3) * 2L + bytes.u24(payload + 9) + 1
+        val frameWidth = bytes.u24(payload + 6) + 1
+        val frameHeight = bytes.u24(payload + 9) + 1
+        val right = bytes.u24(payload) * 2L + frameWidth
+        val bottom = bytes.u24(payload + 3) * 2L + frameHeight
         if (right > width || bottom > height) MediaScanner.reject(Rejection.MALFORMED)
         if (++frames > MediaScanner.MAX_FRAMES) MediaScanner.reject(Rejection.TOO_MANY_FRAMES)
+        checkFrameImage((payload + FRAME_HEADER).toLong(), payload + size, frameWidth to frameHeight)
+    }
+
+    /** Walks the chunks inside a frame: there must be exactly one image chunk and it must be [expected] big. */
+    private fun checkFrameImage(
+        start: Long,
+        end: Long,
+        expected: Pair<Int, Int>,
+    ) {
+        var position = start
+        var images = 0
+        while (position < end) {
+            budget.step()
+            if (position + CHUNK_HEADER > end) MediaScanner.reject(Rejection.MALFORMED)
+            val type = bytes.ascii(position.toInt(), FOURCC)
+            val size = bytes.u32(position.toInt() + FOURCC)
+            val payload = position + CHUNK_HEADER
+            if (payload + size > end) MediaScanner.reject(Rejection.MALFORMED)
+            if (type == "VP8 " || type == "VP8L") {
+                images++
+                if (imageSize(type, payload.toInt(), size) != expected) MediaScanner.reject(Rejection.MALFORMED)
+            }
+            position = payload + size + (size and 1)
+        }
+        if (images != 1) MediaScanner.reject(Rejection.MALFORMED)
     }
 
     private companion object {

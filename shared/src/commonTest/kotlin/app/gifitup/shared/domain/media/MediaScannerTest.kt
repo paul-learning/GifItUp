@@ -107,7 +107,7 @@ class MediaScannerTest {
     fun theLimitsAreEnforcedAtTheirEdges() {
         assertEquals(2048, accepted(gif(width = 2048, height = 1)).width)
         assertEquals(Rejection.CANVAS_TOO_LARGE, rejected(gif(width = 2049, height = 1)))
-        assertEquals(Rejection.CANVAS_TOO_LARGE, rejected(riff(vp8x(2049, 10, animated = false), chunk("VP8L", losslessPayload(10, 10)))))
+        assertEquals(Rejection.CANVAS_TOO_LARGE, rejected(riff(vp8x(2049, 10, animated = false), chunk("VP8L", losslessPayload(2049, 10)))))
         assertEquals(1000, accepted(gif(width = 2, height = 2, frames = 1000)).frames)
         assertEquals(Rejection.TOO_MANY_FRAMES, rejected(gif(width = 2, height = 2, frames = 1001)))
         val animated = (1..1001).map { anmf(width = 2, height = 2) }.toTypedArray()
@@ -147,6 +147,51 @@ class MediaScannerTest {
             rejected(riff(vp8x(8, 8, animated = true), anmf(x = 6, width = 4, height = 4))),
             "frame outside the canvas",
         )
+    }
+
+    @Test
+    fun aFrameOrImageThatDisagreesWithTheCanvasIsMalformed() {
+        // GIF: a 1 x 1 screen with a frame of 100 x 100 (or one that starts outside) would allocate unchecked memory.
+        val base = ascii("GIF89a") + le16(1) + le16(1) + byteArrayOf(0, 0, 0)
+
+        fun frame(
+            left: Int,
+            top: Int,
+            width: Int,
+            height: Int,
+        ) = base + byteArrayOf(0x2C) + le16(left) + le16(top) + le16(width) + le16(height) + byteArrayOf(0, 2, 1, 0, 0, 0x3B)
+        assertEquals(1, accepted(frame(0, 0, 1, 1)).frames)
+        assertEquals(Rejection.MALFORMED, rejected(frame(0, 0, 100, 100)))
+        assertEquals(Rejection.MALFORMED, rejected(frame(1, 0, 1, 1)))
+        assertEquals(Rejection.MALFORMED, rejected(frame(0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF)))
+        // WebP: the bitstream's own size must be the canvas, and an animation frame's image the frame's size.
+        assertEquals(Rejection.MALFORMED, rejected(riff(vp8x(40, 30, animated = false), chunk("VP8L", losslessPayload(41, 30)))))
+        assertEquals(Rejection.MALFORMED, rejected(riff(vp8x(40, 30, animated = false), lossy(40, 31))))
+        assertEquals(Rejection.MALFORMED, rejected(riff(vp8x(40, 30, animated = true), anmfWithImage(20, 20, 21, 20))))
+        assertEquals(20, accepted(riff(vp8x(40, 30, animated = true), anmfWithImage(20, 20, 20, 20))).frames * 20)
+        assertEquals(
+            Rejection.MALFORMED,
+            rejected(riff(vp8x(40, 30, animated = true), anmfWithImage(20, 20, 20, 20), chunk("VP8L", losslessPayload(40, 30)))),
+        )
+    }
+
+    private fun anmfWithImage(
+        frameWidth: Int,
+        frameHeight: Int,
+        imageWidth: Int,
+        imageHeight: Int,
+    ) = chunk(
+        "ANMF",
+        le24(0) + le24(0) + le24(frameWidth - 1) + le24(frameHeight - 1) + le24(100) + byteArrayOf(0) +
+            chunk("VP8L", losslessPayload(imageWidth, imageHeight)),
+    )
+
+    @Test
+    fun theScanCoversOnlyTheFileNotWhatFollowsIt() {
+        val trailing = byteArrayOf(1, 2, 3, 4, 5)
+        assertEquals(gif().size, accepted(gif() + trailing).length)
+        val webp = samples[2]
+        assertEquals(webp.size, accepted(webp + trailing).length)
     }
 
     @Test

@@ -13,6 +13,11 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.writeFully
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -112,6 +117,32 @@ class KtorMediaFetcherTest {
         }
 
     @Test
+    fun theBodyIsReadWhileItArrivesAndStopsAtTheCap() =
+        runTest {
+            // A body that never ends: the producer is held back by the channel, so it can't be far ahead of the reader.
+            val channel = ByteChannel()
+            var produced = 0L
+            val chunk = ByteArray(64 * 1024)
+            val producer =
+                launch(Dispatchers.Default) {
+                    try {
+                        while (true) {
+                            channel.writeFully(chunk)
+                            produced += chunk.size
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (ignored: Throwable) {
+                        // The reader went away.
+                    }
+                }
+            val result = fetcher { respond(channel, HttpStatusCode.OK) }.fetch(reference)
+            producer.cancel()
+            assertEquals(FetchResult.TooLarge, result)
+            assertTrue(produced < MediaScanner.MAX_BYTES + 4L * 1024 * 1024, "the body was not buffered: $produced bytes were taken")
+        }
+
+    @Test
     @Suppress("TooGenericExceptionThrown", "SwallowedException") // The test throws what a platform engine throws.
     fun anyThrowableIsAFailureButCancellationIsNot() =
         runTest {
@@ -132,6 +163,8 @@ class KtorMediaFetcherTest {
             val ready = LoadGifMedia { FetchResult.Bytes(tinyGif) }(reference)
             val info = assertIs<MediaLoad.Ready>(ready).info
             assertEquals(listOf(1, 1, 1), listOf(info.width, info.height, info.frames))
+            val padded = LoadGifMedia { FetchResult.Bytes(tinyGif + byteArrayOf(9, 9, 9)) }(reference)
+            assertTrue(assertIs<MediaLoad.Ready>(padded).data.contentEquals(tinyGif), "bytes after the trailer are not handed on")
             val html = LoadGifMedia { FetchResult.Bytes("<html>".encodeToByteArray()) }(reference)
             assertEquals(UnavailableReason.REJECTED, assertIs<MediaLoad.Unavailable>(html).reason)
             assertEquals(
