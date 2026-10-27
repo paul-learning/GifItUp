@@ -42,7 +42,9 @@ fun interface DeviceSecurityPatch {
  * decoders (Skia, libwebp, giflib) are patched through the device maker's security updates, not through the Play
  * store. A phone whose security patch is **older than 12 months**, or whose level can't be read, gets
  * [Autoload.TAP_TO_LOAD] and the app says why. A user who taps still runs the old decoder; that is their choice.
- * Where there is no such patch level (the web: the browser updates its own codecs) the answer is [Autoload.AUTOMATIC].
+ * A level more than a month **after** today is unreadable too (a wrong clock or a made-up level must not buy automatic
+ * loading for ever). Where there is no such patch level (the web: the browser updates its own codecs) the answer is
+ * [Autoload.AUTOMATIC]. [today] is the device's local calendar date.
  */
 class MediaPolicy(
     private val patch: DeviceSecurityPatch?,
@@ -50,8 +52,9 @@ class MediaPolicy(
 ) {
     fun autoload(): Autoload {
         val level = patch?.let { parse(it.level()) }
-        val old = level == null || level < oneYearBefore(today())
-        return if (patch != null && old) Autoload.TAP_TO_LOAD else Autoload.AUTOMATIC
+        val now = today()
+        val implausible = level == null || level < oneYearBefore(now) || monthIndex(level) > monthIndex(now) + 1
+        return if (patch != null && implausible) Autoload.TAP_TO_LOAD else Autoload.AUTOMATIC
     }
 
     @Suppress("MagicNumber") // Calendar numbers.
@@ -67,6 +70,8 @@ class MediaPolicy(
             val valid = month in 1..MONTHS && day in 1..DAYS_IN_MONTH[month - 1] && (month != 2 || day < 29 || isLeap(year))
             return if (valid) CivilDate(year, month, day) else null
         }
+
+        private fun monthIndex(date: CivilDate): Int = date.year * MONTHS + date.month
 
         /** The same day a year earlier; 29 February becomes 28 February. */
         fun oneYearBefore(date: CivilDate): CivilDate {
