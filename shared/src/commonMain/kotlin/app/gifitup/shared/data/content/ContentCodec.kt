@@ -68,7 +68,8 @@ object ContentCodec {
     }
 
     /**
-     * The bytes of a GIF message, or `null` if the caption breaks the rules (B3a, 120 code points after trimming) or the result would be over [MAX_BYTES].
+     * The bytes of a GIF message, or `null` if the caption breaks the rules (B3a, 120 code points after
+     * trimming) or the result would be over [MAX_BYTES].
      */
     fun encodeGif(
         reference: GifReference,
@@ -90,7 +91,8 @@ object ContentCodec {
     }
 
     /**
-     * The bytes of a rename, or `null` if [name] breaks the rules (B3a, 1..64 code points after trimming) or the result would be over [MAX_BYTES].
+     * The bytes of a rename, or `null` if [name] breaks the rules (B3a, 1..64 code points after
+     * trimming) or the result would be over [MAX_BYTES].
      */
     fun encodeGroupMeta(name: String): ByteArray? {
         val clean = TextRules.clean(name, GROUP_NAME_MAX_CODE_POINTS)?.takeIf { it.isNotEmpty() } ?: return null
