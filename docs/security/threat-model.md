@@ -152,7 +152,7 @@ Owner sign-off (web client at rest without a passphrase row, #16): ☑ accepted 
 
 ## Assumptions
 - OpenMLS and the platform CSPRNGs are correct.
-- **Wire and content changes fail closed** (ADR-0006): a field whose absence would weaken a security check has no permissive default, so an older, rolled-back or malicious server (or member) can't switch a check off by omitting it. Clients never negotiate down to an older protocol version, and decoder errors never echo their input (server: in place since #12; content codec: Planned #24).
+- **Wire and content changes fail closed** (ADR-0006): a field whose absence would weaken a security check has no permissive default, so an older, rolled-back or malicious server (or member) can't switch a check off by omitting it. Clients never negotiate down to an older protocol version, and decoder errors never echo their input (server: in place since #12; content codec: in place since #24, part 1).
 - The **image decoders** (GIF, WebP) are kept patched. Every recipient decodes provider media automatically (zero-click), in the process that holds the MLS keys (spike #5).
   - **Android:** OS decoders, patched only through OEM security updates, not Mainline. **This doesn't hold on phones out of support.** Mitigation: a security patch level older than 12 months switches received GIFs to tap-to-load (#24). A user who taps still runs the old decoder; that is the user's choice.
   - **Web:** the browser's decoders by default. If #24 has to fall back to Compose's bundled Skiko codecs, *we* are responsible. The owner watches Compose releases and Skia/libwebp/giflib advisories (also checked in milestone security reviews), ships an update within 14 days of a codec CVE, and otherwise switches the web client to tap-to-load.
