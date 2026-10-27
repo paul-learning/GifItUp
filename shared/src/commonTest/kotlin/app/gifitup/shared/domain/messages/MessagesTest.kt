@@ -9,6 +9,7 @@ import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.DeliveredMessage
 import app.gifitup.shared.domain.groups.GroupChat
 import app.gifitup.shared.domain.groups.IncomingSink
+import app.gifitup.shared.domain.groups.SendObserver
 import app.gifitup.shared.domain.groups.SyncOutcome
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -94,10 +95,16 @@ class MessagesTest {
             val kept = store.messages(KeyBytes(group))
             assertEquals(InMemoryMessageStore.MAX_PER_GROUP, kept.size)
             assertEquals(5L, kept.first().seq, "the oldest are pushed out")
-            repeat(InMemoryMessageStore.MAX_GROUPS + 3) { n ->
-                store.insert(ChatMessage(KeyBytes(byteArrayOf(100, n.toByte())), KeyBytes(ref(1)), "a", 1, MessageBody.Unavailable, null))
-            }
-            assertTrue(store.messages(KeyBytes(byteArrayOf(100, 60))).isEmpty(), "no group slots left")
+            // The group above holds one of the 50 slots.
+            val results =
+                (0 until InMemoryMessageStore.MAX_GROUPS + 2).map { n ->
+                    store.insert(
+                        ChatMessage(KeyBytes(byteArrayOf(100, n.toByte())), KeyBytes(ref(1)), "a", 1, MessageBody.Unavailable, null),
+                    )
+                }
+            assertEquals(InMemoryMessageStore.MAX_GROUPS - 1, results.count { it }, "49 more groups fit, the rest are refused")
+            assertFalse(results.last())
+            assertTrue(store.messages(KeyBytes(byteArrayOf(100, (InMemoryMessageStore.MAX_GROUPS + 1).toByte()))).isEmpty())
         }
 
     @Test
@@ -113,6 +120,7 @@ class MessagesTest {
     private class FakeChat(
         var outcome: SyncOutcome,
         var sealWith: ByteArray? = ByteArray(32) { 7 },
+        var earlier: SyncOutcome? = null,
     ) : GroupChat {
         var sent: ByteArray? = null
 
@@ -121,10 +129,12 @@ class MessagesTest {
             groupId: ByteArray,
             text: ByteArray,
             sink: IncomingSink,
-            onSealed: suspend (ByteArray) -> Unit,
+            observer: SendObserver,
         ): AuthResult<SyncOutcome> {
             sent = text
-            sealWith?.let { onSealed(it) }
+            earlier?.let { observer.earlierSettled(it) }
+            if (earlier != null && earlier !is SyncOutcome.Sent) return AuthResult.Ok(SyncOutcome.PendingFirst(earlier!!))
+            sealWith?.let { observer.sealed(it) }
             return AuthResult.Ok(outcome)
         }
 
@@ -175,6 +185,31 @@ class MessagesTest {
             chat.outcome = SyncOutcome.Sent(5)
             send.resume(session, group, sink)
             assertEquals(listOf(DeliveryState.SENT), states())
+        }
+
+    @Test
+    fun anOlderMessageSettledFirstGetsItsStateBeforeTheNewOneIsSealed() =
+        runTest {
+            val chat = FakeChat(SyncOutcome.InFlight(ApiError.NETWORK))
+            val send = SendGif(chat, store)
+            send(session, group, reference, "first", sink)
+            chat.earlier = SyncOutcome.Sent(4)
+            chat.sealWith = ByteArray(32) { 8 }
+            chat.outcome = SyncOutcome.Sent(5)
+            send(session, group, reference, "second", sink)
+            assertEquals(listOf(DeliveryState.SENT, DeliveryState.SENT), states())
+            assertEquals(listOf(4L, 5L), store.messages(KeyBytes(group)).map { it.seq })
+        }
+
+    @Test
+    fun anOlderMessageThatIsRefusedIsFailedAndTheNewOneIsNotShown() =
+        runTest {
+            val chat = FakeChat(SyncOutcome.InFlight(ApiError.NETWORK))
+            val send = SendGif(chat, store)
+            send(session, group, reference, "first", sink)
+            chat.earlier = SyncOutcome.Rejected(ApiError.BAD_REQUEST)
+            send(session, group, reference, "second", sink)
+            assertEquals(listOf(DeliveryState.FAILED), states())
         }
 
     @Test

@@ -7,6 +7,7 @@ import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupChat
 import app.gifitup.shared.domain.groups.IncomingSink
+import app.gifitup.shared.domain.groups.SendObserver
 import app.gifitup.shared.domain.groups.SyncOutcome
 
 /**
@@ -14,7 +15,9 @@ import app.gifitup.shared.domain.groups.SyncOutcome
  * bytes, the sync engine seals, stores and posts them, and the message appears in the [MessageStore] as
  * [DeliveryState.SENDING] the moment it is stored, then as [DeliveryState.SENT] or [DeliveryState.FAILED]. A caption
  * that breaks the text rules sends nothing ([SyncOutcome.InvalidRequest]). One message is in flight per group; while
- * an older one is unsettled the new one is not sent and not shown ([SyncOutcome.PendingFirst]).
+ * an older one is unsettled it is posted again first, its state follows the answer, and if it did not go through the new
+ * one is not sent and not shown ([SyncOutcome.PendingFirst]). A message for a group the store has no room for is sent but
+ * not shown.
  */
 class SendGif(
     private val chat: GroupChat,
@@ -30,14 +33,20 @@ class SendGif(
         val content = ContentCodec.encodeGif(reference, caption) ?: return AuthResult.Ok(SyncOutcome.InvalidRequest)
         val group = KeyBytes(groupId)
         var sealed: KeyBytes? = null
-        val result =
-            chat.send(session, groupId, content, sink) { messageRef ->
-                val ref = KeyBytes(messageRef)
-                sealed = ref
-                // Shown the way a recipient will read it (trimmed caption), from the bytes that are sent.
-                val body = MessageIntake.bodyOf(content) ?: MessageBody.Unavailable
-                store.insert(ChatMessage(group, ref, null, null, body, DeliveryState.SENDING))
+        val observer =
+            object : SendObserver {
+                override suspend fun sealed(messageRef: ByteArray) {
+                    val ref = KeyBytes(messageRef)
+                    sealed = ref
+                    // Shown the way a recipient will read it (trimmed caption), from the bytes that are sent.
+                    val body = MessageIntake.bodyOf(content) ?: MessageBody.Unavailable
+                    store.insert(ChatMessage(group, ref, null, null, body, DeliveryState.SENDING))
+                }
+
+                // The older unsettled message was posted again first; it is the one in flight, so it is the last SENDING.
+                override suspend fun earlierSettled(outcome: SyncOutcome) = settleUnsettled(group, outcome)
             }
+        val result = chat.send(session, groupId, content, sink, observer)
         if (result is AuthResult.Ok) sealed?.let { settle(group, it, result.value) }
         return result
     }
@@ -50,10 +59,15 @@ class SendGif(
     ): AuthResult<SyncOutcome> {
         val result = chat.resume(session, groupId, sink)
         val group = KeyBytes(groupId)
-        if (result is AuthResult.Ok) {
-            store.messages(group).lastOrNull { it.state == DeliveryState.SENDING }?.let { settle(group, it.reference, result.value) }
-        }
+        if (result is AuthResult.Ok) settleUnsettled(group, result.value)
         return result
+    }
+
+    private suspend fun settleUnsettled(
+        group: KeyBytes,
+        outcome: SyncOutcome,
+    ) {
+        store.messages(group).lastOrNull { it.state == DeliveryState.SENDING }?.let { settle(group, it.reference, outcome) }
     }
 
     private suspend fun settle(

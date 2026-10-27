@@ -5,13 +5,16 @@ import app.gifitup.shared.domain.auth.AuthResult
 
 /** The part of [ChatActions] that sending messages uses, so a sender can be tested without an MLS client. */
 interface GroupChat {
-    /** Seals [text] (at most 896 bytes), stores and posts it; [onSealed] gets its message reference once it is stored. */
+    /**
+     * Seals [text] (at most 896 bytes), stores and posts it; [observer] hears of it before the post and of an older
+     * message settled first.
+     */
     suspend fun send(
         session: Session,
         groupId: ByteArray,
         text: ByteArray,
         sink: IncomingSink,
-        onSealed: suspend (ByteArray) -> Unit = {},
+        observer: SendObserver = SendObserver.None,
     ): AuthResult<SyncOutcome>
 
     suspend fun resume(

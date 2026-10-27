@@ -90,8 +90,8 @@ class ChatActions(
         groupId: ByteArray,
         text: ByteArray,
         sink: IncomingSink,
-        onSealed: suspend (ByteArray) -> Unit,
-    ): AuthResult<SyncOutcome> = engine(session, sink) { engine, _ -> engine.send(groupId, text, onSealed) }
+        observer: SendObserver,
+    ): AuthResult<SyncOutcome> = engine(session, sink) { engine, _ -> engine.send(groupId, text, observer) }
 
     suspend fun sync(
         session: Session,
