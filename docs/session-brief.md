@@ -9,9 +9,9 @@ Read this at the start of every session, instead of reading the full docs. It po
 - Security rules 1–5, 8 and 9 and the risk tiers apply in full; they are in `CLAUDE.md`.
 
 ## Now
-- **Milestone:** M1, identity and server plumbing ([milestone 2](https://github.com/paul-learning/GifItUp/milestone/2) lists all open issues).
-- **Walking skeleton:** all three steps are done (#92, #79, #17; ADR-0013: onboarding, the create-invite screen and Android App Links, checked on a phone). #16 and #14 are done (ADR-0011, ADR-0012). Next in M1: #18 (contacts; plan and plan review first), then the M1 reviews (#19, #20).
-- **Outside the milestone:** #101 (deny agent edits to `gh-rest.sh` and `settings.json`, owner-filed).
+- **Milestone:** M2, encrypted GIF messaging MVP ([milestone 3](https://github.com/paul-learning/GifItUp/milestone/3) lists the open issues; `docs/ROADMAP.md` has the scope).
+- **Done in M2:** #21 (Delivery Service) and #22 (group lifecycle and sync engine, ADR-0016). M1 is closed.
+- **Active:** #24 (content codec, message store, send and receive pipeline; in several PRs, the codec first), then #23 with #40 (GIF picker and the key endpoint), #25 (chat UI), #31, #26, #27, and the M2 reviews #28 and #29.
 - Keep this section current in the PR that changes it, together with `docs/ROADMAP.md`. It is the brief's only low-tier part: the rest of this file, including what every session reads first, is high tier (`CLAUDE.md`, *Risk tiers*).
 
 ## Read on demand
