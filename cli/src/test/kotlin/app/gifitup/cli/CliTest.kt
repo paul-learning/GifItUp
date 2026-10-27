@@ -114,6 +114,13 @@ class CliTest {
     }
 
     @Test
+    fun aMessageCannotMoveTheCursorOrReorderTheLineAroundIt() {
+        val hostile = "a\u001b[2Jb\u202Ec\u2028d\u200Be\ng"
+        assertEquals("a?[2Jb?c?d?e?g", printable(hostile))
+        assertEquals("hello wörld 👍", printable("hello wörld 👍"))
+    }
+
+    @Test
     fun theInviteMayBeTheCodeOrTheLink() {
         assertEquals("AAAAAAAAAAAAAAAAAAAAAA", inviteCodeFrom("AAAAAAAAAAAAAAAAAAAAAA\n"))
         assertEquals("AAAAAAAAAAAAAAAAAAAAAA", inviteCodeFrom("  https://gifitup.app/invite#AAAAAAAAAAAAAAAAAAAAAA  "))

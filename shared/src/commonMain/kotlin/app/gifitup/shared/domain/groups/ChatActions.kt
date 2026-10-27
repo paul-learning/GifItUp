@@ -1,6 +1,8 @@
 package app.gifitup.shared.domain.groups
 
 import app.gifitup.shared.data.crypto.MlsClient
+import app.gifitup.shared.data.crypto.MlsErrorCode
+import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
@@ -74,13 +76,13 @@ class ChatActions(
         sink: IncomingSink,
     ): AuthResult<SyncOutcome> =
         engine(session, sink) { engine, client ->
-            val leaves = client.members(groupId).map { KeyBytes(it.signatureKey) }.toSet()
-            val targets =
-                pinnedDevices(target)
-                    .filter { (key, _) ->
-                        key in leaves
-                    }.map { (key, device) -> RemoveTarget(device, key.bytes) }
-            if (targets.isEmpty()) SyncOutcome.InvalidRequest else engine.removeMembers(groupId, targets)
+            val leaves = client.leavesOf(groupId)
+            val targets = pinnedDevices(target).filter { (key, _) -> leaves != null && key in leaves }
+            when {
+                leaves == null -> SyncOutcome.NotJoined
+                targets.isEmpty() -> SyncOutcome.InvalidRequest
+                else -> engine.removeMembers(groupId, targets.map { (key, device) -> RemoveTarget(device, key.bytes) })
+            }
         }
 
     suspend fun send(
@@ -145,3 +147,12 @@ class ChatActions(
             AuthResult.Ok(block(engine, client))
         }
 }
+
+/** The signature keys of the group's leaves, or null if this device has no such group. */
+private fun MlsClient.leavesOf(groupId: ByteArray): Set<KeyBytes>? =
+    try {
+        members(groupId).map { KeyBytes(it.signatureKey) }.toSet()
+    } catch (e: MlsException) {
+        if (e.code != MlsErrorCode.UnknownGroup) throw e
+        null
+    }

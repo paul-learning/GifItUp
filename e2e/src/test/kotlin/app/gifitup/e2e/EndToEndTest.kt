@@ -385,8 +385,9 @@ class EndToEndTest {
      * group is created from a claimed KeyPackage, the member joins from its welcome, messages are encrypted, read and
      * acknowledged, a third member is added and removed (the removed device finds the group gone), and a commit the server
      * refuses (only the creator may remove another member) leaves the group working. The texts the test sends must appear
-     * nowhere in the server's, Migrate's, Admin's or Postgres' output. Fresh accounts: a device may log in 10 times an hour.
+     * nowhere in the server's, Migrate's or Admin's output or in Postgres' log. Fresh accounts: a device may log in 10 times an hour.
      */
+    @Suppress("LongMethod") // One scripted scenario with three accounts; splitting it would hide the order that matters.
     private fun chat(
         cli: Cli,
         dbEnv: Map<String, String>,
@@ -430,6 +431,16 @@ class EndToEndTest {
         val created = ok(iris, "chat-create", "--target", "e2e_jack").single()
         val group = Regex("^created group (\\S+) at seq 1$").matchEntire(created)?.groupValues?.get(1) ?: fail("chat-create: $created")
         refused(iris, "chat-send", EXIT_REFUSED, "this device is not in that group", "--group", "AQIDBAUGBwgJCgsMDQ4PEA")
+        refused(
+            iris,
+            "chat-remove",
+            EXIT_REFUSED,
+            "this device is not in that group",
+            "--group",
+            "AQIDBAUGBwgJCgsMDQ4PEA",
+            "--target",
+            "e2e_jack",
+        )
 
         assertEquals(listOf("joined group $group"), ok(jack, "chat-welcomes"))
         assertEquals(listOf("sent at seq 2"), ok(iris, "chat-send", "--group", group, stdin = say("hello jack")))
@@ -445,6 +456,7 @@ class EndToEndTest {
         assertEquals(listOf("message 3 from e2e_jack: hi iris", "added the devices of e2e_kim, commit at seq 4"), added)
         assertEquals(listOf("joined group $group"), ok(kim, "chat-welcomes"))
         assertEquals(listOf("sent at seq 5"), ok(kim, "chat-send", "--group", group, stdin = say("hey all")))
+        refused(kim, "chat-remove", EXIT_REFUSED, "that can't be done", "--group", group, "--target", "e2e_nobody")
         assertEquals(
             listOf("message 5 from e2e_kim: hey all", "synced, 3 log entries"),
             ok(jack, "chat-sync", "--group", group),

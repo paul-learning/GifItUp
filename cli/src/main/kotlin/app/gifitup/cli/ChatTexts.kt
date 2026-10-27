@@ -73,9 +73,17 @@ private fun statusLine(status: GroupStatus): String =
         GroupStatus.REMOVED -> "this group is no longer available"
     }
 
-/** The text for the terminal: control characters are shown as `?`, so a message can't move the cursor or fake a line. */
-internal fun printableText(message: DeliveredMessage): String =
-    message.plaintext
-        .decodeToString()
-        .map { if (it.isISOControl()) '?' else it }
-        .joinToString("")
+/**
+ * The text for the terminal: control characters, line and paragraph separators and invisible format characters
+ * (bidirectional overrides, zero-width marks) are shown as `?`, so a message can't move the cursor, fake a line or
+ * reorder what is printed around it.
+ */
+internal fun printableText(message: DeliveredMessage): String = printable(message.plaintext.decodeToString())
+
+internal fun printable(text: String): String = text.map { if (isHidden(it)) '?' else it }.joinToString("")
+
+private fun isHidden(char: Char): Boolean =
+    char.isISOControl() ||
+        char.category == CharCategory.FORMAT ||
+        char.category == CharCategory.LINE_SEPARATOR ||
+        char.category == CharCategory.PARAGRAPH_SEPARATOR
