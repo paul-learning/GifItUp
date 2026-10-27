@@ -17,7 +17,7 @@ Run these in `crypto/`. `rust-toolchain.toml` pins the toolchain, and rustup ins
 |---|---|
 | Test | `cargo test --locked` |
 | Lint | `cargo clippy --all-targets --locked -- -D warnings` and `cargo fmt --all --check` |
-| Android `.so` (needs `cargo install cargo-ndk`) | `cargo ndk -t arm64-v8a -t x86_64 -P 26 -o <dir> build --release --locked` |
+| Android `.so` (needs `cargo install cargo-ndk`) | `cargo ndk -t arm64-v8a -t x86_64 -P 28 -o <dir> build --release --locked` |
 | Kotlin bindings | `cargo build --lib && cargo run --features bindgen --bin uniffi-bindgen -- generate --library target/debug/<lib> --language kotlin --out-dir <dir>` |
 
 From the repo root, `:mls` (ADR-0007) runs these builds itself: `./gradlew :mls:jvmTest` (host library + uniffi bindings, JVM contract tests), `./gradlew :mls:wasmJsTest` (wasm-bindgen package, contract tests in headless Chrome; needs `wasm-bindgen-cli` at the crate's exact version) and `./gradlew :mls:cargoNdkBuild` (Android `.so` files; needs `cargo-ndk` and the NDK from the version catalog).

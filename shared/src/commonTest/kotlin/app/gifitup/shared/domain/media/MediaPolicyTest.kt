@@ -29,8 +29,13 @@ class MediaPolicyTest {
     }
 
     @Test
-    fun aPatchFromTheFutureIsNotOld() {
-        assertEquals(Autoload.AUTOMATIC, policy("2027-05-01"))
+    fun aPatchFromTheNearFutureIsFineButAFarOneIsNotTrusted() {
+        assertEquals(Autoload.AUTOMATIC, policy("2026-11-30"), "a clock a few weeks off")
+        assertEquals(Autoload.TAP_TO_LOAD, policy("2026-12-01"))
+        assertEquals(Autoload.TAP_TO_LOAD, policy("2027-05-01"))
+        assertEquals(Autoload.TAP_TO_LOAD, policy("9999-12-31"))
+        assertEquals(Autoload.AUTOMATIC, policy("2027-01-31", today = CivilDate(2026, 12, 31)))
+        assertEquals(Autoload.TAP_TO_LOAD, policy("2027-02-01", today = CivilDate(2026, 12, 31)))
     }
 
     @Test
