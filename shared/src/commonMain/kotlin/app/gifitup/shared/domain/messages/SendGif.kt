@@ -9,6 +9,8 @@ import app.gifitup.shared.domain.groups.GroupChat
 import app.gifitup.shared.domain.groups.IncomingSink
 import app.gifitup.shared.domain.groups.SendObserver
 import app.gifitup.shared.domain.groups.SyncOutcome
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Sends a GIF (ADR-0003 Mode B′, ADR-0006): the reference the picker validated and an optional caption become content
@@ -23,7 +25,18 @@ class SendGif(
     private val chat: GroupChat,
     private val store: MessageStore,
 ) {
+    /** Sends and resumes of this use case run one at a time, so "the unsettled message" is not a moving target. */
+    private val mutex = Mutex()
+
     suspend operator fun invoke(
+        session: Session,
+        groupId: ByteArray,
+        reference: GifReference,
+        caption: String?,
+        sink: IncomingSink,
+    ): AuthResult<SyncOutcome> = mutex.withLock { send(session, groupId, reference, caption, sink) }
+
+    private suspend fun send(
         session: Session,
         groupId: ByteArray,
         reference: GifReference,
@@ -56,12 +69,12 @@ class SendGif(
         session: Session,
         groupId: ByteArray,
         sink: IncomingSink,
-    ): AuthResult<SyncOutcome> {
-        val result = chat.resume(session, groupId, sink)
-        val group = KeyBytes(groupId)
-        if (result is AuthResult.Ok) settleUnsettled(group, result.value)
-        return result
-    }
+    ): AuthResult<SyncOutcome> =
+        mutex.withLock {
+            val result = chat.resume(session, groupId, sink)
+            if (result is AuthResult.Ok) settleUnsettled(KeyBytes(groupId), result.value)
+            result
+        }
 
     private suspend fun settleUnsettled(
         group: KeyBytes,

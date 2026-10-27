@@ -132,8 +132,9 @@ class MessagesTest {
             observer: SendObserver,
         ): AuthResult<SyncOutcome> {
             sent = text
-            earlier?.let { observer.earlierSettled(it) }
-            if (earlier != null && earlier !is SyncOutcome.Sent) return AuthResult.Ok(SyncOutcome.PendingFirst(earlier!!))
+            val older = earlier
+            older?.let { observer.earlierSettled(it) }
+            if (older != null && older !is SyncOutcome.Sent) return AuthResult.Ok(SyncOutcome.PendingFirst(older))
             sealWith?.let { observer.sealed(it) }
             return AuthResult.Ok(outcome)
         }
@@ -210,6 +211,19 @@ class MessagesTest {
             chat.earlier = SyncOutcome.Rejected(ApiError.BAD_REQUEST)
             send(session, group, reference, "second", sink)
             assertEquals(listOf(DeliveryState.FAILED), states())
+        }
+
+    @Test
+    fun aMessageForAGroupWithNoRoomInTheStoreIsSentButNotShown() =
+        runTest {
+            repeat(InMemoryMessageStore.MAX_GROUPS) { n ->
+                store.insert(ChatMessage(KeyBytes(byteArrayOf(100, n.toByte())), KeyBytes(ref(1)), "a", 1, MessageBody.Unavailable, null))
+            }
+            val chat = FakeChat(SyncOutcome.Sent(3))
+            val result = SendGif(chat, store)(session, group, reference, null, sink)
+            assertEquals(SyncOutcome.Sent(3), assertIs<AuthResult.Ok<SyncOutcome>>(result).value)
+            assertNotNull(chat.sent, "it was sent")
+            assertTrue(states().isEmpty(), "and not shown")
         }
 
     @Test
