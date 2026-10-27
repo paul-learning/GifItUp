@@ -5,6 +5,8 @@ import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.groups.IncomingSink
 import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.messages.InMemoryMessageStore
+import app.gifitup.shared.domain.messages.SendGif
 import java.io.PrintStream
 import java.util.Base64
 
@@ -23,10 +25,12 @@ internal class ChatCommands(
 ) {
     private val base64 = Base64.getUrlEncoder().withoutPadding()
 
+    private val sendGif = SendGif(chat, InMemoryMessageStore())
+
     /** Prints each message the engine reads, whichever command it runs in: they are consumed once they are read. */
     private val sink =
         IncomingSink { message ->
-            out.println("message ${message.seq} from ${message.senderUsername}: ${printableText(message)}")
+            messageLine(message)?.let(out::println)
         }
 
     suspend fun run(
@@ -76,7 +80,7 @@ internal class ChatCommands(
     private suspend fun send(
         session: Session,
         group: ByteArray,
-    ): Int = outcome(chat.send(session, group, readText().encodeToByteArray(), sink)) { sent -> "sent at seq ${sent.seq}" }
+    ): Int = outcome(sendGif(session, group, TEST_GIF, readText().ifEmpty { null }, sink)) { sent -> "sent at seq ${sent.seq}" }
 
     private suspend fun welcomes(session: Session): Int =
         when (val result = chat.welcomes(session, sink)) {

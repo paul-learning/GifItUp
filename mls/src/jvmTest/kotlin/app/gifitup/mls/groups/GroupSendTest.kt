@@ -7,6 +7,7 @@ import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomeOutcome
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -55,6 +56,26 @@ class GroupSendTest {
             assertEquals(emptyMap(), alice.engine.recordOf(groupId)?.failures)
             assertEquals(emptyList(), alice.engine.recordOf(groupId)?.ownSeqs)
             assertTrue(first.seq < second.seq)
+        }
+
+    @Test
+    fun theSenderLearnsTheMessageReferenceBeforeThePostAndTheRecipientComputesTheSame() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            var announced: ByteArray? = null
+            var postedAlready: Boolean? = null
+            ds.onPost = { device, _ -> if (device == alice.deviceId) postedAlready = announced == null }
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "one".encodeToByteArray()) { announced = it })
+            assertEquals(false, postedAlready, "the reference was announced before the post")
+            bob.engine.sync(groupId)
+            assertContentEquals(announced, bob.received.single().messageRef)
+        }
+
+    @Test
+    fun anObserverThatFailsDoesNotStopTheSend() =
+        runTest {
+            val (alice, _, groupId) = joinedPair()
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "one".encodeToByteArray()) { error("history is broken") })
         }
 
     @Test

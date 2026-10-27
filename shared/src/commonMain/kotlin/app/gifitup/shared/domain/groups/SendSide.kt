@@ -21,6 +21,7 @@ internal class SendSide(
     suspend fun send(
         id: KeyBytes,
         plaintext: ByteArray,
+        onSealed: suspend (ByteArray) -> Unit = {},
     ): SyncOutcome {
         val record = activeRecord(store, id)
         if (plaintext.size > MAX_CONTENT) halt(SyncOutcome.TooLong)
@@ -44,7 +45,23 @@ internal class SendSide(
             )
         store.put(id, store.recordOf(id).copy(pending = pending))
         store.persist()
+        notify(onSealed, sealed.messageRef)
         return post(id, pending)
+    }
+
+    /** Tells the caller the message reference once the message is stored; a failing observer never stops the send. */
+    @Suppress("TooGenericExceptionCaught") // Only a history record hangs on it; the message is stored and gets posted anyway.
+    private suspend fun notify(
+        onSealed: suspend (ByteArray) -> Unit,
+        messageRef: ByteArray,
+    ) {
+        try {
+            onSealed(messageRef)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            // The history is not part of the send.
+        }
     }
 
     /** Posts the pending message again (a fresh start, or after [SyncOutcome.InFlight]); nothing pending is nothing to do. */

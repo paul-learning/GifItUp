@@ -58,12 +58,14 @@ class GroupSyncEngine(
     /**
      * Seals [plaintext] (at most 896 bytes), stores it and posts it. [SyncOutcome.Sent] when the server accepted it;
      * [SyncOutcome.InFlight] when the answer is unknown (the message stays pending, call [resume]); a stale state
-     * ([GroupStatus.READ_ONLY_ROLLBACK]) sends nothing.
+     * ([GroupStatus.READ_ONLY_ROLLBACK]) sends nothing. [onSealed] gets the message reference as soon as the message is
+     * stored, before it is posted (so a caller can show it as "sending").
      */
     suspend fun send(
         groupId: ByteArray,
         plaintext: ByteArray,
-    ): SyncOutcome = mutex.withLock { halting { sender.send(KeyBytes(groupId), plaintext) } }
+        onSealed: suspend (ByteArray) -> Unit = {},
+    ): SyncOutcome = mutex.withLock { halting { sender.send(KeyBytes(groupId), plaintext, onSealed) } }
 
     /** Posts the pending message or commit of a group again, unchanged. */
     suspend fun resume(groupId: ByteArray): SyncOutcome =

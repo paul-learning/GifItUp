@@ -37,7 +37,10 @@ class EndToEndTest {
     private val processes by lazy { Processes(work) }
     private val secrets = mutableListOf<String>()
 
-    /** The texts the chat step sends: they may appear in the CLI's own output, never in the server's or the database's. */
+    /**
+     * The texts and the GIF the chat step sends: they may appear in the CLI's own output, never in the server's or the
+     * database's.
+     */
     private val plaintexts = mutableListOf<String>()
 
     @Test
@@ -415,13 +418,16 @@ class EndToEndTest {
             exit: Int,
             message: String,
             vararg args: String,
+            stdin: String = "",
         ) {
-            val finished = cli.run(command, state, *args)
+            val finished = cli.run(command, state, *args, stdin = stdin)
             assertEquals(exit, finished.exit, "$command exit code")
             assertTrue("gifitup-cli: $message" in finished.stderr, "$command: the closed message")
         }
 
         fun say(text: String): String = text.also { plaintexts += it }
+        // The GIF the CLI sends is content too: its slug and link stay inside the encryption (ADR-0003).
+        plaintexts += listOf("e2e-test-gif", "0123456789abcdef0123456789abcdef")
         val iris = register("iris")
         val jack = register("jack")
         val kim = register("kim")
@@ -443,9 +449,10 @@ class EndToEndTest {
         )
 
         assertEquals(listOf("joined group $group"), ok(jack, "chat-welcomes"))
+        refused(iris, "chat-send", EXIT_REFUSED, "that can't be done", "--group", group, stdin = "x".repeat(121))
         assertEquals(listOf("sent at seq 2"), ok(iris, "chat-send", "--group", group, stdin = say("hello jack")))
         assertEquals(
-            listOf("message 2 from e2e_iris: hello jack", "synced, 1 log entries"),
+            listOf("message 2 from e2e_iris: gif e2e-test-gif \"hello jack\"", "synced, 1 log entries"),
             ok(jack, "chat-sync", "--group", group),
             "jack reads the message after its join point only",
         )
@@ -453,17 +460,20 @@ class EndToEndTest {
 
         // Adding a third member: iris first reads what jack sent (it is shown), then commits; her own entries are skipped.
         val added = ok(iris, "chat-add", "--group", group, "--target", "e2e_kim")
-        assertEquals(listOf("message 3 from e2e_jack: hi iris", "added the devices of e2e_kim, commit at seq 4"), added)
+        assertEquals(
+            listOf("message 3 from e2e_jack: gif e2e-test-gif \"hi iris\"", "added the devices of e2e_kim, commit at seq 4"),
+            added,
+        )
         assertEquals(listOf("joined group $group"), ok(kim, "chat-welcomes"))
         assertEquals(listOf("sent at seq 5"), ok(kim, "chat-send", "--group", group, stdin = say("hey all")))
         refused(kim, "chat-remove", EXIT_REFUSED, "that can't be done", "--group", group, "--target", "e2e_nobody")
         assertEquals(
-            listOf("message 5 from e2e_kim: hey all", "synced, 3 log entries"),
+            listOf("message 5 from e2e_kim: gif e2e-test-gif \"hey all\"", "synced, 3 log entries"),
             ok(jack, "chat-sync", "--group", group),
             "jack applies the add commit, skips his own message and reads kim's",
         )
         assertEquals(
-            listOf("message 5 from e2e_kim: hey all", "synced, 2 log entries"),
+            listOf("message 5 from e2e_kim: gif e2e-test-gif \"hey all\"", "synced, 2 log entries"),
             ok(iris, "chat-sync", "--group", group),
             "iris skips her own commit and reads kim's message",
         )
@@ -486,7 +496,7 @@ class EndToEndTest {
         )
         assertEquals(listOf("sent at seq 7"), ok(iris, "chat-send", "--group", group, stdin = say("after removal")))
         assertEquals(
-            listOf("message 7 from e2e_iris: after removal", "synced, 2 log entries"),
+            listOf("message 7 from e2e_iris: gif e2e-test-gif \"after removal\"", "synced, 2 log entries"),
             ok(jack, "chat-sync", "--group", group),
             "jack's refused commit left nothing pending: he applies the removal and reads the next message",
         )

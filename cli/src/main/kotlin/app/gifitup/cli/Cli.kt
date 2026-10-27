@@ -189,7 +189,7 @@ data class Invocation(
   welcomes                     pending welcomes of this device; welcome-ack --welcome <id>
   chat-create --target <name>          claim the member's KeyPackages and create an MLS group with them (consumes them)
   chat-add|chat-remove --group <id> --target <name>   add or remove a member's devices (removal needs the contact book's pins)
-  chat-send --group <id>               encrypt the line on stdin and send it (test accounts: the text is shown by chat-sync)
+  chat-send --group <id>               send a test GIF with the line on stdin as its caption (chat-sync shows the caption)
   chat-sync --group <id>               fetch, decrypt and apply the group's log; prints each message with its sender
   chat-resume --group <id>             post a pending message or commit again; chat-welcomes: join pending welcomes
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
