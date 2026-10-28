@@ -35,7 +35,12 @@ internal actual fun AnimatedGif(
 ) {
     var current by remember(data) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(data) {
-        if (!play(data, info) { current = it }) onFailed()
+        try {
+            if (!play(data, info) { current = it }) onFailed()
+        } finally {
+            // The images behind it are released with the play; nothing may draw one that is closed.
+            current = null
+        }
     }
     current?.let { Image(it, contentDescription, modifier, contentScale = ContentScale.Fit) }
 }
