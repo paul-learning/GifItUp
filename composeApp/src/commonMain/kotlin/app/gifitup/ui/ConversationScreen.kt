@@ -26,9 +26,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.domain.messages.CaptionInput
+import app.gifitup.shared.presentation.chat.ConversationState
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
 import app.gifitup.shared.presentation.chat.SendProblem
@@ -46,7 +51,7 @@ import kotlinx.coroutines.flow.filter
 internal fun ConversationScreen(
     holder: ConversationStateHolder,
     tiles: GifTilesStateHolder,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
 ) {
     val state by holder.state.collectAsState()
     LaunchedEffect(holder) {
@@ -80,19 +85,15 @@ internal fun ConversationScreen(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onBack) { Text(ChatTexts.BACK) }
+        ConversationHeader(state, onBack)
+        state.conversationProblem?.let {
             Text(
-                ChatTexts.title(state.title),
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                ChatTexts.problem(it),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.polite(),
             )
-            if (state.refreshing) CircularProgressIndicator(modifier = Modifier.padding(4.dp), strokeWidth = 2.dp)
         }
-        state.conversationProblem?.let { Text(ChatTexts.problem(it), color = MaterialTheme.colorScheme.error) }
-        state.problem?.let { Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error) }
+        state.problem?.let { Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
         if (state.loaded && state.messages.isEmpty()) Text(ChatTexts.NO_MESSAGES)
         val tileStates by tiles.tiles.collectAsState()
         LazyColumn(
@@ -109,6 +110,24 @@ internal fun ConversationScreen(
     }
 }
 
+@Composable
+private fun ConversationHeader(
+    state: ConversationState,
+    onBack: (() -> Unit)?,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (onBack != null) TextButton(onClick = onBack) { Text(ChatTexts.BACK) }
+        Text(
+            ChatTexts.title(state.title),
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).semantics { heading() },
+        )
+        if (state.refreshing) CircularProgressIndicator(modifier = Modifier.padding(4.dp), strokeWidth = 2.dp)
+    }
+}
+
 /** The caption field and the send button. The button is off until the GIF picker (#23) can hand over a GIF. */
 @Composable
 private fun SendArea(
@@ -119,7 +138,7 @@ private fun SendArea(
 ) {
     var open by remember { mutableStateOf(false) }
     var caption by remember { mutableStateOf("") }
-    problem?.let { Text(ConversationTexts.sendProblem(it), color = MaterialTheme.colorScheme.error) }
+    problem?.let { Text(ConversationTexts.sendProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
     if (unsettled) TextButton(onClick = holder::resend, enabled = canSend) { Text(ConversationTexts.RESEND) }
     if (open) {
         CaptionField(holder.captions, caption, onChange = { caption = it }, onRemove = {
@@ -161,3 +180,6 @@ private fun CaptionField(
 }
 
 private const val REFRESH_MILLIS = 15_000L
+
+/** A change of this text is announced by a screen reader. */
+private fun Modifier.polite(): Modifier = semantics { liveRegion = LiveRegionMode.Polite }
