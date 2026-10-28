@@ -25,11 +25,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -87,17 +85,13 @@ internal fun ChatListScreen(
             Text(
                 ChatTexts.listProblem(it),
                 color = MaterialTheme.colorScheme.error,
-                modifier =
-                    Modifier.semantics {
-                        liveRegion =
-                            LiveRegionMode.Polite
-                    },
+                modifier = Modifier.polite(),
             )
         }
         if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS)
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(state.conversations, key = { it.id.listKey() }) { row ->
-                ConversationRow(row, actions.onOpen, selected = row.id == selected)
+                ConversationRow(row, actions.onOpen, isSelected = row.id == selected)
                 HorizontalDivider()
             }
         }
@@ -112,13 +106,13 @@ internal fun ChatListScreen(
 private fun ConversationRow(
     row: ConversationSummary,
     onOpen: ((GroupInfo) -> Unit)?,
-    selected: Boolean,
+    isSelected: Boolean,
 ) {
     val title = ChatTexts.title(row.title)
     val preview = row.problem?.let(ChatTexts::problem) ?: ChatTexts.preview(row.preview)
     val ago = row.lastAt?.let { ChatTexts.ago(Ago.of(Clock.System.now().epochSeconds, it)) }
     val clickable = if (onOpen != null) Modifier.clickable(role = Role.Button) { onOpen(row.info) } else Modifier
-    val background = if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier
+    val background = if (isSelected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier
     Row(
         modifier =
             Modifier
@@ -129,7 +123,7 @@ private fun ConversationRow(
                 .padding(vertical = 8.dp)
                 .semantics(mergeDescendants = true) {
                     contentDescription = ChatTexts.rowDescription(title, preview, ago, row.unread)
-                    this.selected = selected
+                    selected = isSelected
                 },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),

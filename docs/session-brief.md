@@ -10,8 +10,8 @@ Read this at the start of every session, instead of reading the full docs. It po
 
 ## Now
 - **Milestone:** M2, encrypted GIF messaging MVP ([milestone 3](https://github.com/paul-learning/GifItUp/milestone/3) lists the open issues; `docs/ROADMAP.md` has the scope).
-- **Done in M2:** #21 (Delivery Service), #22 (group lifecycle and sync engine, ADR-0016), #24 (content codec, store, send and receive pipeline) and #25 (chat UI: list, new chat, conversation, wide layout, theme; its send button waits for #23). M1 is closed.
-- **Active:** #23 with #40 (GIF picker and the key endpoint; they turn on the conversation screen's send button), #177 (durable message history), #31, #26, #27, and the M2 reviews #28 and #29.
+- **Done in M2:** #21 (Delivery Service) and #22 (group lifecycle and sync engine, ADR-0016). M1 is closed.
+- **Active:** #24 (content codec, store, send and receive pipeline: built and merged in parts, the issue stays open until the owner ticks it off), #25 (chat UI: list, new chat, conversation, wide layout and theme are in; the send button waits for the picker), #23 with #40 (GIF picker and the key endpoint), #177 (durable message history), #31, #26, #27, and the M2 reviews #28 and #29.
 - Keep this section current in the PR that changes it, together with `docs/ROADMAP.md`. It is the brief's only low-tier part: the rest of this file, including what every session reads first, is high tier (`CLAUDE.md`, *Risk tiers*).
 
 ## Read on demand

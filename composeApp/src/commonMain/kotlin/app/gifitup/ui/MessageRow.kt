@@ -165,7 +165,7 @@ private fun GifTileView(
                 PlaceholderWords(
                     ConversationTexts.gifUnavailable(tile.reason),
                     ConversationTexts.GIF_FAILED_RETRY,
-                    ConversationTexts.LOAD_GIF,
+                    ConversationTexts.RETRY_GIF,
                 ),
                 onTap,
             )

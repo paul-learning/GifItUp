@@ -16,6 +16,7 @@ internal object ConversationTexts {
     const val SENDING = "Sending…"
     const val NOT_SENT = "Not sent"
     const val LOAD_GIF = "Load the GIF"
+    const val RETRY_GIF = "Try loading the GIF again"
     const val PICK_CHAT = "Choose a chat to read it."
     const val TAP_TO_LOAD = "Tap to load this GIF"
     const val TAP_TO_LOAD_WHY = "This phone's security updates are old or can't be read, so GIFs aren't loaded on their own."
