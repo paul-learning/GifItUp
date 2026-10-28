@@ -3,17 +3,23 @@ package app.gifitup.shared.domain.auth
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.GifItUpApi
+import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.LocalStore
 import app.gifitup.shared.data.storage.RecordContactStore
 import app.gifitup.shared.data.storage.RecordIdentityStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredRestoreCounter
+import app.gifitup.shared.domain.chat.FriendNames
 import app.gifitup.shared.domain.contacts.AcceptContact
 import app.gifitup.shared.domain.contacts.ContactBookAccess
+import app.gifitup.shared.domain.contacts.ContactLoad
+import app.gifitup.shared.domain.contacts.ContactStatus
 import app.gifitup.shared.domain.contacts.ContactsUseCases
 import app.gifitup.shared.domain.contacts.RefreshContacts
 import app.gifitup.shared.domain.contacts.ShowFingerprints
+import app.gifitup.shared.domain.groups.ChatActions
+import app.gifitup.shared.domain.keypackages.ClaimKeyPackages
 import app.gifitup.shared.domain.keypackages.RefillKeyPackages
 import app.gifitup.shared.domain.origin.ServerOriginSetting
 import kotlin.time.Clock
@@ -61,16 +67,56 @@ class DeviceAuth(
     val logOut = LogOut(api)
     val wipe = WipeLocalData(storage.data, logOut, lock)
 
+    private val book = ContactBookAccess(RecordContactStore(storage.store, storage.identities)) { Clock.System.now().epochSeconds }
+
     /** The contact book and what the Friends screen needs from it (ADR-0014); the clock is the book's display time only. */
     val contacts: ContactsUseCases =
-        ContactBookAccess(RecordContactStore(storage.store, storage.identities)) { Clock.System.now().epochSeconds }.let { access ->
-            ContactsUseCases(
-                RefreshContacts(api, guarded, storage.identities, keys, lock, access),
-                access,
-                ShowFingerprints(api.endpoint.origin, guarded, storage.identities, keys, lock),
-                AcceptContact(access),
-            )
+        ContactsUseCases(
+            RefreshContacts(api, guarded, storage.identities, keys, lock, book),
+            book,
+            ShowFingerprints(api.endpoint.origin, guarded, storage.identities, keys, lock),
+            AcceptContact(book),
+        )
+
+    /**
+     * The friends' usernames for the new-chat screen: the contact book's `OK` contacts and the ones only the server's
+     * member list has shown (`UNCONFIRMED`: a chat's key claim is what saves them, ADR-0014). Blocked and gone contacts
+     * are left out. `null` if the book can't be read.
+     */
+    val friendNames: FriendNames =
+        object : FriendNames {
+            override suspend fun names(): List<String>? =
+                when (val load = book.read()) {
+                    is ContactLoad.Book -> {
+                        load.book.contacts.values
+                            .filter { it.status == ContactStatus.OK || it.status == ContactStatus.UNCONFIRMED }
+                            .map { it.username }
+                    }
+
+                    else -> {
+                        null
+                    }
+                }
+
+            override suspend fun refresh(session: Session): AuthResult<Unit> =
+                when (val refreshed = contacts.refresh(session)) {
+                    is AuthResult.Ok -> AuthResult.Ok(Unit)
+                    is AuthResult.Failed -> refreshed
+                }
         }
+
+    /** Groups and messages (ADR-0016): the same device lock, restore guard, contact book and keys as everything above. */
+    val chat: ChatActions =
+        ChatActions(
+            api,
+            guarded,
+            storage.identities,
+            keys,
+            lock,
+            book,
+            ClaimKeyPackages(api, guarded, storage.identities, keys, lock, book),
+            random,
+        )
 
     /**
      * The user's "try again" after `RESTORE_BLOCKED`. Under the storage's lock like every restore, so a reset from one
