@@ -20,6 +20,7 @@ import app.gifitup.shared.domain.messages.DeliveryState
 import app.gifitup.shared.domain.messages.InMemoryMessageStore
 import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.domain.session.SessionHolder
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -63,6 +64,7 @@ class ChatStateTest {
         var syncOutcome: SyncOutcome = SyncOutcome.CaughtUp(0)
         var sendOutcome: SyncOutcome = SyncOutcome.Sent(5)
         var onSync: suspend (KeyBytes) -> Unit = {}
+        var beforeSend: suspend () -> Unit = {}
         val synced = mutableListOf<KeyBytes>()
         val sent = mutableListOf<Pair<GifReference, String?>>()
         var welcomed = 0
@@ -94,7 +96,7 @@ class ChatStateTest {
             session: Session,
             groupId: KeyBytes,
             target: String,
-        ) = answer(SyncOutcome.InvalidRequest as SyncOutcome)
+        ) = answer<SyncOutcome>(SyncOutcome.InvalidRequest)
 
         override suspend fun sendGif(
             session: Session,
@@ -102,6 +104,7 @@ class ChatStateTest {
             reference: GifReference,
             caption: String?,
         ): AuthResult<SyncOutcome> {
+            beforeSend()
             sent += reference to caption
             if (sendOutcome !is SyncOutcome.InvalidRequest) {
                 store.insert(gif(groupId.bytes[0].toInt(), 900 + sent.size, null, now, caption, DeliveryState.SENDING))
@@ -122,7 +125,7 @@ class ChatStateTest {
 
     private fun TestScope.list() = ChatListStateHolder(this, sessions(), chat, store, marks)
 
-    private fun TestScope.conversation(info: GroupInfo) = ConversationStateHolder(this, sessions(), chat, store, marks, info) { now }
+    private fun TestScope.conversation(info: GroupInfo) = ConversationStateHolder(this, sessions(), chat, store, marks, info)
 
     @Test
     fun theListShowsTheNewestActivityFirstWithPreviewAndUnreadCount() =
@@ -239,6 +242,7 @@ class ChatStateTest {
         runTest {
             val info = group(1, "bob")
             store.insert(gif(1, 1, "bob", at = 100))
+            assertEquals(1, marks.unread(info.id, store.messages(info.id)), "unread before it was ever shown")
             chat.onSync = { store.insert(gif(1, 2, "bob", at = 2_000, caption = "new")) }
             val holder = conversation(info)
             holder.open()
@@ -248,22 +252,101 @@ class ChatStateTest {
             assertEquals("new", assertIs<MessageBody.Gif>(state.messages.last().body).caption)
             assertTrue(state.loaded)
             assertNull(state.problem)
-            assertEquals(0, marks.unread(info.id, store.messages(info.id)).let { if (now >= 2_000) it else 0 })
-            now = 3_000
+            assertEquals(0, marks.unread(info.id, store.messages(info.id)), "both were on screen")
+            store.insert(gif(1, 3, "bob", at = 2_000))
+            assertEquals(1, marks.unread(info.id, store.messages(info.id)), "a message of the same second as the last view is still unread")
             holder.refresh()
             advanceUntilIdle()
-            assertEquals(0, marks.unread(info.id, store.messages(info.id)), "opened at 3000: everything before is read")
+            assertEquals(0, marks.unread(info.id, store.messages(info.id)))
         }
 
     @Test
-    fun aStoppedConversationIsNotReadAndCannotSend() =
+    fun aFailedGroupsCallKeepsTheRowsAlreadyShown() =
         runTest {
-            val holder = conversation(group(1, "bob", status = GroupStatus.FROZEN_GAP))
+            chat.groups = listOf(group(1, "bob"))
+            store.insert(gif(1, 1, "bob", at = 5))
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(1, holder.state.value.conversations.size)
+            chat.failWith = AuthError.Api(ApiError.NETWORK)
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.OFFLINE, holder.state.value.problem)
+            assertEquals(1, holder.state.value.conversations.size, "the list is not blanked by a failed refresh")
+        }
+
+    @Test
+    fun aRefreshAfterLeavingIsNotCutShortByTheOldOne() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            val all = listOf(CompletableDeferred<Unit>(), CompletableDeferred<Unit>())
+            val gates = all.toMutableList()
+            chat.onSync = { gates.removeAt(0).await() }
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            holder.leave()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(2, chat.synced.size, "the second refresh started although the first was still waiting")
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(2, chat.synced.size, "a third while the second runs does nothing")
+            all.forEach { it.complete(Unit) }
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun aGifSentWhileTheLogIsBeingReadIsSentNotDropped() =
+        runTest {
+            val info = group(1, "bob")
+            val gate = CompletableDeferred<Unit>()
+            chat.onSync = { gate.await() }
+            val holder = conversation(info)
             holder.open()
             advanceUntilIdle()
-            assertTrue(chat.synced.isEmpty())
-            assertEquals(ConversationProblem.STOPPED, holder.state.value.conversationProblem)
-            assertFalse(holder.state.value.canSend)
+            assertTrue(holder.state.value.refreshing, "the read is in flight")
+            holder.send(reference, "now")
+            advanceUntilIdle()
+            assertEquals(listOf<Pair<GifReference, String?>>(reference to "now"), chat.sent)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(1, chat.sent.size)
+            assertFalse(holder.state.value.refreshing)
+        }
+
+    @Test
+    fun aSecondSendWhileOneIsRunningSaysSoInsteadOfBeingDropped() =
+        runTest {
+            val holder = conversation(group(1, "bob"))
+            val gate = CompletableDeferred<Unit>()
+            chat.beforeSend = { gate.await() }
+            holder.send(reference, "one")
+            advanceUntilIdle()
+            assertTrue(holder.state.value.sending)
+            holder.send(reference, "two")
+            assertEquals(SendProblem.IN_PROGRESS, holder.state.value.sendProblem)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(1, chat.sent.size)
+            assertFalse(holder.state.value.sending)
+        }
+
+    @Test
+    fun aStoppedConversationIsNotReadAndNothingIsSentFromIt() =
+        runTest {
+            for (status in listOf(GroupStatus.FROZEN_GAP, GroupStatus.READ_ONLY_ROLLBACK, GroupStatus.REMOVED)) {
+                val holder = conversation(group(1, "bob", status = status))
+                holder.open()
+                holder.send(reference, null)
+                advanceUntilIdle()
+                assertTrue(chat.synced.isEmpty() && chat.sent.isEmpty(), "$status")
+                assertFalse(holder.state.value.canSend)
+                assertEquals(SendProblem.STOPPED, holder.state.value.sendProblem, "$status")
+                holder.resend()
+                assertEquals(SendProblem.STOPPED, holder.state.value.sendProblem)
+            }
         }
 
     @Test

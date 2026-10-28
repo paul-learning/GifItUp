@@ -4,25 +4,27 @@ import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.messages.ChatMessage
 
 /**
- * Which messages the user has seen, by the time they opened the conversation (in memory, like the history it belongs
- * to; both go with the durable store, #177). A received message is unread if this device first saw it after the
- * conversation was last open.
+ * Which messages the user has seen: the ones that were on screen when the conversation was last shown (in memory, like
+ * the history it belongs to; both go with the durable store, #177). A received message is unread until a screen has
+ * shown it. By identity and not by time, so a message that arrives in the same second as the last view still counts as
+ * unread. Only references of messages the store still holds are kept.
  */
 class ReadMarks {
-    private val seenUntil = mutableMapOf<KeyBytes, Long>()
+    private val seen = mutableMapOf<KeyBytes, Set<KeyBytes>>()
 
+    /** The user is looking at [messages] of [group]. */
     fun markRead(
         group: KeyBytes,
-        at: Long,
+        messages: List<ChatMessage>,
     ) {
-        seenUntil[group] = maxOf(seenUntil[group] ?: 0L, at)
+        seen[group] = messages.map { it.reference }.toSet()
     }
 
     fun unread(
         group: KeyBytes,
         messages: List<ChatMessage>,
     ): Int {
-        val mark = seenUntil[group] ?: 0L
-        return messages.count { it.sender != null && it.at > mark }
+        val shown = seen[group].orEmpty()
+        return messages.count { it.sender != null && it.reference !in shown }
     }
 }

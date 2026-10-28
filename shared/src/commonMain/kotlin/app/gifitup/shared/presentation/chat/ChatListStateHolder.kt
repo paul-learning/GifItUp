@@ -61,8 +61,11 @@ class ChatListStateHolder(
                 flow.value = flow.value.copy(refreshing = true)
                 run(forVisit)
             } finally {
-                running = false
-                if (forVisit == visit) flow.value = flow.value.copy(refreshing = false)
+                // After leave() a newer refresh may be running: this one no longer owns the flag.
+                if (forVisit == visit) {
+                    running = false
+                    flow.value = flow.value.copy(refreshing = false)
+                }
             }
         }
     }
@@ -79,8 +82,9 @@ class ChatListStateHolder(
         if (joined is AuthResult.Failed) problem = joined.error.toChatProblem()
         when (val groups = sessions.withSessionResult { chat.groups(it) }) {
             is AuthResult.Failed -> {
+                // What is known stays on screen; only the problem is new.
                 problem = problem ?: groups.error.toChatProblem()
-                publish(forVisit, emptyList(), problem)
+                if (forVisit == visit) flow.value = flow.value.copy(loaded = true, problem = problem)
             }
 
             is AuthResult.Ok -> {
