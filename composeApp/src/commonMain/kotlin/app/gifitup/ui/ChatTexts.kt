@@ -68,7 +68,7 @@ internal object ChatTexts {
             NewChatProblem.FRIENDS_UNAVAILABLE -> "This device's friends list can't be used."
             NewChatProblem.NOBODY -> "Choose at least one friend."
             NewChatProblem.CANT_REACH -> "That friend can't be reached right now. They may need to open the app once."
-            NewChatProblem.UNFINISHED -> "The chat was made but is not confirmed yet. It will be finished when you open it."
+            NewChatProblem.UNFINISHED -> "The chat was made, but the server has not confirmed it yet."
             NewChatProblem.PARTLY -> "The chat was made, but not everyone could be added."
             NewChatProblem.OFFLINE -> "No answer from the server."
             NewChatProblem.NOT_SIGNED_IN -> "The server didn't accept this device."

@@ -69,6 +69,10 @@ class NewChatStateHolder(
     /** Shows the friends the contact book already has, then reads the server's member list and shows the result. */
     fun open() =
         scope.launch {
+            if (!running && flow.value.created != null) {
+                visit++
+                flow.value = NewChatState()
+            }
             val forVisit = visit
             show(forVisit, null)
             val refreshed = sessions.withSessionResult { friends.refresh(it) }
@@ -105,11 +109,8 @@ class NewChatStateHolder(
 
     fun create() {
         val current = flow.value
-        if (running) {
-            // A create is still going (the screen was left and opened again): never a second group; show that it runs.
-            flow.value = current.copy(creating = true)
-            return
-        }
+        // A create that is still going (the screen was left and opened again) shows as `creating` and is never doubled.
+        if (running) return
         if (!current.canCreate) {
             if (current.selected.isEmpty()) flow.value = current.copy(problem = NewChatProblem.NOBODY)
             return
@@ -121,14 +122,18 @@ class NewChatStateHolder(
             try {
                 make(forVisit, current.selected.sorted())
             } finally {
-                // The job owns the flag until it ends, even if the screen was left meanwhile.
                 running = false
                 if (forVisit == visit) flow.value = flow.value.copy(creating = false)
             }
         }
     }
 
+    /**
+     * Drops the state, unless a create is still running: that one goes on, and its result is what the screen shows when
+     * it is opened again (the visit is kept, so the result is not dropped). Opening again later starts clean.
+     */
     fun leave() {
+        if (running) return
         visit++
         flow.value = NewChatState()
     }

@@ -213,13 +213,21 @@ class NewChatStateTest {
             holder.leave()
             holder.open()
             advanceUntilIdle()
-            holder.toggle("bob")
+            assertTrue(holder.state.value.creating, "the screen says one is being made")
             holder.create()
             advanceUntilIdle()
             assertEquals(listOf("bob"), chat.created, "one group only")
-            assertTrue(holder.state.value.creating, "and the screen says one is being made")
             gate.complete(Unit)
             advanceUntilIdle()
+            val done = holder.state.value
+            assertFalse(done.creating, "no stuck spinner")
+            assertNotNull(done.created, "the result of the running create is shown")
+            assertNull(done.problem)
+            holder.leave()
+            holder.open()
+            advanceUntilIdle()
+            holder.toggle("carol")
+            assertTrue(holder.state.value.canCreate, "the next visit starts clean")
         }
 
     @Test
