@@ -1,5 +1,8 @@
 package app.gifitup.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.gifitup.AppGraph
@@ -91,7 +94,7 @@ internal class OnboardingViewModel(
     private val captions = CaptionInput(graph.conversations.graphemes)
 
     /** The conversation the list opened, `null` if none (the screen then goes back). One at a time. */
-    var conversation: ConversationStateHolder? = null
+    var conversation: ConversationStateHolder? by mutableStateOf(null)
         private set
 
     /** Opens the conversation [info] describes; the previous one, if any, is left. */

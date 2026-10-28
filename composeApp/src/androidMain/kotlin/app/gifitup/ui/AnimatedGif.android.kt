@@ -36,9 +36,11 @@ internal actual fun AnimatedGif(
     // Decoding is off the main thread; `null` until it is done, and for a file the decoder refuses.
     val decoded by produceState<Decoded?>(null, data) { value = withContext(Dispatchers.Default) { decode(data, info) } }
     val drawable = decoded?.drawable
+    // With less motion asked for, the first frame stays.
+    val still = prefersReducedMotion()
     var frame by remember { mutableIntStateOf(0) }
     LaunchedEffect(decoded) { if (decoded?.drawable == null && decoded != null) onFailed() }
-    DisposableEffect(drawable) {
+    DisposableEffect(drawable, still) {
         val handler = Handler(Looper.getMainLooper())
         // A drawable holds its callback weakly: onDispose below refers to this local, which keeps it alive until then.
         val callback =
@@ -60,7 +62,7 @@ internal actual fun AnimatedGif(
                 ) = handler.removeCallbacks(what, who)
             }
         drawable?.callback = callback
-        (drawable as? AnimatedImageDrawable)?.start()
+        if (!still) (drawable as? AnimatedImageDrawable)?.start()
         onDispose {
             (drawable as? AnimatedImageDrawable)?.stop()
             // Naming the callback here is what keeps it reachable while the drawable holds it only weakly.

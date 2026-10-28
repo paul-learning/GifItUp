@@ -39,8 +39,9 @@ internal actual fun AnimatedGif(
     // The pictures live as long as the composable shows them, also for a file with one frame that is played once.
     val frames = remember(data) { newFrameCache() }
     DisposableEffect(frames) { onDispose { frames.close() } }
-    LaunchedEffect(frames) {
-        if (!play(data, info, frames) { current = it }) onFailed()
+    val still = prefersReducedMotion()
+    LaunchedEffect(frames, still) {
+        if (!play(data, info, frames, still) { current = it }) onFailed()
     }
     current?.let { Image(it, contentDescription, modifier, contentScale = ContentScale.Fit) }
 }
@@ -56,11 +57,12 @@ private suspend fun play(
     data: ByteArray,
     info: MediaInfo,
     frames: FrameCache<Shown>,
+    still: Boolean,
     show: (ImageBitmap) -> Unit,
 ): Boolean {
     val source = BrowserGifSource.open(data, info) ?: return false
     return try {
-        showFrames(source, frames, show)
+        showFrames(source, frames, still, show)
     } catch (e: CancellationException) {
         throw e
     } catch (ignored: Throwable) {
@@ -73,6 +75,7 @@ private suspend fun play(
 private suspend fun showFrames(
     source: BrowserGifSource,
     frames: FrameCache<Shown>,
+    still: Boolean,
     show: (ImageBitmap) -> Unit,
 ): Boolean {
     var index = 0
@@ -81,7 +84,7 @@ private suspend fun showFrames(
         while (tabHidden()) delay(HIDDEN_POLL_MS)
         val shown = frames.get(index) ?: source.frame(index)?.let { frames.put(index, wrap(it), it.rgba.size) } ?: return false
         show(shown.image)
-        if (source.frameCount == 1) return true
+        if (source.frameCount == 1 || still) return true
         delay(GifDelay.millis(shown.durationMillis))
         index = (index + 1) % source.frameCount
     }

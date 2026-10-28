@@ -87,6 +87,9 @@ class ConversationStateHolder(
     /** The caption field's rules: the live counter and whether the text may be sent; [send] applies the same check. */
     val captions: CaptionInput,
 ) {
+    /** Which conversation this is. */
+    val id: KeyBytes get() = group.id
+
     private val flow =
         MutableStateFlow(ConversationState(ConversationTitle.Members(group.others), conversationProblem = group.status.toProblem()))
     val state: StateFlow<ConversationState> = flow.asStateFlow()

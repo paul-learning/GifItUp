@@ -2,7 +2,6 @@ package app.gifitup.ui
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,7 +42,7 @@ fun App(
     inbox: InviteInbox = remember { InviteInbox(null) },
     screen: ScreenProtection = ScreenProtection.None,
 ) {
-    MaterialTheme {
+    GifItUpTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             val storage = graph.deviceStorage
             if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen)

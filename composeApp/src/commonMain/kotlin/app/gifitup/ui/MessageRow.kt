@@ -3,12 +3,13 @@ package app.gifitup.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -22,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,26 +100,29 @@ private fun GifBubble(
         tiles.show(message.reference, body.reference)
         onDispose { tiles.hide(message.reference) }
     }
-    Surface(
-        color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth(BUBBLE_FRACTION).widthIn(max = BUBBLE_MAX_WIDTH),
-    ) {
-        Column(modifier = Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            GifTileView(
-                tile,
-                body.reference,
-                ConversationTexts.gifDescription(sender, body.caption),
-            ) { tiles.tap(message.reference, body.reference) }
-            body.caption?.let {
-                // One line, clipped to a bounded height: a stack of combining marks can't grow the bubble.
-                Text(
-                    ChatTexts.isolated(it),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.heightIn(max = CAPTION_MAX_HEIGHT).clipToBounds(),
-                )
+    // Three quarters of the width, at most BUBBLE_MAX_WIDTH, on the side of the sender.
+    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+        Surface(
+            color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.width(minOf(maxWidth * BUBBLE_FRACTION, BUBBLE_MAX_WIDTH)),
+        ) {
+            Column(modifier = Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                GifTileView(
+                    tile,
+                    body.reference,
+                    ConversationTexts.gifDescription(sender, body.caption),
+                ) { tiles.tap(message.reference, body.reference) }
+                body.caption?.let {
+                    // One line, clipped to a bounded height: a stack of combining marks can't grow the bubble.
+                    Text(
+                        ChatTexts.isolated(it),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.heightIn(max = CAPTION_MAX_HEIGHT).clipToBounds(),
+                    )
+                }
             }
         }
     }
@@ -145,15 +150,29 @@ private fun GifTileView(
         }
 
         tile is GifTile.TapToLoad -> {
-            Placeholder(shape, description, ConversationTexts.TAP_TO_LOAD, ConversationTexts.TAP_TO_LOAD_WHY, onTap)
+            Placeholder(
+                shape,
+                description,
+                PlaceholderWords(ConversationTexts.TAP_TO_LOAD, ConversationTexts.TAP_TO_LOAD_WHY, ConversationTexts.LOAD_GIF),
+                onTap,
+            )
         }
 
         tile is GifTile.Unavailable -> {
-            Placeholder(shape, description, ConversationTexts.gifUnavailable(tile.reason), ConversationTexts.GIF_FAILED_RETRY, onTap)
+            Placeholder(
+                shape,
+                description,
+                PlaceholderWords(
+                    ConversationTexts.gifUnavailable(tile.reason),
+                    ConversationTexts.GIF_FAILED_RETRY,
+                    ConversationTexts.LOAD_GIF,
+                ),
+                onTap,
+            )
         }
 
         failed -> {
-            Placeholder(shape, description, ConversationTexts.GIF_CANT_SHOW, null, null)
+            Placeholder(shape, description, PlaceholderWords(ConversationTexts.GIF_CANT_SHOW, null, null), null)
         }
 
         else -> {
@@ -164,15 +183,22 @@ private fun GifTileView(
     }
 }
 
+/** What a placeholder says: [title], an optional [hint] under it, and the label of its tap action for a screen reader. */
+private data class PlaceholderWords(
+    val title: String,
+    val hint: String?,
+    val tapLabel: String?,
+)
+
 @Composable
 private fun Placeholder(
     modifier: Modifier,
     description: String,
-    title: String,
-    hint: String?,
+    words: PlaceholderWords,
     onTap: (() -> Unit)?,
 ) {
-    val tap = if (onTap != null) Modifier.clickable(onClick = onTap) else Modifier
+    val (title, hint, tapLabel) = words
+    val tap = if (onTap != null) Modifier.clickable(onClickLabel = tapLabel, role = Role.Button, onClick = onTap) else Modifier
     Box(
         modifier.then(tap).padding(8.dp).semantics(mergeDescendants = true) {
             contentDescription =

@@ -1,5 +1,6 @@
 package app.gifitup.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,11 +25,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
@@ -45,9 +52,9 @@ import kotlin.time.Clock
 @Composable
 internal fun ChatListScreen(
     holder: ChatListStateHolder,
-    onNewChat: () -> Unit,
-    onFriends: () -> Unit,
-    onOpen: ((GroupInfo) -> Unit)?,
+    actions: ChatListActions,
+    modifier: Modifier = Modifier,
+    selected: KeyBytes? = null,
     onBack: () -> Unit,
 ) {
     val state by holder.state.collectAsState()
@@ -59,7 +66,7 @@ internal fun ChatListScreen(
     }
     DisposableEffect(holder) { onDispose { holder.leave() } }
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
+        modifier = modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
@@ -67,8 +74,8 @@ internal fun ChatListScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(ChatTexts.TITLE, style = MaterialTheme.typography.titleLarge)
-            Button(onClick = onNewChat) { Text(ChatTexts.NEW_CHAT) }
+            Text(ChatTexts.TITLE, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+            Button(onClick = actions.onNewChat) { Text(ChatTexts.NEW_CHAT) }
         }
         if (state.refreshing) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -76,16 +83,26 @@ internal fun ChatListScreen(
                 Text(ChatTexts.REFRESHING, style = MaterialTheme.typography.bodySmall)
             }
         }
-        state.problem?.let { Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error) }
+        state.problem?.let {
+            Text(
+                ChatTexts.listProblem(it),
+                color = MaterialTheme.colorScheme.error,
+                modifier =
+                    Modifier.semantics {
+                        liveRegion =
+                            LiveRegionMode.Polite
+                    },
+            )
+        }
         if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS)
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(state.conversations, key = { it.id.listKey() }) { row ->
-                ConversationRow(row, onOpen)
+                ConversationRow(row, actions.onOpen, selected = row.id == selected)
                 HorizontalDivider()
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onFriends) { Text("Friends") }
+            TextButton(onClick = actions.onFriends) { Text("Friends") }
             TextButton(onClick = onBack) { Text(ChatTexts.BACK) }
         }
     }
@@ -95,19 +112,25 @@ internal fun ChatListScreen(
 private fun ConversationRow(
     row: ConversationSummary,
     onOpen: ((GroupInfo) -> Unit)?,
+    selected: Boolean,
 ) {
     val title = ChatTexts.title(row.title)
     val preview = row.problem?.let(ChatTexts::problem) ?: ChatTexts.preview(row.preview)
     val ago = row.lastAt?.let { ChatTexts.ago(Ago.of(Clock.System.now().epochSeconds, it)) }
-    val clickable = if (onOpen != null) Modifier.clickable { onOpen(row.info) } else Modifier
+    val clickable = if (onOpen != null) Modifier.clickable(role = Role.Button) { onOpen(row.info) } else Modifier
+    val background = if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .then(background)
                 .then(clickable)
                 .defaultMinSize(minHeight = 56.dp)
                 .padding(vertical = 8.dp)
-                .semantics(mergeDescendants = true) { contentDescription = ChatTexts.rowDescription(title, preview, ago, row.unread) },
+                .semantics(mergeDescendants = true) {
+                    contentDescription = ChatTexts.rowDescription(title, preview, ago, row.unread)
+                    this.selected = selected
+                },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
