@@ -182,4 +182,4 @@ private fun CaptionField(
 private const val REFRESH_MILLIS = 15_000L
 
 /** A change of this text is announced by a screen reader. */
-private fun Modifier.polite(): Modifier = semantics { liveRegion = LiveRegionMode.Polite }
+internal fun Modifier.polite(): Modifier = semantics { liveRegion = LiveRegionMode.Polite }

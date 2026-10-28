@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 /** Shown instead of the app in a browser tab that didn't get the device lock: only one tab uses the storage (ADR-0011). */
 @Composable
 fun OpenInAnotherTab() {
-    MaterialTheme {
+    GifItUpTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(16.dp),

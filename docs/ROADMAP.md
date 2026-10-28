@@ -47,7 +47,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted
 - Client: GIF search UI, talking to the provider directly. (#23)
 - Server: hand the GIF provider API key to authenticated clients only (spike #5). (#40)
 - Client: send flow (pick → validated provider reference, optional caption → MLS application message) and receive/render flow with URL checks and decode limits (ADR-0003 Mode B′); the annotation drop rule and the message store (ADR-0006 as amended in #92: B3a, B9, B10). (#24)
-- ✅ Client: chat list + conversation screen UI (GIF bubbles, timestamps, sender, caption input and caption below the GIF, wide layout, light/dark theme); the send button is switched on by the picker. (#25)
+- Client: chat list + conversation screen UI (GIF bubbles, timestamps, sender, caption input and caption below the GIF, wide layout, light/dark theme: built; the send button is switched on by the picker). (#25)
 - Key fingerprints in contact/chat info and in-chat "member/device added" notices, which mitigate the first-contact MITM risk (#31).
 - Cross-platform interop test: an Android client and a Web client in the same group (CI). (#26)
 - Release: Android APK through GitHub Releases, web app served by Caddy, alpha with friends. Before it, remove the debug key's fingerprint from the App Links file on the VM (`docs/ops/deploy.md`). (#27)
