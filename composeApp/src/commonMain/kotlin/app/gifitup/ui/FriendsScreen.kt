@@ -24,6 +24,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +55,7 @@ internal fun FriendsScreen(
     onBack: () -> Unit,
 ) {
     val state by holder.state.collectAsState()
-    var showOwn by remember { mutableStateOf(false) }
+    var showOwn by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(holder) { holder.open() }
     DisposableEffect(holder) { onDispose { holder.leave() } }
     Column(
