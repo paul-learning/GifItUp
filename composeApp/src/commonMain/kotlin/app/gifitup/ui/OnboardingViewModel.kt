@@ -8,11 +8,16 @@ import app.gifitup.shared.data.network.ApiEndpoint
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.domain.auth.DeviceAuth
 import app.gifitup.shared.domain.auth.DeviceStorage
+import app.gifitup.shared.domain.chat.ChatService
+import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.invite.CreateInvite
 import app.gifitup.shared.domain.invite.ListInvites
 import app.gifitup.shared.domain.invite.RevokeInvite
+import app.gifitup.shared.domain.messages.InMemoryMessageStore
 import app.gifitup.shared.domain.origin.ServerOriginSetting
 import app.gifitup.shared.domain.session.SessionHolder
+import app.gifitup.shared.presentation.chat.ChatListStateHolder
+import app.gifitup.shared.presentation.chat.NewChatStateHolder
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
 import app.gifitup.shared.presentation.invite.CreateInviteStateHolder
 import app.gifitup.shared.presentation.onboarding.OnboardingStateHolder
@@ -55,6 +60,17 @@ internal class OnboardingViewModel(
     /** The Friends screen's logic, over the same session, API and engine (ADR-0014). */
     val contacts = ContactsStateHolder(viewModelScope, sessions, auth.contacts)
 
+    // The history is in memory (#177 makes it durable): it lives as long as this view model, and goes with it.
+    private val history = InMemoryMessageStore()
+    private val marks = ReadMarks()
+    private val chatService = ChatService(auth.chat, history, ::nowSeconds)
+
+    /** The chat list's logic (#25), over the same session, API and engine. */
+    val chats = ChatListStateHolder(viewModelScope, sessions, chatService, history, marks)
+
+    /** The new-chat flow's logic: the friends are the contact book's saved contacts. */
+    val newChat = NewChatStateHolder(viewModelScope, sessions, chatService, auth.friendNames)
+
     init {
         holder.start()
     }
@@ -62,7 +78,11 @@ internal class OnboardingViewModel(
     override fun onCleared() {
         invites.leave() // the link leaves memory and the clipboard before the API closes
         contacts.leave()
+        chats.leave()
+        newChat.leave()
         api.close()
         engine.close()
     }
 }
+
+private fun nowSeconds(): Long = Clock.System.now().epochSeconds

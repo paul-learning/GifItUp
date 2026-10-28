@@ -154,6 +154,7 @@ private fun Navigation(
                 current,
                 onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
                 onFriends = { nav.navigate(ROUTE_FRIENDS) },
+                onChats = { nav.navigate(ROUTE_CHATS) },
             ) {
                 nav.navigate(ROUTE_INVITES)
             }
@@ -166,6 +167,7 @@ private fun Navigation(
                 if (nav.currentDestination?.route == ROUTE_INVITES) nav.popBackStack()
             }
         }
+        chatRoutes(nav, current.origin)
         composable(ROUTE_FRIENDS) { entry ->
             val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
             val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
@@ -186,7 +188,5 @@ private fun Navigation(
     }
 }
 
-private const val ROUTE_ONBOARDING = "onboarding"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_INVITES = "invites"
-private const val ROUTE_FRIENDS = "friends"
