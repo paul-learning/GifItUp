@@ -69,10 +69,6 @@ class NewChatStateHolder(
     /** Shows the friends the contact book already has, then reads the server's member list and shows the result. */
     fun open() =
         scope.launch {
-            if (!running && flow.value.created != null) {
-                visit++
-                flow.value = NewChatState()
-            }
             val forVisit = visit
             show(forVisit, null)
             val refreshed = sessions.withSessionResult { friends.refresh(it) }
@@ -88,7 +84,7 @@ class NewChatStateHolder(
         val current = flow.value
         flow.value =
             if (names == null) {
-                NewChatState(loaded = true, problem = NewChatProblem.FRIENDS_UNAVAILABLE)
+                current.copy(loaded = true, problem = NewChatProblem.FRIENDS_UNAVAILABLE)
             } else {
                 current.copy(
                     loaded = true,
@@ -129,8 +125,9 @@ class NewChatStateHolder(
     }
 
     /**
-     * Drops the state, unless a create is still running: that one goes on, and its result is what the screen shows when
-     * it is opened again (the visit is kept, so the result is not dropped). Opening again later starts clean.
+     * Drops the state, unless a create is still running: that one goes on, and its result stays in the state for when the
+     * screen is opened again (the visit is kept, so the result is not dropped). The screen closes itself on a finished
+     * result, so the next [leave] with nothing running starts the next visit clean.
      */
     fun leave() {
         if (running) return
