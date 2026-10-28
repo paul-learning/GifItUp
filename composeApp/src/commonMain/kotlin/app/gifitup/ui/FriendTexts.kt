@@ -9,6 +9,15 @@ import app.gifitup.shared.presentation.contacts.FriendsProblem
  * has is a key it saved; what the user did is compare, outside the app.
  */
 internal object FriendTexts {
+    const val TITLE = "Friends"
+    const val CARD_TITLE = "Key emojis"
+    const val CARD_SUBTITLE = "To compare with a friend, live."
+    const val SHOW_OWN = "Show your emojis"
+    const val CLOSE = "Close"
+    const val REVIEW = "Review"
+    const val SHOW_DETAILS = "Show the saved emojis"
+    const val HIDE_DETAILS = "Hide the saved emojis"
+    const val NO_FRIENDS = "No friends yet. People you invite, and the person who invited you, show up here."
     const val OWN_TITLE = "Your emojis"
     const val OWN_HINT =
         "Read these emojis to your friend and ask them to read theirs. Do this on a call or in person, not in a chat."
@@ -22,6 +31,18 @@ internal object FriendTexts {
 
     const val GLYPH_NOTICE =
         "This device may not draw some of these emojis, and they would all look like the same box. Compare the names, not the pictures."
+
+    /** The one line under a friend's name; [status] has the long form. */
+    fun headline(
+        status: FriendStatus,
+        reason: TrustConflict?,
+    ): String =
+        when (status) {
+            FriendStatus.SAVED -> "Key saved"
+            FriendStatus.NOT_SAVED -> "Not saved yet"
+            FriendStatus.CHANGED -> (reason?.let(::reviewTitle) ?: "Something changed") + ". Needs your review."
+            FriendStatus.GONE -> "Not in your list any more"
+        }
 
     fun status(status: FriendStatus): String =
         when (status) {
