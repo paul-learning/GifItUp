@@ -39,8 +39,10 @@ enum class DeliveryState {
 /**
  * One message of a group. [reference] is its message reference (ADR-0006 B9) and, with [groupId], its identity.
  * [sender] is the MLS-authenticated username of a received message, `null` for one of ours; [seq] is the server's
- * order number, a label for display order only, `null` while one of ours is not accepted yet.
+ * order number, a label for display order only, `null` while one of ours is not accepted yet. [at] is local: the
+ * server's envelope carries no time, so the time shown is when this device sent or first received the message.
  */
+@Suppress("LongParameterList") // One record; grouping its fields would only rename them.
 class ChatMessage(
     val groupId: KeyBytes,
     val reference: KeyBytes,
@@ -48,6 +50,8 @@ class ChatMessage(
     val seq: Long?,
     val body: MessageBody,
     val state: DeliveryState?,
+    /** When this device first saw or sent the message, seconds since the epoch by its own clock (the server sends no time). */
+    val at: Long,
 ) {
     override fun toString(): String = "ChatMessage(state=$state)"
 }

@@ -27,7 +27,7 @@ import app.gifitup.shared.domain.keypackages.StoredClient
  * ([ClaimKeyPackages]); members to remove come from the same book, so a device id and its key always belong together.
  * The claim happens before the engine is started: it takes the device lock itself, which is not reentrant.
  */
-@Suppress("LongParameterList") // The composition root hands over the same seams as for the other use cases.
+@Suppress("LongParameterList", "TooManyFunctions") // The seams of the other use cases; one method per chat action.
 class ChatActions(
     private val api: GifItUpApi,
     mls: GuardedMlsFactory,
@@ -134,10 +134,25 @@ class ChatActions(
         return contact?.devices.orEmpty()
     }
 
+    /** The groups on this device with their members, and the user's own name (so a screen can leave it out). */
+    suspend fun groups(
+        session: Session,
+        sink: IncomingSink,
+    ): AuthResult<GroupList> =
+        engineAs(session, sink) { engine, client, own ->
+            GroupList(own, engine.statuses().map { (id, status) -> GroupInfo(id, status, client.otherMembers(id, own)) })
+        }
+
     private suspend fun <T> engine(
         session: Session,
         sink: IncomingSink,
         block: suspend (GroupSyncEngine, MlsClient) -> T,
+    ): AuthResult<T> = engineAs(session, sink) { engine, client, _ -> block(engine, client) }
+
+    private suspend fun <T> engineAs(
+        session: Session,
+        sink: IncomingSink,
+        block: suspend (GroupSyncEngine, MlsClient, String) -> T,
     ): AuthResult<T> =
         stored.use { client, identity ->
             val saver =
@@ -145,7 +160,7 @@ class ChatActions(
                     identities.save(StoredIdentity(identity.origin, identity.username, snapshot, identity.deviceId))
                 }
             val engine = GroupSyncEngine(client, SessionDeliveryPort(api, session), ContactBookPins(access), saver, sink, random)
-            AuthResult.Ok(block(engine, client))
+            AuthResult.Ok(block(engine, client, identity.username))
         }
 }
 
@@ -156,4 +171,32 @@ private fun MlsClient.leavesOf(groupId: ByteArray): Set<KeyBytes>? =
     } catch (e: MlsException) {
         if (e.code != MlsErrorCode.UnknownGroup) throw e
         null
+    }
+
+/** One group on this device: its id, where its sync stands, and the other members' usernames (sorted, without ghosts' repeats). */
+class GroupInfo(
+    val id: KeyBytes,
+    val status: GroupStatus,
+    val others: List<String>,
+)
+
+class GroupList(
+    val own: String,
+    val groups: List<GroupInfo>,
+)
+
+/** The usernames of the other members, or none for a group whose MLS state is gone (removed, read-only). */
+private fun MlsClient.otherMembers(
+    groupId: KeyBytes,
+    own: String,
+): List<String> =
+    try {
+        members(groupId.bytes)
+            .map { it.username }
+            .filter { it != own }
+            .distinct()
+            .sorted()
+    } catch (e: MlsException) {
+        if (e.code != MlsErrorCode.UnknownGroup) throw e
+        emptyList()
     }

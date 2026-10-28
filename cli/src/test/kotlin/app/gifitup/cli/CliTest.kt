@@ -67,7 +67,7 @@ class CliTest {
         }
         assertEquals("chat-welcomes", Invocation.parse(listOf("chat-welcomes") + base).command)
         assertEquals(
-            setOf("chat-create", "chat-add", "chat-remove", "chat-send", "chat-sync", "chat-resume", "chat-welcomes"),
+            setOf("chat-create", "chat-add", "chat-remove", "chat-send", "chat-sync", "chat-resume", "chat-welcomes", "chat-groups"),
             Invocation.CHAT_COMMANDS,
         )
 

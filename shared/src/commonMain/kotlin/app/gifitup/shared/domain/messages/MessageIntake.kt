@@ -15,11 +15,20 @@ import app.gifitup.shared.domain.groups.IncomingSink
  */
 class MessageIntake(
     private val store: MessageStore,
+    private val nowEpochSeconds: () -> Long,
 ) : IncomingSink {
     override suspend fun deliver(message: DeliveredMessage) {
         val body = bodyOf(message.plaintext) ?: return
         store.insert(
-            ChatMessage(KeyBytes(message.groupId), KeyBytes(message.messageRef), message.senderUsername, message.seq, body, null),
+            ChatMessage(
+                KeyBytes(message.groupId),
+                KeyBytes(message.messageRef),
+                message.senderUsername,
+                message.seq,
+                body,
+                null,
+                nowEpochSeconds(),
+            ),
         )
     }
 

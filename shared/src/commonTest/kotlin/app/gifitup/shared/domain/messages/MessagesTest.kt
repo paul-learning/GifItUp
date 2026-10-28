@@ -21,11 +21,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MessagesTest {
+    private companion object {
+        const val NOW = 1_800_000_000L
+    }
+
     private val url = "https://static.klipy.com/ii/0123456789abcdef0123456789abcdef/ab/cd/funny_cat-1.webp"
     private val reference = assertNotNull(GifReference.of("klipy", "funny-cat", url, 320, 240))
     private val group = byteArrayOf(1, 2, 3)
     private val store = InMemoryMessageStore()
-    private val intake = MessageIntake(store)
+    private val intake = MessageIntake(store) { NOW }
 
     private fun ref(n: Int) = ByteArray(32) { n.toByte() }
 
@@ -89,6 +93,7 @@ class MessagesTest {
                         n.toLong(),
                         MessageIntake.bodyOf(content)!!,
                         null,
+                        NOW,
                     ),
                 )
             }
@@ -99,7 +104,7 @@ class MessagesTest {
             val results =
                 (0 until InMemoryMessageStore.MAX_GROUPS + 2).map { n ->
                     store.insert(
-                        ChatMessage(KeyBytes(byteArrayOf(100, n.toByte())), KeyBytes(ref(1)), "a", 1, MessageBody.Unavailable, null),
+                        ChatMessage(KeyBytes(byteArrayOf(100, n.toByte())), KeyBytes(ref(1)), "a", 1, MessageBody.Unavailable, null, NOW),
                     )
                 }
             assertEquals(InMemoryMessageStore.MAX_GROUPS - 1, results.count { it }, "49 more groups fit, the rest are refused")
@@ -164,7 +169,7 @@ class MessagesTest {
     fun aSentGifGoesFromSendingToSent() =
         runTest {
             val chat = FakeChat(SyncOutcome.Sent(12))
-            SendGif(chat, store)(session, group, reference, " hi ", sink)
+            SendGif(chat, store) { NOW }(session, group, reference, " hi ", sink)
             val message = store.messages(KeyBytes(group)).single()
             assertEquals(DeliveryState.SENT, message.state)
             assertEquals(12L, message.seq)
@@ -178,7 +183,7 @@ class MessagesTest {
     fun anUnknownAnswerStaysSendingAndResumeSettlesIt() =
         runTest {
             val chat = FakeChat(SyncOutcome.InFlight(ApiError.NETWORK))
-            val send = SendGif(chat, store)
+            val send = SendGif(chat, store) { NOW }
             send(session, group, reference, null, sink)
             assertEquals(listOf(DeliveryState.SENDING), states())
             send.resume(session, group, sink)
@@ -192,7 +197,7 @@ class MessagesTest {
     fun anOlderMessageSettledFirstGetsItsStateBeforeTheNewOneIsSealed() =
         runTest {
             val chat = FakeChat(SyncOutcome.InFlight(ApiError.NETWORK))
-            val send = SendGif(chat, store)
+            val send = SendGif(chat, store) { NOW }
             send(session, group, reference, "first", sink)
             chat.earlier = SyncOutcome.Sent(4)
             chat.sealWith = ByteArray(32) { 8 }
@@ -206,7 +211,7 @@ class MessagesTest {
     fun anOlderMessageThatIsRefusedIsFailedAndTheNewOneIsNotShown() =
         runTest {
             val chat = FakeChat(SyncOutcome.InFlight(ApiError.NETWORK))
-            val send = SendGif(chat, store)
+            val send = SendGif(chat, store) { NOW }
             send(session, group, reference, "first", sink)
             chat.earlier = SyncOutcome.Rejected(ApiError.BAD_REQUEST)
             send(session, group, reference, "second", sink)
@@ -217,10 +222,12 @@ class MessagesTest {
     fun aMessageForAGroupWithNoRoomInTheStoreIsSentButNotShown() =
         runTest {
             repeat(InMemoryMessageStore.MAX_GROUPS) { n ->
-                store.insert(ChatMessage(KeyBytes(byteArrayOf(100, n.toByte())), KeyBytes(ref(1)), "a", 1, MessageBody.Unavailable, null))
+                store.insert(
+                    ChatMessage(KeyBytes(byteArrayOf(100, n.toByte())), KeyBytes(ref(1)), "a", 1, MessageBody.Unavailable, null, NOW),
+                )
             }
             val chat = FakeChat(SyncOutcome.Sent(3))
-            val result = SendGif(chat, store)(session, group, reference, null, sink)
+            val result = SendGif(chat, store) { NOW }(session, group, reference, null, sink)
             assertEquals(SyncOutcome.Sent(3), assertIs<AuthResult.Ok<SyncOutcome>>(result).value)
             assertNotNull(chat.sent, "it was sent")
             assertTrue(states().isEmpty(), "and not shown")
@@ -230,7 +237,7 @@ class MessagesTest {
     fun aRefusedMessageIsFailed() =
         runTest {
             val chat = FakeChat(SyncOutcome.Rejected(ApiError.BAD_REQUEST))
-            SendGif(chat, store)(session, group, reference, null, sink)
+            SendGif(chat, store) { NOW }(session, group, reference, null, sink)
             assertEquals(listOf(DeliveryState.FAILED), states())
         }
 
@@ -238,7 +245,7 @@ class MessagesTest {
     fun nothingIsShownWhenNothingWasSealed() =
         runTest {
             val chat = FakeChat(SyncOutcome.Busy, sealWith = null)
-            SendGif(chat, store)(session, group, reference, null, sink)
+            SendGif(chat, store) { NOW }(session, group, reference, null, sink)
             assertTrue(states().isEmpty())
         }
 
@@ -246,7 +253,7 @@ class MessagesTest {
     fun aBadCaptionSendsNothing() =
         runTest {
             val chat = FakeChat(SyncOutcome.Sent(1))
-            val result = SendGif(chat, store)(session, group, reference, "hi\n", sink)
+            val result = SendGif(chat, store) { NOW }(session, group, reference, "hi\n", sink)
             assertEquals(SyncOutcome.InvalidRequest, assertIs<AuthResult.Ok<SyncOutcome>>(result).value)
             assertNull(chat.sent)
             assertTrue(states().isEmpty())
