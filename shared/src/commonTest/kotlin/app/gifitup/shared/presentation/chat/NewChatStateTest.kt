@@ -14,6 +14,7 @@ import app.gifitup.shared.domain.groups.GroupList
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomesReport
 import app.gifitup.shared.domain.session.SessionHolder
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -31,6 +32,7 @@ class NewChatStateTest {
     private class FakeChat : ChatPort {
         var created = listOf<String>()
         var added = listOf<Pair<KeyBytes, String>>()
+        var beforeCreate: suspend () -> Unit = {}
         var createOutcome: AuthResult<GroupCreation> = AuthResult.Ok(GroupCreation(byteArrayOf(7), SyncOutcome.Sent(1)))
         var addOutcome: (String) -> SyncOutcome = { SyncOutcome.Sent(2) }
 
@@ -48,6 +50,7 @@ class NewChatStateTest {
             target: String,
         ): AuthResult<GroupCreation> {
             created += target
+            beforeCreate()
             return createOutcome
         }
 
@@ -182,6 +185,41 @@ class NewChatStateTest {
                 advanceUntilIdle()
                 assertEquals(problem, holder.state.value.problem, answer.toString())
             }
+        }
+
+    @Test
+    fun anUnconfirmedFirstStepNamesTheFriendsThatAreNotInYet() =
+        runTest {
+            chat.createOutcome = AuthResult.Ok(GroupCreation(byteArrayOf(7), SyncOutcome.InFlight(ApiError.NETWORK)))
+            val holder = opened()
+            listOf("bob", "carol", "dave").forEach(holder::toggle)
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(NewChatProblem.UNFINISHED, holder.state.value.problem)
+            assertEquals(listOf("carol", "dave"), holder.state.value.notAdded)
+            assertTrue(chat.added.isEmpty())
+        }
+
+    @Test
+    fun leavingAndComingBackWhileACreateRunsNeverMakesASecondGroup() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            chat.beforeCreate = { gate.await() }
+            val holder = opened()
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertTrue(holder.state.value.creating)
+            holder.leave()
+            holder.open()
+            advanceUntilIdle()
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(listOf("bob"), chat.created, "one group only")
+            assertTrue(holder.state.value.creating, "and the screen says one is being made")
+            gate.complete(Unit)
+            advanceUntilIdle()
         }
 
     @Test
