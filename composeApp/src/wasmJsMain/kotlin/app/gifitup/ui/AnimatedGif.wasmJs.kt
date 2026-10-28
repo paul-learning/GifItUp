@@ -2,6 +2,7 @@ package app.gifitup.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,13 +35,11 @@ internal actual fun AnimatedGif(
     onFailed: () -> Unit,
 ) {
     var current by remember(data) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(data) {
-        try {
-            if (!play(data, info) { current = it }) onFailed()
-        } finally {
-            // The images behind it are released with the play; nothing may draw one that is closed.
-            current = null
-        }
+    // The pictures live as long as the composable shows them, also for a file with one frame that is played once.
+    val frames = remember(data) { FrameCache() }
+    DisposableEffect(frames) { onDispose { frames.close() } }
+    LaunchedEffect(frames) {
+        if (!play(data, info, frames) { current = it }) onFailed()
     }
     current?.let { Image(it, contentDescription, modifier, contentScale = ContentScale.Fit) }
 }
@@ -49,15 +48,16 @@ internal actual fun AnimatedGif(
  * Shows the frames in turn, for ever, with the file's own delays; `false` if the browser can't decode the file or sees
  * another one than the scanner did. Frames are decoded at most [CACHE_BYTES] deep and then kept, so a short animation
  * is decoded once and a long one is decoded as it plays; the picture shown before is released as the next replaces it.
+ * [FrameCache.close], when the composable leaves, releases the rest.
  */
 @Suppress("TooGenericExceptionCaught") // The browser's failures arrive as several JavaScript error types.
 private suspend fun play(
     data: ByteArray,
     info: MediaInfo,
+    frames: FrameCache,
     show: (ImageBitmap) -> Unit,
 ): Boolean {
     val source = BrowserGifSource.open(data, info) ?: return false
-    val frames = FrameCache()
     return try {
         showFrames(source, frames, show)
     } catch (e: CancellationException) {
@@ -66,7 +66,6 @@ private suspend fun play(
         false
     } finally {
         source.close()
-        frames.close()
     }
 }
 
