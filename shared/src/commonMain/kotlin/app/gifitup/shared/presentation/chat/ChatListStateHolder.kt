@@ -56,9 +56,9 @@ class ChatListStateHolder(
         if (running) return
         running = true
         val forVisit = visit
+        flow.value = flow.value.copy(refreshing = true)
         scope.launch {
             try {
-                flow.value = flow.value.copy(refreshing = true)
                 run(forVisit)
             } finally {
                 // After leave() a newer refresh may be running: this one no longer owns the flag.

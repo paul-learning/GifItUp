@@ -178,6 +178,8 @@ class ConversationStateHolder(
     /** Rebuilds the message list from the store and marks the conversation read. */
     private suspend fun show(forVisit: Int) {
         val messages = store.messages(group.id)
+        // Nothing is marked read for a screen that is gone.
+        if (forVisit != visit) return
         marks.markRead(group.id, messages)
         change(forVisit) { it.copy(title = titleOf(group, messages), messages = messages.map(ChatMessage::toView)) }
     }
