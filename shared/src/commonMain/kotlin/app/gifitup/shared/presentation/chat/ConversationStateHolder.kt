@@ -35,6 +35,9 @@ enum class SendProblem {
     /** An earlier message is still unsettled and did not go through: it is tried first, the new GIF was not sent. */
     EARLIER_FIRST,
 
+    /** The previous send has not finished; this one was not made (the button is off while [ConversationState.sending]). */
+    IN_PROGRESS,
+
     /** Messages or a commit are waiting: read the conversation first, then send again. */
     SYNC_FIRST,
 
@@ -71,7 +74,6 @@ data class ConversationState(
  * [GifReference], the caption is checked by the codec and a bad one sends nothing. An answer for an older visit is
  * dropped after [leave].
  */
-@Suppress("LongParameterList") // The seams of one screen, handed over by the composition root.
 class ConversationStateHolder(
     private val scope: CoroutineScope,
     private val sessions: SessionHolder,
@@ -79,47 +81,67 @@ class ConversationStateHolder(
     private val store: MessageStore,
     private val marks: ReadMarks,
     private val group: GroupInfo,
-    private val nowEpochSeconds: () -> Long,
 ) {
     private val flow =
         MutableStateFlow(ConversationState(ConversationTitle.Members(group.others), conversationProblem = group.status.toProblem()))
     val state: StateFlow<ConversationState> = flow.asStateFlow()
     private var visit = 0
     private var running = false
+    private var sendRunning = false
 
     /** Shows what is stored at once, then reads the log. */
-    fun open() = act(sync = true) { }
+    fun open() = act { }
 
-    fun refresh() = act(sync = true) { }
+    fun refresh() = act { }
 
     /** Sends [reference] with an optional [caption]. */
     fun send(
         reference: GifReference,
         caption: String?,
-    ) = act(sync = false) { forVisit ->
-        flow.value = flow.value.copy(sending = true, sendProblem = null)
-        val sent = sessions.withSessionResult { chat.sendGif(it, group.id, reference, caption) }
-        problemOf(sent)?.let { problem -> change(forVisit) { it.copy(sendProblem = problem) } }
-    }
+    ) = sendWith { sessions.withSessionResult { chat.sendGif(it, group.id, reference, caption) } }
 
     /** Posts the unsettled message again. */
-    fun resend() =
-        act(sync = false) { forVisit ->
-            flow.value = flow.value.copy(sending = true, sendProblem = null)
-            val sent = sessions.withSessionResult { chat.resume(it, group.id) }
-            problemOf(sent)?.let { problem -> change(forVisit) { it.copy(sendProblem = problem) } }
+    fun resend() = sendWith { sessions.withSessionResult { chat.resume(it, group.id) } }
+
+    /**
+     * A send has its own gate, so reading the log never swallows it. It is refused with a reason, never dropped
+     * silently, if the conversation is stopped or the previous send is still going.
+     */
+    private fun sendWith(call: suspend () -> AuthResult<SyncOutcome>) {
+        val blocked =
+            when {
+                flow.value.conversationProblem != null -> SendProblem.STOPPED
+                sendRunning -> SendProblem.IN_PROGRESS
+                else -> null
+            }
+        if (blocked != null) {
+            flow.value = flow.value.copy(sendProblem = blocked)
+            return
         }
+        sendRunning = true
+        val forVisit = visit
+        flow.value = flow.value.copy(sending = true, sendProblem = null)
+        scope.launch {
+            try {
+                problemOf(call())?.let { problem -> change(forVisit) { it.copy(sendProblem = problem) } }
+            } finally {
+                if (forVisit == visit) {
+                    sendRunning = false
+                    show(forVisit)
+                    change(forVisit) { it.copy(sending = false) }
+                }
+            }
+        }
+    }
 
     fun leave() {
         visit++
         running = false
+        sendRunning = false
         flow.value = ConversationState(ConversationTitle.Members(group.others), conversationProblem = group.status.toProblem())
     }
 
-    private fun act(
-        sync: Boolean,
-        block: suspend (Int) -> Unit,
-    ) {
+    private fun act(block: suspend (Int) -> Unit) {
         if (running) return
         running = true
         val forVisit = visit
@@ -127,12 +149,12 @@ class ConversationStateHolder(
             try {
                 show(forVisit)
                 block(forVisit)
-                if (sync && flow.value.conversationProblem == null) readLog(forVisit)
+                if (flow.value.conversationProblem == null) readLog(forVisit)
             } finally {
                 if (forVisit == visit) {
                     running = false
                     show(forVisit)
-                    change(forVisit) { it.copy(sending = false, refreshing = false, loaded = true) }
+                    change(forVisit) { it.copy(refreshing = false, loaded = true) }
                 }
             }
         }
@@ -156,7 +178,7 @@ class ConversationStateHolder(
     /** Rebuilds the message list from the store and marks the conversation read. */
     private suspend fun show(forVisit: Int) {
         val messages = store.messages(group.id)
-        marks.markRead(group.id, nowEpochSeconds())
+        marks.markRead(group.id, messages)
         change(forVisit) { it.copy(title = titleOf(group, messages), messages = messages.map(ChatMessage::toView)) }
     }
 
