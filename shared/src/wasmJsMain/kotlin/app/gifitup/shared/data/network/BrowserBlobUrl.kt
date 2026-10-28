@@ -12,7 +12,7 @@ object BrowserBlobUrl {
     fun create(
         data: ByteArray,
         info: MediaInfo,
-    ): String = createObjectUrl(data.toUint8Array(), mimeOf(info.format))
+    ): String = createObjectUrl(data.toJsBytes(), mimeOf(info.format))
 
     fun revoke(url: String) = revokeObjectUrl(url)
 
@@ -21,14 +21,6 @@ object BrowserBlobUrl {
             MediaFormat.GIF -> "image/gif"
             MediaFormat.WEBP -> "image/webp"
         }
-}
-
-private const val BYTE_MASK = 0xFF
-
-private fun ByteArray.toUint8Array(): JsBytes {
-    val out = newJsBytes(size)
-    for (index in indices) jsSetByte(out, index, this[index].toInt() and BYTE_MASK)
-    return out
 }
 
 @JsFun("(bytes, type) => URL.createObjectURL(new Blob([bytes], { type: type }))")

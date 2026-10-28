@@ -3,8 +3,14 @@ package app.gifitup.shared.data.network
 import app.gifitup.shared.domain.media.FetchResult
 import app.gifitup.shared.domain.media.MediaFormat
 import app.gifitup.shared.domain.media.MediaInfo
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.await
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.js.JsAny
 import kotlin.js.Promise
 import kotlin.test.Test
@@ -35,13 +41,14 @@ class BrowserFetchTest {
         }
 
     @Test
-    fun theRequestCarriesNoCookiesRefererOrCredentials() =
+    fun theRequestCarriesNoCookiesRefererOrAuthorization() =
         runTest {
             withServer { base, _ ->
                 val result = BrowserFetch.fetchCapped("$base/headers")
                 val headers = assertIs<FetchResult.Bytes>(result).data.decodeToString().lowercase()
                 assertTrue("\"accept\":\"image/webp,image/gif\"" in headers, headers)
-                for (name in listOf("cookie", "referer", "authorization", "origin")) {
+                // Node sends no Origin; a browser adds it to a cross-origin request (documented in the threat model).
+                for (name in listOf("cookie", "referer", "authorization")) {
                     assertFalse("\"$name\"" in headers, "$name was sent: $headers")
                 }
             }
@@ -105,6 +112,34 @@ class BrowserFetchTest {
     fun anUnreachableHostIsAFailure() =
         runTest {
             assertEquals(FetchResult.Failed, BrowserFetch.fetchCapped("http://127.0.0.1:1/x", timeoutMs = 3000))
+        }
+
+    @Test
+    fun bytesCrossTheJavaScriptBoundaryInOneCopyFast() {
+        val data = ByteArray(8 * 1024 * 1024) { (it * 31).toByte() }
+        val started =
+            kotlin.time.TimeSource.Monotonic
+                .markNow()
+        val back = data.toJsBytes().toByteArray()
+        assertTrue(back.contentEquals(data))
+        assertTrue(started.elapsedNow() < kotlin.time.Duration.parse("10s"), "took ${started.elapsedNow()}")
+    }
+
+    /** The test scheduler skips `delay`; the server and the network run in real time. */
+    private suspend fun realDelay(millis: Long) = withContext(Dispatchers.Default) { delay(millis) }
+
+    @Test
+    fun aCancelledCallStopsTheDownload() =
+        runTest {
+            withServer { base, server ->
+                val job = launch(start = CoroutineStart.UNDISPATCHED) { BrowserFetch.fetchCapped("$base/big", maxBytes = 1_000_000_000) }
+                while (bytesSent(server) == 0) realDelay(10)
+                job.cancelAndJoin()
+                realDelay(300)
+                val afterCancel = bytesSent(server)
+                realDelay(300)
+                assertEquals(afterCancel, bytesSent(server), "the server stopped being read from")
+            }
         }
 
     @Test
