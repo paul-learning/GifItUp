@@ -5,6 +5,8 @@ import androidx.compose.ui.window.ComposeViewport
 import app.gifitup.mls.WebSecureRandom
 import app.gifitup.mls.loadWasmMlsClientFactory
 import app.gifitup.mls.storage.claimWebDeviceStorage
+import app.gifitup.shared.data.device.BrowserGraphemeCounter
+import app.gifitup.shared.data.network.BrowserMediaFetcher
 import app.gifitup.ui.App
 import app.gifitup.ui.InviteInbox
 import app.gifitup.ui.OpenInAnotherTab
@@ -52,6 +54,7 @@ fun main() {
                     random = WebSecureRandom,
                     clipboard = WebClipboard,
                     glyphs = WebGlyphs,
+                    conversations = ConversationPlatform({ BrowserMediaFetcher() }, null, BrowserGraphemeCounter()),
                 )
             }
         ComposeViewport {
