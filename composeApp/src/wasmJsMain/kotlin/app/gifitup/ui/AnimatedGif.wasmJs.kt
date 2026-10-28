@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import app.gifitup.shared.data.media.BrowserFrame
 import app.gifitup.shared.data.media.BrowserGifSource
+import app.gifitup.shared.domain.media.FrameBudget
 import app.gifitup.shared.domain.media.GifDelay
 import app.gifitup.shared.domain.media.MediaInfo
 import kotlinx.coroutines.CancellationException
@@ -90,13 +91,12 @@ private suspend fun showFrames(
 private class Shown(
     val image: ImageBitmap,
     val durationMillis: Int,
-    val bytes: Int,
 )
 
 /** Frames kept for the next loop, up to [CACHE_BYTES]; one over it is shown and released when the next replaces it. */
 private class FrameCache {
     private val kept = HashMap<Int, Shown>()
-    private var size = 0
+    private val budget = FrameBudget(CACHE_BYTES)
     private var uncached: Skia? = null
 
     fun get(index: Int): Shown? = kept[index]
@@ -106,10 +106,15 @@ private class FrameCache {
         frame: BrowserFrame,
     ): Shown {
         val skia = frame.toSkiaImage()
-        val shown = Shown(skia.toComposeImageBitmap(), frame.durationMillis, frame.rgba.size)
-        if (size + shown.bytes <= CACHE_BYTES) {
+        var wrapped = false
+        val shown =
+            try {
+                Shown(skia.toComposeImageBitmap(), frame.durationMillis).also { wrapped = true }
+            } finally {
+                if (!wrapped) skia.close()
+            }
+        if (budget.keep(frame.rgba.size)) {
             kept[index] = shown
-            size += shown.bytes
             skiaImages.add(skia)
         } else {
             uncached?.close()

@@ -40,7 +40,7 @@ internal actual fun AnimatedGif(
     LaunchedEffect(decoded) { if (decoded?.drawable == null && decoded != null) onFailed() }
     DisposableEffect(drawable) {
         val handler = Handler(Looper.getMainLooper())
-        // A drawable holds its callback weakly: this local, captured by onDispose, keeps it alive.
+        // A drawable holds its callback weakly: onDispose below refers to this local, which keeps it alive until then.
         val callback =
             object : Drawable.Callback {
                 override fun invalidateDrawable(who: Drawable) {
@@ -63,7 +63,8 @@ internal actual fun AnimatedGif(
         (drawable as? AnimatedImageDrawable)?.start()
         onDispose {
             (drawable as? AnimatedImageDrawable)?.stop()
-            drawable?.callback = null
+            // Naming the callback here is what keeps it reachable while the drawable holds it only weakly.
+            if (drawable?.callback === callback) drawable.callback = null
             handler.removeCallbacksAndMessages(drawable)
         }
     }
