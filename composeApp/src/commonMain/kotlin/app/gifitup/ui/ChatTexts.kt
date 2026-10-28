@@ -1,6 +1,5 @@
 package app.gifitup.ui
 
-import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.ConversationProblem
@@ -40,14 +39,6 @@ internal object ChatTexts {
             is Preview.Renamed -> "The chat was renamed to ${isolated(preview.name)}"
             Preview.Unavailable -> "Message unavailable"
             Preview.UpdateNeeded -> "Update the app to see this message"
-        }
-
-    fun body(body: MessageBody): String =
-        when (body) {
-            is MessageBody.Gif -> "GIF"
-            is MessageBody.GroupMeta -> "The chat was renamed to ${isolated(body.name)}"
-            MessageBody.Unavailable -> "Message unavailable"
-            MessageBody.UpdateNeeded -> "Update the app to see this message"
         }
 
     fun ago(ago: Ago): String =

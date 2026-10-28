@@ -26,7 +26,10 @@ enum class NewChatProblem {
     /** The group exists on this device but its first message is not confirmed; the conversation posts it again. */
     UNFINISHED,
 
-    /** The group was made; some of the other friends are in [NewChatState.notAdded] and can be added from the conversation. */
+    /**
+     * The group was made; the friends in [NewChatState.notAdded] are not in it yet (adding them later comes with the
+     * conversation screen, #25 part 3).
+     */
     PARTLY,
 
     OFFLINE,
@@ -102,7 +105,12 @@ class NewChatStateHolder(
 
     fun create() {
         val current = flow.value
-        if (running || !current.canCreate) {
+        if (running) {
+            // A create is still going (the screen was left and opened again): never a second group; show that it runs.
+            flow.value = current.copy(creating = true)
+            return
+        }
+        if (!current.canCreate) {
             if (current.selected.isEmpty()) flow.value = current.copy(problem = NewChatProblem.NOBODY)
             return
         }
@@ -113,17 +121,15 @@ class NewChatStateHolder(
             try {
                 make(forVisit, current.selected.sorted())
             } finally {
-                if (forVisit == visit) {
-                    running = false
-                    flow.value = flow.value.copy(creating = false)
-                }
+                // The job owns the flag until it ends, even if the screen was left meanwhile.
+                running = false
+                if (forVisit == visit) flow.value = flow.value.copy(creating = false)
             }
         }
     }
 
     fun leave() {
         visit++
-        running = false
         flow.value = NewChatState()
     }
 
@@ -165,6 +171,8 @@ class NewChatStateHolder(
                     loaded = true,
                     selected = names.toSet(),
                     created = id,
+                    // The first message is not confirmed: nobody else is added yet, and the user is told who is missing.
+                    notAdded = names.drop(1),
                     problem = NewChatProblem.UNFINISHED,
                 )
             }

@@ -57,7 +57,9 @@ internal fun NewChatScreen(
         Notices(state)
         if (state.creating) CircularProgressIndicator()
         Button(onClick = holder::create, enabled = state.canCreate) { Text(ChatTexts.START_CHAT) }
-        TextButton(onClick = if (state.created != null) onDone else onBack) { Text(if (state.created != null) "Done" else ChatTexts.BACK) }
+        TextButton(onClick = if (state.created != null) onDone else onBack, enabled = !state.creating) {
+            Text(if (state.created != null) "Done" else ChatTexts.BACK)
+        }
     }
 }
 
