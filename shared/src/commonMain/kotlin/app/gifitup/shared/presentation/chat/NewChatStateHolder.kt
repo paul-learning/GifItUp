@@ -66,6 +66,9 @@ class NewChatStateHolder(
     private var visit = 0
     private var running = false
 
+    /** The last create ended with a problem and no group: its message survives a refresh of the friends list. */
+    private var createFailed = false
+
     /** Shows the friends the contact book already has, then reads the server's member list and shows the result. */
     fun open() =
         scope.launch {
@@ -84,14 +87,15 @@ class NewChatStateHolder(
         val current = flow.value
         flow.value =
             if (names == null) {
-                current.copy(loaded = true, problem = NewChatProblem.FRIENDS_UNAVAILABLE)
+                // Only when nothing was made: a group that exists keeps its own result on screen.
+                current.copy(loaded = true, problem = if (current.created == null) NewChatProblem.FRIENDS_UNAVAILABLE else current.problem)
             } else {
                 current.copy(
                     loaded = true,
                     friends = names.sorted(),
                     selected = current.selected.filter { it in names }.toSet(),
                     problem =
-                        problem ?: current.problem.takeIf { current.created != null },
+                        problem ?: current.problem.takeIf { current.created != null || createFailed },
                 )
             }
     }
@@ -100,7 +104,10 @@ class NewChatStateHolder(
         val current = flow.value
         if (name !in current.friends || current.creating || current.created != null) return
         val next = if (name in current.selected) current.selected - name else current.selected + name
-        if (next.size <= MAX_FRIENDS) flow.value = current.copy(selected = next, problem = null)
+        if (next.size <= MAX_FRIENDS) {
+            createFailed = false
+            flow.value = current.copy(selected = next, problem = null)
+        }
     }
 
     fun create() {
@@ -132,6 +139,7 @@ class NewChatStateHolder(
     fun leave() {
         if (running) return
         visit++
+        createFailed = false
         flow.value = NewChatState()
     }
 
@@ -139,6 +147,7 @@ class NewChatStateHolder(
         forVisit: Int,
         names: List<String>,
     ) {
+        createFailed = false
         val creation = sessions.withSessionResult { chat.create(it, names.first()) }
         val result =
             when (creation) {
@@ -155,6 +164,7 @@ class NewChatStateHolder(
                     afterCreation(creation.value, names)
                 }
             }
+        createFailed = result.created == null && result.problem != null
         if (forVisit == visit) flow.value = result.copy(friends = flow.value.friends)
     }
 

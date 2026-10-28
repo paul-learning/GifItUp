@@ -247,7 +247,42 @@ class NewChatStateTest {
             val state = holder.state.value
             assertNotNull(state.created, "the finished group is still shown")
             assertFalse(state.canCreate, "so the same friends can't make a second one")
-            assertEquals(listOf("bob"), chat.created)
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(listOf("bob"), chat.created, "and a second create() is refused")
+        }
+
+    @Test
+    fun aFailedCreateThatEndedWhileTheScreenWasAwayStillShowsItsProblem() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            chat.beforeCreate = { gate.await() }
+            chat.createOutcome = AuthResult.Failed(AuthError.Api(ApiError.NETWORK))
+            val holder = opened()
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            holder.leave()
+            gate.complete(Unit)
+            advanceUntilIdle()
+            holder.open()
+            advanceUntilIdle()
+            assertEquals(NewChatProblem.OFFLINE, holder.state.value.problem)
+            assertNull(holder.state.value.created)
+        }
+
+    @Test
+    fun anUnreadableFriendsListDoesNotHideTheResultOfAGroupThatWasMade() =
+        runTest {
+            val holder = opened()
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            friends = null
+            holder.open()
+            advanceUntilIdle()
+            assertNull(holder.state.value.problem, "the finished chat is not turned into a friends-list error")
+            assertNotNull(holder.state.value.created)
         }
 
     @Test
