@@ -29,7 +29,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ConversationSummary
@@ -46,7 +46,7 @@ internal fun ChatListScreen(
     holder: ChatListStateHolder,
     onNewChat: () -> Unit,
     onFriends: () -> Unit,
-    onOpen: ((KeyBytes) -> Unit)?,
+    onOpen: ((GroupInfo) -> Unit)?,
     onBack: () -> Unit,
 ) {
     val state by holder.state.collectAsState()
@@ -78,7 +78,7 @@ internal fun ChatListScreen(
         state.problem?.let { Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error) }
         if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS)
         LazyColumn(modifier = Modifier.weight(1f)) {
-            items(state.conversations, key = { it.id.bytes.joinToString("") { b -> b.toUByte().toString(HEX).padStart(2, '0') } }) { row ->
+            items(state.conversations, key = { it.id.bytes.toHex() }) { row ->
                 ConversationRow(row, onOpen)
                 HorizontalDivider()
             }
@@ -93,12 +93,12 @@ internal fun ChatListScreen(
 @Composable
 private fun ConversationRow(
     row: ConversationSummary,
-    onOpen: ((KeyBytes) -> Unit)?,
+    onOpen: ((GroupInfo) -> Unit)?,
 ) {
     val title = ChatTexts.title(row.title)
     val preview = row.problem?.let(ChatTexts::problem) ?: ChatTexts.preview(row.preview)
     val ago = row.lastAt?.let { ChatTexts.ago(Ago.of(Clock.System.now().epochSeconds, it)) }
-    val clickable = if (onOpen != null) Modifier.clickable { onOpen(row.id) } else Modifier
+    val clickable = if (onOpen != null) Modifier.clickable { onOpen(row.info) } else Modifier
     Row(
         modifier =
             Modifier
@@ -134,4 +134,3 @@ private fun ConversationRow(
 }
 
 private const val REFRESH_MILLIS = 15_000L
-private const val HEX = 16

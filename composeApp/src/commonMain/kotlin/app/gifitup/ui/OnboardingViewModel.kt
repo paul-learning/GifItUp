@@ -10,13 +10,20 @@ import app.gifitup.shared.domain.auth.DeviceAuth
 import app.gifitup.shared.domain.auth.DeviceStorage
 import app.gifitup.shared.domain.chat.ChatService
 import app.gifitup.shared.domain.chat.ReadMarks
+import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.invite.CreateInvite
 import app.gifitup.shared.domain.invite.ListInvites
 import app.gifitup.shared.domain.invite.RevokeInvite
+import app.gifitup.shared.domain.media.CivilDate
+import app.gifitup.shared.domain.media.LoadGifMedia
+import app.gifitup.shared.domain.media.MediaPolicy
+import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.domain.messages.InMemoryMessageStore
 import app.gifitup.shared.domain.origin.ServerOriginSetting
 import app.gifitup.shared.domain.session.SessionHolder
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
+import app.gifitup.shared.presentation.chat.ConversationStateHolder
+import app.gifitup.shared.presentation.chat.GifTilesStateHolder
 import app.gifitup.shared.presentation.chat.NewChatStateHolder
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
 import app.gifitup.shared.presentation.invite.CreateInviteStateHolder
@@ -71,6 +78,29 @@ internal class OnboardingViewModel(
     /** The new-chat flow's logic: the friends are the contact book's saved contacts. */
     val newChat = NewChatStateHolder(viewModelScope, sessions, chatService, auth.friendNames)
 
+    // Fetches GIFs straight from the provider (ADR-0003), apart from the server's API client.
+    private val mediaFetcher = graph.conversations.mediaFetcher()
+
+    /** The GIFs on the open conversation's screen: loaded on their own or on a tap, by the device's patch level. */
+    val tiles =
+        GifTilesStateHolder(
+            viewModelScope,
+            MediaPolicy(graph.conversations.securityPatch) { CivilDate.ofEpochDays(Clock.System.now().epochSeconds / SECONDS_PER_DAY) },
+            LoadGifMedia(mediaFetcher),
+        )
+    private val captions = CaptionInput(graph.conversations.graphemes)
+
+    /** The conversation the list opened, `null` if none (the screen then goes back). One at a time. */
+    var conversation: ConversationStateHolder? = null
+        private set
+
+    /** Opens the conversation [info] describes; the previous one, if any, is left. */
+    fun openConversation(info: GroupInfo) {
+        conversation?.leave()
+        tiles.leave()
+        conversation = ConversationStateHolder(viewModelScope, sessions, chatService, history, marks, info, captions)
+    }
+
     init {
         holder.start()
     }
@@ -80,7 +110,12 @@ internal class OnboardingViewModel(
         contacts.leave()
         chats.leave()
         newChat.leave()
+        conversation?.leave()
+        tiles.leave()
+        (mediaFetcher as? AutoCloseable)?.close()
         api.close()
         engine.close()
     }
 }
+
+private const val SECONDS_PER_DAY = 86_400L

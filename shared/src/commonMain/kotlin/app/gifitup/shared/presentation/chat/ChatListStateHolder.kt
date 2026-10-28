@@ -16,13 +16,15 @@ import kotlinx.coroutines.launch
 
 /** One row of the chat list. [lastAt] is when this device saw the last message (seconds, its own clock), `null` if none. */
 class ConversationSummary(
-    val id: KeyBytes,
+    val info: GroupInfo,
     val title: ConversationTitle,
     val preview: Preview,
     val lastAt: Long?,
     val unread: Int,
     val problem: ConversationProblem?,
-)
+) {
+    val id: KeyBytes get() = info.id
+}
 
 data class ChatListState(
     val loaded: Boolean = false,
@@ -115,7 +117,7 @@ class ChatListStateHolder(
         val messages = store.messages(info.id)
         val last = messages.lastOrNull()
         return ConversationSummary(
-            id = info.id,
+            info = info,
             title = titleOf(info, messages),
             preview = previewOf(last),
             lastAt = last?.at,
