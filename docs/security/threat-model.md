@@ -136,6 +136,8 @@ Owner sign-off (shared GIF API key row): ☑ accepted by @paul-learning, 2026-10
 
 Owner sign-off (web client at rest without a passphrase row, #16): ☑ accepted by @paul-learning, 2026-10-19 (in chat with the agent: "i accept that risk", answering a request to accept profile-copy decryption, use by script in our origin, and eviction without `persist()`)
 
+Owner sign-off (GIF provider row extended: the web client's media requests carry the web app's `Origin`, #24 part 4b, PR #185): ☑ accepted by @paul-learning, 2026-10-28 (in chat with the agent: "i accept that the origin of the webapp is visible", answering the question whether the provider's CDN learning the web deployment's origin next to the recipient's IP is acceptable)
+
 ## Known metadata visible to the server
 - **KeyPackage directory (ADR-0012):** the stored KeyPackages of every device (public keys, the username in the credential, lifetime, cipher suite, capabilities and extensions: all in the clear, so nothing private may ever go into a KeyPackage), the upload time and expiry of each until it is claimed or cleaned up, and per-device counts; claimed ones are deleted (logical until vacuum). Every member can see another member's device ids and, as `null` in a claim response, whether a device has KeyPackages left; the per-target limit shows members a coarse "someone claimed from this user recently". Pools are per device, so a user with many devices shows more rows.
 - Usernames, devices, IP addresses, connection times. Stored per device (ADR-0008): its Ed25519 signature public key, creation time and last-seen time; per session only a SHA-256 of the token and its expiry. So the database also shows how many devices each account has.
