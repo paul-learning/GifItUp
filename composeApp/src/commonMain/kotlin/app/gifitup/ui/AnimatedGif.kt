@@ -2,7 +2,7 @@ package app.gifitup.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import app.gifitup.shared.domain.media.MediaFormat
+import app.gifitup.shared.domain.media.MediaInfo
 
 /**
  * Draws the bytes of a GIF or animated WebP, animated, scaled to fit [modifier]'s box. The bytes passed the media
@@ -13,7 +13,7 @@ import app.gifitup.shared.domain.media.MediaFormat
 @Composable
 internal expect fun AnimatedGif(
     data: ByteArray,
-    format: MediaFormat,
+    info: MediaInfo,
     contentDescription: String,
     modifier: Modifier,
     onFailed: () -> Unit,

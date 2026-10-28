@@ -4,6 +4,7 @@ import app.gifitup.shared.data.network.JsBytes
 import app.gifitup.shared.data.network.toByteArray
 import app.gifitup.shared.data.network.toJsBytes
 import app.gifitup.shared.domain.media.MediaFormat
+import app.gifitup.shared.domain.media.MediaInfo
 import kotlinx.coroutines.await
 import kotlin.js.JsAny
 import kotlin.js.Promise
@@ -35,14 +36,20 @@ class BrowserGifSource private constructor(
     fun close() = jsClose(source)
 
     companion object {
-        /** `null` if the browser can't decode the file at all. */
+        /**
+         * `null` if the browser can't decode the file, or sees it differently from the scanner ([info]: another canvas
+         * size, more frames), so a parser difference can't get past the limits the scanner enforced. Frames larger than
+         * [MAX_FRAME_SIDE] come back scaled down to it.
+         */
         suspend fun open(
             data: ByteArray,
-            format: MediaFormat,
+            info: MediaInfo,
         ): BrowserGifSource? {
-            val source = jsOpen(data.toJsBytes(), mimeOf(format)).await<JsAny?>() ?: return null
-            return BrowserGifSource(source, maxOf(sourceFrames(source), 1))
+            val source = jsOpen(data.toJsBytes(), mimeOf(info.format), info.width, info.height, info.frames, MAX_FRAME_SIDE).await<JsAny?>()
+            return source?.let { BrowserGifSource(it, maxOf(sourceFrames(it), 1)) }
         }
+
+        const val MAX_FRAME_SIDE = 640
 
         private fun mimeOf(format: MediaFormat): String =
             when (format) {
@@ -54,46 +61,66 @@ class BrowserGifSource private constructor(
 
 @JsFun(
     """
-async (bytes, type) => {
+async (bytes, type, width, height, frames, maxSide) => {
+  let decoder = null;
+  let bitmap = null;
   try {
+    const canvas = document.createElement('canvas');
     if (typeof ImageDecoder === 'function' && await ImageDecoder.isTypeSupported(type)) {
-      const decoder = new ImageDecoder({ data: bytes, type: type });
+      decoder = new ImageDecoder({ data: bytes, type: type });
       await decoder.tracks.ready;
-      return { decoder: decoder, bitmap: null, frames: decoder.tracks.selectedTrack.frameCount, canvas: document.createElement('canvas') };
+      const count = decoder.tracks.selectedTrack.frameCount;
+      if (count < 1 || count > frames) throw new Error('frames');
+      return { decoder: decoder, bitmap: null, frames: count, canvas: canvas, width: width, height: height, maxSide: maxSide };
     }
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: type }));
-    return { decoder: null, bitmap: bitmap, frames: 1, canvas: document.createElement('canvas') };
+    bitmap = await createImageBitmap(new Blob([bytes], { type: type }));
+    if (bitmap.width !== width || bitmap.height !== height) throw new Error('size');
+    return { decoder: null, bitmap: bitmap, frames: 1, canvas: canvas, width: width, height: height, maxSide: maxSide };
   } catch (e) {
+    if (decoder !== null) decoder.close();
+    if (bitmap !== null) bitmap.close();
     return null;
   }
 }
 """,
 )
+@Suppress("LongParameterList") // The scanner's facts about the file, passed to the browser side as they are.
 private external fun jsOpen(
     bytes: JsBytes,
     type: String,
+    width: Int,
+    height: Int,
+    frames: Int,
+    maxSide: Int,
 ): Promise<JsAny?>
 
 @JsFun(
     """
 async (source, index) => {
+  let image = null;
   try {
-    let image = source.bitmap;
+    image = source.bitmap;
     if (source.decoder !== null) image = (await source.decoder.decode({ frameIndex: index })).image;
     const width = image.displayWidth || image.width;
     const height = image.displayHeight || image.height;
+    // What the browser decoded must be what the scanner saw.
+    if (width !== source.width || height !== source.height) return null;
     const duration = image.duration ? Math.round(image.duration / 1000) : 0;
+    const scale = Math.min(1, source.maxSide / Math.max(width, height));
+    const shownWidth = Math.max(1, Math.round(width * scale));
+    const shownHeight = Math.max(1, Math.round(height * scale));
     const canvas = source.canvas;
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = shownWidth;
+    canvas.height = shownHeight;
     const context = canvas.getContext('2d', { willReadFrequently: true });
-    context.clearRect(0, 0, width, height);
-    context.drawImage(image, 0, 0);
-    if (source.decoder !== null) image.close();
-    const pixels = context.getImageData(0, 0, width, height).data;
-    return { width: width, height: height, duration: duration, data: new Uint8Array(pixels.buffer) };
+    context.clearRect(0, 0, shownWidth, shownHeight);
+    context.drawImage(image, 0, 0, shownWidth, shownHeight);
+    const pixels = context.getImageData(0, 0, shownWidth, shownHeight).data;
+    return { width: shownWidth, height: shownHeight, duration: duration, data: new Uint8Array(pixels.buffer) };
   } catch (e) {
     return null;
+  } finally {
+    if (source.decoder !== null && image !== null) image.close();
   }
 }
 """,

@@ -23,16 +23,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
-import app.gifitup.shared.presentation.chat.ConversationTitle
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
 import app.gifitup.shared.presentation.chat.SendProblem
+import app.gifitup.shared.presentation.chat.isGroup
+import app.gifitup.shared.presentation.chat.listKey
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filter
 
 /**
  * One conversation: renders the holders' state and sends the user's actions to them; it decides nothing (ADR-0013). It
@@ -61,8 +64,17 @@ internal fun ConversationScreen(
     }
     val list = rememberLazyListState()
     // Newest at the bottom: the list is laid out from the bottom up, and a new message scrolls it into view.
+    // Pinned: the reader is at the newest message. Only the user's own scrolling changes it, so a message that arrives
+    // while they read older ones does not pull them down.
+    var pinned by remember { mutableStateOf(true) }
+    LaunchedEffect(list) {
+        snapshotFlow { list.isScrollInProgress }.filter { !it }.collect {
+            pinned =
+                list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0
+        }
+    }
     LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) list.scrollToItem(0)
+        if (pinned && state.messages.isNotEmpty()) list.scrollToItem(0)
     }
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -89,8 +101,8 @@ internal fun ConversationScreen(
             reverseLayout = true,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(state.messages.asReversed(), key = { it.reference.bytes.toHex() }) { message ->
-                MessageRow(message, tiles, tileStates[message.reference], state.title.isGroup())
+            items(state.messages.asReversed(), key = { it.reference.listKey() }) { message ->
+                MessageRow(message, tiles, tileStates[message.reference], state.title.isGroup)
             }
         }
         SendArea(holder, state.sendProblem, state.hasUnsettled, state.canSend)
@@ -148,9 +160,4 @@ private fun CaptionField(
     }
 }
 
-private fun ConversationTitle.isGroup(): Boolean = this is ConversationTitle.Named || (this as ConversationTitle.Members).names.size >= 2
-
-internal fun ByteArray.toHex(): String = joinToString("") { it.toUByte().toString(HEX_RADIX).padStart(2, '0') }
-
-private const val HEX_RADIX = 16
 private const val REFRESH_MILLIS = 15_000L

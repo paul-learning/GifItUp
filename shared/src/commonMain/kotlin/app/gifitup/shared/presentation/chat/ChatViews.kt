@@ -20,6 +20,19 @@ sealed interface ConversationTitle {
     ) : ConversationTitle
 }
 
+/** Whether the title names several people: a group, where messages show who sent them. */
+val ConversationTitle.isGroup: Boolean
+    get() =
+        when (this) {
+            is ConversationTitle.Named -> true
+            is ConversationTitle.Members -> names.size >= 2
+        }
+
+/** A stable text key for a list row or message: the identity's bytes in hex. */
+fun KeyBytes.listKey(): String = bytes.joinToString("") { it.toUByte().toString(HEX_RADIX).padStart(2, '0') }
+
+private const val HEX_RADIX = 16
+
 /** The last message of a conversation as a line of the list. */
 sealed interface Preview {
     data object Nothing : Preview
