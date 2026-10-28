@@ -30,9 +30,9 @@ internal fun GifItUpTheme(content: @Composable () -> Unit) {
 private val DarkColors =
     darkColorScheme(
         primary = Color(0xFF8B5CF6),
-        onPrimary = Color(0xFF14092B),
+        onPrimary = Color(0xFF0A0516),
         primaryContainer = Color(0xFF8B5CF6),
-        onPrimaryContainer = Color(0xFF14092B),
+        onPrimaryContainer = Color(0xFF0A0516),
         secondary = Color(0xFFB79CFF),
         onSecondary = Color(0xFF14092B),
         secondaryContainer = Color(0xFF2E2547),
