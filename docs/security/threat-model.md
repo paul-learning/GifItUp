@@ -34,7 +34,7 @@ flowchart LR
   FAC -- "MLS ciphertext, KeyPackages, Welcomes, session token" --> CADDY
   CADDY -- "web bundle JS/wasm, Klipy API key (logged-in clients)" --> UI
   UI -- "search query + API key" --> API
-  UI -- "media fetch (no cookies, Referer or redirects; web fetch planned #24)" --> CDN
+  UI -- "media fetch (no cookies, Referer or redirects)" --> CDN
   FAC -. "encrypted blobs, own uploads (M3)" .-> CADDY
   GHCR -. "deploy, owner-approved" .-> VM
   REL -. "install" .-> DEV
