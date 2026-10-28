@@ -141,7 +141,7 @@ private fun GifTileView(
     val shape = Modifier.fillMaxWidth().aspectRatio(ratio)
     when {
         tile is GifTile.Ready && !failed -> {
-            AnimatedGif(tile.data, tile.info.format, description, shape) { failed = true }
+            AnimatedGif(tile.data, tile.info, description, shape) { failed = true }
         }
 
         tile is GifTile.TapToLoad -> {

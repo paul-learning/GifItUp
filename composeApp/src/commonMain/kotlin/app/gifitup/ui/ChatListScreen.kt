@@ -33,6 +33,7 @@ import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ConversationSummary
+import app.gifitup.shared.presentation.chat.listKey
 import kotlinx.coroutines.delay
 import kotlin.time.Clock
 
@@ -78,7 +79,7 @@ internal fun ChatListScreen(
         state.problem?.let { Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error) }
         if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS)
         LazyColumn(modifier = Modifier.weight(1f)) {
-            items(state.conversations, key = { it.id.bytes.toHex() }) { row ->
+            items(state.conversations, key = { it.id.listKey() }) { row ->
                 ConversationRow(row, onOpen)
                 HorizontalDivider()
             }
