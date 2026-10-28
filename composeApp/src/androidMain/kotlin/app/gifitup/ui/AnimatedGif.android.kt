@@ -64,7 +64,7 @@ internal actual fun AnimatedGif(
         onDispose {
             (drawable as? AnimatedImageDrawable)?.stop()
             // Naming the callback here is what keeps it reachable while the drawable holds it only weakly.
-            if (drawable?.callback === callback) drawable.callback = null
+            if (drawable != null && drawable.callback === callback) drawable.callback = null
             handler.removeCallbacksAndMessages(drawable)
         }
     }

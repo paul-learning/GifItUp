@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import app.gifitup.shared.data.media.BrowserFrame
 import app.gifitup.shared.data.media.BrowserGifSource
-import app.gifitup.shared.domain.media.FrameBudget
+import app.gifitup.shared.domain.media.FrameCache
 import app.gifitup.shared.domain.media.GifDelay
 import app.gifitup.shared.domain.media.MediaInfo
 import kotlinx.coroutines.CancellationException
@@ -37,7 +37,7 @@ internal actual fun AnimatedGif(
 ) {
     var current by remember(data) { mutableStateOf<ImageBitmap?>(null) }
     // The pictures live as long as the composable shows them, also for a file with one frame that is played once.
-    val frames = remember(data) { FrameCache() }
+    val frames = remember(data) { newFrameCache() }
     DisposableEffect(frames) { onDispose { frames.close() } }
     LaunchedEffect(frames) {
         if (!play(data, info, frames) { current = it }) onFailed()
@@ -55,7 +55,7 @@ internal actual fun AnimatedGif(
 private suspend fun play(
     data: ByteArray,
     info: MediaInfo,
-    frames: FrameCache,
+    frames: FrameCache<Shown>,
     show: (ImageBitmap) -> Unit,
 ): Boolean {
     val source = BrowserGifSource.open(data, info) ?: return false
@@ -72,14 +72,14 @@ private suspend fun play(
 
 private suspend fun showFrames(
     source: BrowserGifSource,
-    frames: FrameCache,
+    frames: FrameCache<Shown>,
     show: (ImageBitmap) -> Unit,
 ): Boolean {
     var index = 0
     while (true) {
         // A tab in the background does not decode.
         while (tabHidden()) delay(HIDDEN_POLL_MS)
-        val shown = frames.get(index) ?: source.frame(index)?.let { frames.put(index, it) } ?: return false
+        val shown = frames.get(index) ?: source.frame(index)?.let { frames.put(index, wrap(it), it.rgba.size) } ?: return false
         show(shown.image)
         if (source.frameCount == 1) return true
         delay(GifDelay.millis(shown.durationMillis))
@@ -87,50 +87,25 @@ private suspend fun showFrames(
     }
 }
 
-/** A decoded frame ready to draw. */
+/** A decoded frame ready to draw; [skia] is the image behind [image], released with the cache. */
 private class Shown(
+    val skia: Skia,
     val image: ImageBitmap,
     val durationMillis: Int,
 )
 
-/** Frames kept for the next loop, up to [CACHE_BYTES]; one over it is shown and released when the next replaces it. */
-private class FrameCache {
-    private val kept = HashMap<Int, Shown>()
-    private val budget = FrameBudget(CACHE_BYTES)
-    private var uncached: Skia? = null
-
-    fun get(index: Int): Shown? = kept[index]
-
-    fun put(
-        index: Int,
-        frame: BrowserFrame,
-    ): Shown {
-        val skia = frame.toSkiaImage()
-        var wrapped = false
-        val shown =
-            try {
-                Shown(skia.toComposeImageBitmap(), frame.durationMillis).also { wrapped = true }
-            } finally {
-                if (!wrapped) skia.close()
-            }
-        if (budget.keep(frame.rgba.size)) {
-            kept[index] = shown
-            skiaImages.add(skia)
-        } else {
-            uncached?.close()
-            uncached = skia
-        }
-        return shown
+/** Wraps [frame] for drawing; the Skia image is closed if the wrapping fails. */
+private fun wrap(frame: BrowserFrame): Shown {
+    val skia = frame.toSkiaImage()
+    var wrapped = false
+    return try {
+        Shown(skia, skia.toComposeImageBitmap(), frame.durationMillis).also { wrapped = true }
+    } finally {
+        if (!wrapped) skia.close()
     }
-
-    fun close() {
-        uncached?.close()
-        skiaImages.forEach(Skia::close)
-        kept.clear()
-    }
-
-    private val skiaImages = ArrayList<Skia>()
 }
+
+private fun newFrameCache() = FrameCache<Shown>(CACHE_BYTES) { it.skia.close() }
 
 private typealias Skia = org.jetbrains.skia.Image
 
