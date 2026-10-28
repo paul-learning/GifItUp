@@ -63,7 +63,7 @@ internal class OnboardingViewModel(
     // The history is in memory (#177 makes it durable): it lives as long as this view model, and goes with it.
     private val history = InMemoryMessageStore()
     private val marks = ReadMarks()
-    private val chatService = ChatService(auth.chat, history, ::nowSeconds)
+    private val chatService = ChatService(auth.chat, history) { Clock.System.now().epochSeconds }
 
     /** The chat list's logic (#25), over the same session, API and engine. */
     val chats = ChatListStateHolder(viewModelScope, sessions, chatService, history, marks)
@@ -84,5 +84,3 @@ internal class OnboardingViewModel(
         engine.close()
     }
 }
-
-private fun nowSeconds(): Long = Clock.System.now().epochSeconds
