@@ -15,7 +15,9 @@ import app.gifitup.shared.domain.groups.GroupList
 import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomesReport
+import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.domain.messages.ChatMessage
+import app.gifitup.shared.domain.messages.CodePointCounter
 import app.gifitup.shared.domain.messages.DeliveryState
 import app.gifitup.shared.domain.messages.InMemoryMessageStore
 import app.gifitup.shared.domain.messages.MessageBody
@@ -125,7 +127,8 @@ class ChatStateTest {
 
     private fun TestScope.list() = ChatListStateHolder(this, sessions(), chat, store, marks)
 
-    private fun TestScope.conversation(info: GroupInfo) = ConversationStateHolder(this, sessions(), chat, store, marks, info)
+    private fun TestScope.conversation(info: GroupInfo) =
+        ConversationStateHolder(this, sessions(), chat, store, marks, info, CaptionInput(CodePointCounter))
 
     @Test
     fun theListShowsTheNewestActivityFirstWithPreviewAndUnreadCount() =
@@ -314,6 +317,22 @@ class ChatStateTest {
             advanceUntilIdle()
             assertEquals(1, chat.sent.size)
             assertFalse(holder.state.value.refreshing)
+        }
+
+    @Test
+    fun aBadOrTooLongCaptionSendsNothingAndAGoodOneIsSentTrimmed() =
+        runTest {
+            val holder = conversation(group(1, "bob"))
+            holder.send(reference, "a".repeat(81))
+            holder.send(reference, "one\ntwo")
+            advanceUntilIdle()
+            assertTrue(chat.sent.isEmpty())
+            assertEquals(SendProblem.CAPTION, holder.state.value.sendProblem)
+            assertFalse(holder.state.value.sending)
+            holder.send(reference, "  hi  ")
+            advanceUntilIdle()
+            assertEquals(listOf<Pair<GifReference, String?>>(reference to "hi"), chat.sent)
+            assertNull(holder.state.value.sendProblem)
         }
 
     @Test

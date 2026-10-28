@@ -7,6 +7,8 @@ import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.messages.CaptionInput
+import app.gifitup.shared.domain.messages.CaptionVerdict
 import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.DeliveryState
 import app.gifitup.shared.domain.messages.MessageBody
@@ -74,6 +76,7 @@ data class ConversationState(
  * [GifReference], the caption is checked by the codec and a bad one sends nothing. An answer for an older visit is
  * dropped after [leave].
  */
+@Suppress("LongParameterList") // Constructor injection of the collaborators (CLAUDE.md), none of them optional.
 class ConversationStateHolder(
     private val scope: CoroutineScope,
     private val sessions: SessionHolder,
@@ -81,6 +84,8 @@ class ConversationStateHolder(
     private val store: MessageStore,
     private val marks: ReadMarks,
     private val group: GroupInfo,
+    /** The caption field's rules: the live counter and whether the text may be sent; [send] applies the same check. */
+    val captions: CaptionInput,
 ) {
     private val flow =
         MutableStateFlow(ConversationState(ConversationTitle.Members(group.others), conversationProblem = group.status.toProblem()))
@@ -94,11 +99,18 @@ class ConversationStateHolder(
 
     fun refresh() = act { }
 
-    /** Sends [reference] with an optional [caption]. */
+    /** Sends [reference] with an optional [caption]; a caption that fails [captions] sends nothing. */
     fun send(
         reference: GifReference,
         caption: String?,
-    ) = sendWith { sessions.withSessionResult { chat.sendGif(it, group.id, reference, caption) } }
+    ) {
+        val checked = captions.check(caption.orEmpty())
+        if (checked.verdict != CaptionVerdict.OK) {
+            flow.value = flow.value.copy(sendProblem = SendProblem.CAPTION)
+            return
+        }
+        sendWith { sessions.withSessionResult { chat.sendGif(it, group.id, reference, checked.caption) } }
+    }
 
     /** Posts the unsettled message again. */
     fun resend() = sendWith { sessions.withSessionResult { chat.resume(it, group.id) } }
