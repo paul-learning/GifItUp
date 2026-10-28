@@ -17,6 +17,8 @@ internal object FriendTexts {
     const val REVIEW = "Review"
     const val SHOW_DETAILS = "Show the saved emojis"
     const val HIDE_DETAILS = "Hide the saved emojis"
+    const val EXPANDED = "Emojis shown"
+    const val COLLAPSED = "Emojis hidden"
     const val NO_FRIENDS = "No friends yet. People you invite, and the person who invited you, show up here."
     const val OWN_TITLE = "Your emojis"
     const val OWN_HINT =
