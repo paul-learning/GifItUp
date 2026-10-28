@@ -231,6 +231,44 @@ class NewChatStateTest {
         }
 
     @Test
+    fun aCreateThatFinishesWhileTheScreenIsAwayIsNotLostNorRepeated() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            chat.beforeCreate = { gate.await() }
+            val holder = opened()
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            holder.leave()
+            gate.complete(Unit)
+            advanceUntilIdle()
+            holder.open()
+            advanceUntilIdle()
+            val state = holder.state.value
+            assertNotNull(state.created, "the finished group is still shown")
+            assertFalse(state.canCreate, "so the same friends can't make a second one")
+            assertEquals(listOf("bob"), chat.created)
+        }
+
+    @Test
+    fun anUnreadableFriendsListDuringACreateKeepsTheSpinner() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            chat.beforeCreate = { gate.await() }
+            val holder = opened()
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            friends = null
+            holder.open()
+            advanceUntilIdle()
+            assertTrue(holder.state.value.creating)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertNotNull(holder.state.value.created)
+        }
+
+    @Test
     fun selectionRulesAndNobodyChosen() =
         runTest {
             friends = (1..12).map { "friend$it" }
