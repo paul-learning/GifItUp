@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
 class SendGif(
     private val chat: GroupChat,
     private val store: MessageStore,
+    private val nowEpochSeconds: () -> Long,
 ) {
     /** Sends and resumes of this use case run one at a time, so "the unsettled message" is not a moving target. */
     private val mutex = Mutex()
@@ -53,7 +54,7 @@ class SendGif(
                     sealed = ref
                     // Shown the way a recipient will read it (trimmed caption), from the bytes that are sent.
                     val body = MessageIntake.bodyOf(content) ?: MessageBody.Unavailable
-                    store.insert(ChatMessage(group, ref, null, null, body, DeliveryState.SENDING))
+                    store.insert(ChatMessage(group, ref, null, null, body, DeliveryState.SENDING, nowEpochSeconds()))
                 }
 
                 // The older unsettled message was posted again first; it is the one in flight, so it is the last SENDING.

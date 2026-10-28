@@ -449,6 +449,13 @@ class EndToEndTest {
         )
 
         assertEquals(listOf("joined group $group"), ok(jack, "chat-welcomes"))
+        assertEquals(
+            listOf("group $group active with e2e_jack"),
+            ok(iris, "chat-groups"),
+            "the creator lists the group with the other member",
+        )
+        assertEquals(listOf("group $group active with e2e_iris"), ok(jack, "chat-groups"), "the joiner too")
+        assertEquals(listOf("no groups"), ok(kim, "chat-groups"))
         refused(iris, "chat-send", EXIT_REFUSED, "that can't be done", "--group", group, stdin = "x".repeat(121))
         assertEquals(listOf("sent at seq 2"), ok(iris, "chat-send", "--group", group, stdin = say("hello jack")))
         assertEquals(
@@ -501,6 +508,7 @@ class EndToEndTest {
             "jack's refused commit left nothing pending: he applies the removal and reads the next message",
         )
         refused(kim, "chat-sync", EXIT_REFUSED, "this group is no longer available", "--group", group)
+        assertTrue(ok(kim, "chat-groups").single().startsWith("group $group removed"), "a removed member still lists the group, as removed")
     }
 
     /**

@@ -33,7 +33,7 @@ class InMemoryMessageStore : MessageStore {
         mutex.withLock {
             val log = groups[groupId] ?: return
             val old = log[reference]?.takeIf { it.state != null } ?: return
-            log[reference] = ChatMessage(old.groupId, old.reference, old.sender, seq ?: old.seq, old.body, state)
+            log[reference] = ChatMessage(old.groupId, old.reference, old.sender, seq ?: old.seq, old.body, state, old.at)
         }
     }
 

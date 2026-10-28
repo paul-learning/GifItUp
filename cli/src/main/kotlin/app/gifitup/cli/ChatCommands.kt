@@ -9,6 +9,7 @@ import app.gifitup.shared.domain.messages.InMemoryMessageStore
 import app.gifitup.shared.domain.messages.SendGif
 import java.io.PrintStream
 import java.util.Base64
+import kotlin.time.Clock
 
 /**
  * The group chat commands (ADR-0016, #22), thin over the app's [ChatActions]: argument handling and printing only. For
@@ -25,7 +26,7 @@ internal class ChatCommands(
 ) {
     private val base64 = Base64.getUrlEncoder().withoutPadding()
 
-    private val sendGif = SendGif(chat, InMemoryMessageStore())
+    private val sendGif = SendGif(chat, InMemoryMessageStore()) { Clock.System.now().epochSeconds }
 
     /** Prints each message the engine reads, whichever command it runs in: they are consumed once they are read. */
     private val sink =
@@ -45,6 +46,7 @@ internal class ChatCommands(
             "chat-send" -> send(session, checkNotNull(group))
             "chat-sync" -> outcome(chat.sync(session, checkNotNull(group), sink)) { "synced, ${it.applied} log entries" }
             "chat-resume" -> outcome(chat.resume(session, checkNotNull(group), sink)) { "nothing was pending" }
+            "chat-groups" -> groups(session)
             else -> welcomes(session)
         }
     }
@@ -81,6 +83,23 @@ internal class ChatCommands(
         session: Session,
         group: ByteArray,
     ): Int = outcome(sendGif(session, group, TEST_GIF, readText().ifEmpty { null }, sink)) { sent -> "sent at seq ${sent.seq}" }
+
+    private suspend fun groups(session: Session): Int =
+        when (val result = chat.groups(session, sink)) {
+            is AuthResult.Failed -> {
+                report(result)
+            }
+
+            is AuthResult.Ok -> {
+                if (result.value.groups.isEmpty()) out.println("no groups")
+                result.value.groups.forEach {
+                    out.println(
+                        "group ${base64.encodeToString(it.id.bytes)} ${it.status.name.lowercase()} with ${it.others.joinToString(",")}",
+                    )
+                }
+                EXIT_OK
+            }
+        }
 
     private suspend fun welcomes(session: Session): Int =
         when (val result = chat.welcomes(session, sink)) {

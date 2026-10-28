@@ -83,6 +83,7 @@ data class Invocation(
                 "chat-sync" to (setOf("--group") to NONE),
                 "chat-resume" to (setOf("--group") to NONE),
                 "chat-welcomes" to (NONE to NONE),
+                "chat-groups" to (NONE to NONE),
             )
         private val GLOBAL_OPTIONS = setOf("--server", "--state-dir", "--origin")
         private val VALUE_OPTIONS = GLOBAL_OPTIONS + SPEC.values.flatMap { it.first + it.second }
@@ -192,6 +193,7 @@ data class Invocation(
   chat-send --group <id>               send a test GIF with the line on stdin as its caption (chat-sync shows the caption)
   chat-sync --group <id>               fetch, decrypt and apply the group's log; prints each message with its sender
   chat-resume --group <id>             post a pending message or commit again; chat-welcomes: join pending welcomes
+  chat-groups                          list the groups on this device: id, state and the other members
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
 Only test origins (*.invalid, *.test, localhost) unless --remote-test-account and a cli_ username are given.
 Every command logs in and out again; the server allows 10 logins per device per hour."""

@@ -1,0 +1,321 @@
+package app.gifitup.shared.presentation.chat
+
+import app.gifitup.shared.data.content.GifReference
+import app.gifitup.shared.data.network.ApiEndpoint
+import app.gifitup.shared.data.network.ApiError
+import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.domain.auth.AuthError
+import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.chat.ChatPort
+import app.gifitup.shared.domain.chat.ReadMarks
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.groups.GroupCreation
+import app.gifitup.shared.domain.groups.GroupInfo
+import app.gifitup.shared.domain.groups.GroupList
+import app.gifitup.shared.domain.groups.GroupStatus
+import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.groups.WelcomesReport
+import app.gifitup.shared.domain.messages.ChatMessage
+import app.gifitup.shared.domain.messages.DeliveryState
+import app.gifitup.shared.domain.messages.InMemoryMessageStore
+import app.gifitup.shared.domain.messages.MessageBody
+import app.gifitup.shared.domain.session.SessionHolder
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/** The chat list and the conversation (#25) over a scripted group engine and the real in-memory message store. */
+class ChatStateTest {
+    private val store = InMemoryMessageStore()
+    private val marks = ReadMarks()
+    private val url = "https://static.klipy.com/ii/0123456789abcdef0123456789abcdef/ab/cd/funny_cat-1.webp"
+    private val reference = assertNotNull(GifReference.of("klipy", "funny-cat", url, 320, 240))
+    private var now = 1_000L
+
+    private fun id(n: Int) = KeyBytes(byteArrayOf(n.toByte()))
+
+    private fun group(
+        n: Int,
+        vararg others: String,
+        status: GroupStatus = GroupStatus.ACTIVE,
+    ) = GroupInfo(id(n), status, others.toList())
+
+    @Suppress("LongParameterList") // A builder of test messages.
+    private fun gif(
+        group: Int,
+        ref: Int,
+        sender: String?,
+        at: Long,
+        caption: String? = null,
+        state: DeliveryState? = null,
+    ) = ChatMessage(id(group), id(100 + ref), sender, null, MessageBody.Gif(reference, caption), state, at)
+
+    private inner class FakeChat : ChatPort {
+        var groups = listOf<GroupInfo>()
+        var failWith: AuthError? = null
+        var syncOutcome: SyncOutcome = SyncOutcome.CaughtUp(0)
+        var sendOutcome: SyncOutcome = SyncOutcome.Sent(5)
+        var onSync: suspend (KeyBytes) -> Unit = {}
+        val synced = mutableListOf<KeyBytes>()
+        val sent = mutableListOf<Pair<GifReference, String?>>()
+        var welcomed = 0
+
+        private fun <T> answer(value: T): AuthResult<T> = failWith?.let { AuthResult.Failed(it) } ?: AuthResult.Ok(value)
+
+        override suspend fun groups(session: Session) = answer(GroupList("me", groups))
+
+        override suspend fun welcomes(session: Session): AuthResult<WelcomesReport> {
+            welcomed++
+            return answer(WelcomesReport(emptyList(), null))
+        }
+
+        override suspend fun sync(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> {
+            synced += groupId
+            onSync(groupId)
+            return answer(syncOutcome)
+        }
+
+        override suspend fun create(
+            session: Session,
+            target: String,
+        ): AuthResult<GroupCreation> = answer(GroupCreation(null, SyncOutcome.InvalidRequest))
+
+        override suspend fun add(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
+        ) = answer(SyncOutcome.InvalidRequest as SyncOutcome)
+
+        override suspend fun sendGif(
+            session: Session,
+            groupId: KeyBytes,
+            reference: GifReference,
+            caption: String?,
+        ): AuthResult<SyncOutcome> {
+            sent += reference to caption
+            if (sendOutcome !is SyncOutcome.InvalidRequest) {
+                store.insert(gif(groupId.bytes[0].toInt(), 900 + sent.size, null, now, caption, DeliveryState.SENDING))
+            }
+            return answer(sendOutcome)
+        }
+
+        override suspend fun resume(
+            session: Session,
+            groupId: KeyBytes,
+        ) = answer(sendOutcome)
+    }
+
+    private val chat = FakeChat()
+    private val session = Session("d", "t", Long.MAX_VALUE, checkNotNull(ApiEndpoint.forOrigin("https://chat.example.test")))
+
+    private fun TestScope.sessions() = SessionHolder({ AuthResult.Ok(session) }, this) { 0L }
+
+    private fun TestScope.list() = ChatListStateHolder(this, sessions(), chat, store, marks)
+
+    private fun TestScope.conversation(info: GroupInfo) = ConversationStateHolder(this, sessions(), chat, store, marks, info) { now }
+
+    @Test
+    fun theListShowsTheNewestActivityFirstWithPreviewAndUnreadCount() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"), group(2, "carol"), group(3, "dave"))
+            store.insert(gif(1, 1, "bob", at = 100, caption = "old"))
+            store.insert(gif(2, 2, "carol", at = 300, caption = "newest"))
+            store.insert(gif(2, 3, "carol", at = 301))
+            store.insert(gif(2, 4, null, at = 302, caption = "mine", state = DeliveryState.SENT))
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            val rows = holder.state.value.conversations
+            assertEquals(listOf(id(2), id(1), id(3)), rows.map { it.id }, "the group without messages is last")
+            val newest = rows[0]
+            assertEquals(2, newest.unread, "two received messages, one sent by us")
+            assertEquals(302L, newest.lastAt)
+            assertEquals(true, assertIs<Preview.Gif>(newest.preview).mine)
+            assertEquals("mine", assertIs<Preview.Gif>(newest.preview).caption)
+            assertIs<Preview.Nothing>(rows[2].preview)
+            assertEquals(listOf("carol"), assertIs<ConversationTitle.Members>(newest.title).names)
+            assertTrue(holder.state.value.loaded)
+            assertFalse(holder.state.value.refreshing)
+        }
+
+    @Test
+    fun aRefreshJoinsNewGroupsAndReadsEveryActiveGroupOnly() =
+        runTest {
+            chat.groups =
+                listOf(
+                    group(1, "bob"),
+                    group(2, "carol", status = GroupStatus.FROZEN_GAP),
+                    group(3, "dave", status = GroupStatus.REMOVED),
+                    group(4, "erin", status = GroupStatus.READ_ONLY_ROLLBACK),
+                )
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(1, chat.welcomed)
+            assertEquals(listOf(id(1)), chat.synced, "stopped, read-only and removed groups are not read")
+            val problems =
+                holder.state.value.conversations
+                    .associate { it.id to it.problem }
+            assertNull(problems[id(1)])
+            assertEquals(ConversationProblem.STOPPED, problems[id(2)])
+            assertEquals(ConversationProblem.GONE, problems[id(3)])
+            assertEquals(ConversationProblem.READ_ONLY, problems[id(4)])
+        }
+
+    @Test
+    fun aGroupNameCountsOnlyInAGroupOfThreeOrMore() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"), group(2, "carol", "dave"))
+            for (g in 1..2) store.insert(ChatMessage(id(g), id(200 + g), "bob", 1, MessageBody.GroupMeta("Weekend"), null, 10))
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            val titles =
+                holder.state.value.conversations
+                    .associate { it.id to it.title }
+            assertIs<ConversationTitle.Members>(titles[id(1)], "a 2-member chat shows the contact's name")
+            assertEquals("Weekend", assertIs<ConversationTitle.Named>(titles[id(2)]).name)
+            assertEquals(
+                "Weekend",
+                assertIs<Preview.Renamed>(
+                    holder.state.value.conversations
+                        .first { it.id == id(1) }
+                        .preview,
+                ).name,
+            )
+        }
+
+    @Test
+    fun aFailedRefreshStillShowsWhatIsKnownAndNamesTheProblem() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            store.insert(gif(1, 1, "bob", at = 5))
+            val holder = list()
+            chat.failWith = AuthError.Api(ApiError.NETWORK)
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.OFFLINE, holder.state.value.problem)
+            chat.failWith = AuthError.Local.NOT_REGISTERED
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.NOT_SIGNED_IN, holder.state.value.problem)
+            chat.failWith = null
+            chat.syncOutcome = SyncOutcome.Retry(3)
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.FAILED, holder.state.value.problem, "a message that could not be read")
+            assertEquals(1, holder.state.value.conversations.size)
+            chat.syncOutcome = SyncOutcome.CaughtUp(1)
+            holder.refresh()
+            advanceUntilIdle()
+            assertNull(holder.state.value.problem)
+        }
+
+    @Test
+    fun oneRefreshRunsAtATimeAndLeavingDropsTheState() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            val holder = list()
+            holder.refresh()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(1, chat.synced.size, "the second call while one was running did nothing")
+            holder.leave()
+            assertEquals(ChatListState(), holder.state.value)
+        }
+
+    @Test
+    fun openingAConversationShowsTheStoredMessagesAtOnceReadsTheLogAndMarksItRead() =
+        runTest {
+            val info = group(1, "bob")
+            store.insert(gif(1, 1, "bob", at = 100))
+            chat.onSync = { store.insert(gif(1, 2, "bob", at = 2_000, caption = "new")) }
+            val holder = conversation(info)
+            holder.open()
+            advanceUntilIdle()
+            val state = holder.state.value
+            assertEquals(2, state.messages.size)
+            assertEquals("new", assertIs<MessageBody.Gif>(state.messages.last().body).caption)
+            assertTrue(state.loaded)
+            assertNull(state.problem)
+            assertEquals(0, marks.unread(info.id, store.messages(info.id)).let { if (now >= 2_000) it else 0 })
+            now = 3_000
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(0, marks.unread(info.id, store.messages(info.id)), "opened at 3000: everything before is read")
+        }
+
+    @Test
+    fun aStoppedConversationIsNotReadAndCannotSend() =
+        runTest {
+            val holder = conversation(group(1, "bob", status = GroupStatus.FROZEN_GAP))
+            holder.open()
+            advanceUntilIdle()
+            assertTrue(chat.synced.isEmpty())
+            assertEquals(ConversationProblem.STOPPED, holder.state.value.conversationProblem)
+            assertFalse(holder.state.value.canSend)
+        }
+
+    @Test
+    fun aSentGifAppearsAndTheOutcomeDecidesWhatIsSaid() =
+        runTest {
+            val holder = conversation(group(1, "bob"))
+            holder.send(reference, "hi")
+            advanceUntilIdle()
+            assertEquals(listOf<Pair<GifReference, String?>>(reference to "hi"), chat.sent)
+            assertEquals(1, holder.state.value.messages.size)
+            assertNull(holder.state.value.sendProblem)
+            assertFalse(holder.state.value.sending)
+            val cases =
+                mapOf(
+                    SyncOutcome.InvalidRequest to SendProblem.CAPTION,
+                    SyncOutcome.PendingFirst(SyncOutcome.InFlight(ApiError.NETWORK)) to SendProblem.EARLIER_FIRST,
+                    SyncOutcome.Busy to SendProblem.SYNC_FIRST,
+                    SyncOutcome.CommitPending to SendProblem.SYNC_FIRST,
+                    SyncOutcome.NotJoined to SendProblem.STOPPED,
+                    SyncOutcome.Unavailable(ApiError.NETWORK) to SendProblem.OFFLINE,
+                    SyncOutcome.Rejected(ApiError.BAD_REQUEST) to SendProblem.REFUSED,
+                    SyncOutcome.StorageFailed to SendProblem.FAILED,
+                )
+            for ((outcome, problem) in cases) {
+                chat.sendOutcome = outcome
+                holder.send(reference, null)
+                advanceUntilIdle()
+                assertEquals(problem, holder.state.value.sendProblem, outcome.toString())
+            }
+            chat.sendOutcome = SyncOutcome.InFlight(ApiError.NETWORK)
+            holder.send(reference, null)
+            advanceUntilIdle()
+            assertNull(holder.state.value.sendProblem, "an unknown answer is shown by the message's own state")
+            assertTrue(holder.state.value.hasUnsettled)
+        }
+
+    @Test
+    fun sendingFailsClosedWhenSignedOutAndResendUsesTheSameSeam() =
+        runTest {
+            val holder = conversation(group(1, "bob"))
+            chat.failWith = AuthError.Api(ApiError.NETWORK)
+            holder.send(reference, null)
+            advanceUntilIdle()
+            assertEquals(SendProblem.OFFLINE, holder.state.value.sendProblem)
+            chat.failWith = AuthError.Local.CRYPTO
+            holder.send(reference, null)
+            advanceUntilIdle()
+            assertEquals(SendProblem.FAILED, holder.state.value.sendProblem)
+            chat.failWith = null
+            chat.sendOutcome = SyncOutcome.Sent(9)
+            holder.resend()
+            advanceUntilIdle()
+            assertNull(holder.state.value.sendProblem)
+        }
+}
