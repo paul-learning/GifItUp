@@ -10,9 +10,13 @@ import app.gifitup.shared.domain.media.MediaFetcher
 import app.gifitup.shared.domain.media.MediaPolicy
 import app.gifitup.shared.domain.media.UnavailableReason
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -117,6 +121,33 @@ class GifTilesTest {
             advanceUntilIdle()
             holder.hide(key)
             assertTrue(holder.tiles.value.isEmpty())
+        }
+
+    @Test
+    fun anAnswerThatCannotBeCancelledStillDoesNotComeBackToABubbleThatLeft() =
+        runTest {
+            val gate = CompletableDeferred<FetchResult>()
+            answer = { withContext(NonCancellable) { gate.await() } }
+            val holder = tiles()
+            holder.show(key, reference)
+            advanceUntilIdle()
+            holder.hide(key)
+            gate.complete(FetchResult.Bytes(gif))
+            advanceUntilIdle()
+            assertTrue(holder.tiles.value.isEmpty())
+        }
+
+    @Test
+    fun aDispatcherThatRunsTheLoadAtOnceStillDeliversIt() =
+        runTest {
+            val holder =
+                GifTilesStateHolder(
+                    CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                    MediaPolicy(null) { CivilDate(2026, 10, 28) },
+                    LoadGifMedia(fetcher),
+                )
+            holder.show(key, reference)
+            assertIs<GifTile.Ready>(holder.tiles.value[key])
         }
 
     @Test

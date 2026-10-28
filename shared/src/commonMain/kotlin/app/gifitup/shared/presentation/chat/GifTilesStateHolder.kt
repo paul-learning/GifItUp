@@ -9,10 +9,12 @@ import app.gifitup.shared.domain.media.MediaLoad
 import app.gifitup.shared.domain.media.MediaPolicy
 import app.gifitup.shared.domain.media.UnavailableReason
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -40,7 +42,7 @@ sealed interface GifTile {
  * The media of the GIF bubbles on screen (#25, ADR-0003): a bubble that appears asks to be [show]n, one that leaves
  * [hide]s, so only what is on screen holds bytes. On a device whose codecs [MediaPolicy] distrusts nothing is fetched
  * until the user taps. At most [parallel] downloads run at once. An answer for a bubble that has left, or for an
- * older visit, is dropped.
+ * older visit, is dropped. Like the other holders it is driven from one thread (the UI's main scope).
  */
 class GifTilesStateHolder(
     private val scope: CoroutineScope,
@@ -77,7 +79,7 @@ class GifTilesStateHolder(
     /** The bubble left the screen: its download stops and its bytes are dropped. */
     fun hide(key: KeyBytes) {
         jobs.remove(key)?.cancel()
-        flow.value -= key
+        flow.update { it - key }
     }
 
     fun leave() {
@@ -92,24 +94,25 @@ class GifTilesStateHolder(
     ) {
         jobs.remove(key)?.cancel()
         set(key, GifTile.Loading)
-        lateinit var job: Job
-        job =
-            scope.launch {
+        // Lazy, so the job is registered before it can run, even on a dispatcher that runs it at once.
+        val job =
+            scope.launch(start = CoroutineStart.LAZY) {
                 val loaded = slots.withPermit { load(reference) }
                 // Only the job that is still the bubble's own may answer.
-                if (jobs[key] === job) {
+                if (jobs[key] === coroutineContext[Job]) {
                     jobs.remove(key)
                     set(key, loaded.toTile())
                 }
             }
         jobs[key] = job
+        job.start()
     }
 
     private fun set(
         key: KeyBytes,
         tile: GifTile,
     ) {
-        flow.value += (key to tile)
+        flow.update { it + (key to tile) }
     }
 
     private companion object {
