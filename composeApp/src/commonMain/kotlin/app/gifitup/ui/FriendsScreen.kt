@@ -1,10 +1,12 @@
 package app.gifitup.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,31 +52,55 @@ internal fun FriendsScreen(
     onBack: () -> Unit,
 ) {
     val state by holder.state.collectAsState()
+    var showOwn by remember { mutableStateOf(false) }
     LaunchedEffect(holder) { holder.open() }
     DisposableEffect(holder) { onDispose { holder.leave() } }
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Friends", style = MaterialTheme.typography.titleMedium)
+        AppTopBar(FriendTexts.TITLE, onBack, modifier = Modifier.padding(bottom = 4.dp))
         if (state.busy) CircularProgressIndicator()
-        state.problem?.let { Text(FriendTexts.problem(it), color = MaterialTheme.colorScheme.error) }
-        state.own?.let { own ->
-            Text(FriendTexts.OWN_TITLE, style = MaterialTheme.typography.titleSmall)
-            Text(FriendTexts.OWN_HINT)
-            EmojiBlock(own, glyphs)
-        }
-        if (state.loaded &&
-            state.friends.isEmpty()
-        ) {
-            Text("No friends yet. People you invite, and the person who invited you, show up here.")
-        }
+        state.problem?.let { Text(FriendTexts.problem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
+        // The user's own emojis are one tap away, behind the info button: they are for reading out on a call.
+        state.own?.let { OwnEmojisCard(onShow = { showOwn = true }) }
+        if (state.loaded && state.friends.isEmpty()) Text(FriendTexts.NO_FRIENDS, color = MaterialTheme.colorScheme.onSurfaceVariant)
         state.friends.forEach { friend -> Friend(friend, glyphs, canReview = !state.busy, onReview = { holder.review(friend.ref) }) }
-        TextButton(onClick = onBack) { Text("Back") }
+    }
+    state.own?.takeIf { showOwn }?.let { own ->
+        AlertDialog(
+            onDismissRequest = { showOwn = false },
+            title = { Text(FriendTexts.OWN_TITLE) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(FriendTexts.OWN_HINT)
+                    EmojiBlock(own, glyphs)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showOwn = false }) { Text(FriendTexts.CLOSE) } },
+        )
     }
     state.review?.let { Review(it, glyphs, state.busy, holder) }
 }
 
+@Composable
+private fun OwnEmojisCard(onShow: () -> Unit) {
+    CardSurface {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(FriendTexts.CARD_TITLE, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    FriendTexts.CARD_SUBTITLE,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconTile(FriendTexts.SHOW_OWN, onShow) { InfoIcon(MaterialTheme.colorScheme.secondary) }
+        }
+    }
+}
+
+/** One friend: avatar, name and one line of status; a tap shows the saved emojis to compare, a changed key asks for a review. */
 @Composable
 private fun Friend(
     friend: FriendView,
@@ -80,12 +108,49 @@ private fun Friend(
     canReview: Boolean,
     onReview: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(friend.username, style = MaterialTheme.typography.titleSmall)
-        Text(FriendTexts.status(friend.status))
-        friend.reason?.let { Text(FriendTexts.reviewTitle(it), color = MaterialTheme.colorScheme.error) }
-        friend.devices.forEach { EmojiBlock(it, glyphs) }
-        if (friend.status == FriendStatus.CHANGED) Button(onClick = onReview, enabled = canReview) { Text("Review") }
+    var expanded by remember(friend.ref) { mutableStateOf(false) }
+    val changed = friend.status == FriendStatus.CHANGED
+    val colors = MaterialTheme.colorScheme
+    val statusColor =
+        when (friend.status) {
+            FriendStatus.CHANGED -> colors.tertiary
+            FriendStatus.SAVED -> colors.secondary
+            else -> colors.onSurfaceVariant
+        }
+    CardSurface(outline = if (changed) colors.tertiary else null) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClickLabel = if (expanded) FriendTexts.HIDE_DETAILS else FriendTexts.SHOW_DETAILS, role = Role.Button) {
+                    expanded = !expanded
+                },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Avatar(friend.username)
+            Column {
+                Text(friend.username, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    FriendTexts.headline(friend.status, friend.reason),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = statusColor,
+                    fontWeight = if (changed) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
+        }
+        if (changed) {
+            Button(
+                onClick = onReview,
+                enabled = canReview,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            ) { Text(FriendTexts.REVIEW, fontWeight = FontWeight.Bold) }
+        }
+        if (expanded) {
+            Text(FriendTexts.status(friend.status), style = MaterialTheme.typography.bodyMedium)
+            friend.reason?.let { Text(FriendTexts.reviewTitle(it), color = colors.tertiary) }
+            friend.devices.forEach { EmojiBlock(it, glyphs) }
+        }
     }
 }
 
