@@ -13,6 +13,8 @@ import kotlin.time.Instant
 
 /** Fixed texts for closed codes: the UI never shows server text or an exception message (ADR-0006 A8). */
 internal object Texts {
+    const val TAGLINE = "Send a GIF. That's all, on purpose."
+
     fun invite(problem: InviteProblem): String =
         when (problem) {
             InviteProblem.NOT_AN_INVITE -> "That is not an invite code or an invite link."
