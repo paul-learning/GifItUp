@@ -57,6 +57,8 @@ enum class SendProblem {
 
 data class ConversationState(
     val title: ConversationTitle,
+    /** The usernames of the other members (empty for a group this device is out of). */
+    val members: List<String> = emptyList(),
     val loaded: Boolean = false,
     val refreshing: Boolean = false,
     val messages: List<MessageView> = emptyList(),
@@ -91,7 +93,9 @@ class ConversationStateHolder(
     val id: KeyBytes get() = group.id
 
     private val flow =
-        MutableStateFlow(ConversationState(ConversationTitle.Members(group.others), conversationProblem = group.status.toProblem()))
+        MutableStateFlow(
+            ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.status.toProblem()),
+        )
     val state: StateFlow<ConversationState> = flow.asStateFlow()
     private var visit = 0
     private var running = false
@@ -153,7 +157,8 @@ class ConversationStateHolder(
         visit++
         running = false
         sendRunning = false
-        flow.value = ConversationState(ConversationTitle.Members(group.others), conversationProblem = group.status.toProblem())
+        flow.value =
+            ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.status.toProblem())
     }
 
     private fun act(block: suspend (Int) -> Unit) {

@@ -158,3 +158,51 @@ internal fun Avatar(
 private val TILE_SIZE = 48.dp
 private val AVATAR_SIZE = 40.dp
 private const val INITIAL_SCALE = 0.4f
+
+/** The first few other members as overlapping avatars, then how many more; decorative, the members are named in the title. */
+@Composable
+internal fun MemberAvatars(names: List<String>) {
+    val shown = names.take(MAX_MEMBER_AVATARS)
+    val more = names.size - shown.size
+    Row(Modifier.clearAndSetSemantics { }, horizontalArrangement = Arrangement.spacedBy(AVATAR_OVERLAP)) {
+        shown.forEach { Avatar(it, MEMBER_AVATAR_SIZE) }
+        if (more > 0) {
+            Box(
+                Modifier.size(MEMBER_AVATAR_SIZE).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Text("+$more", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+/** The round "+" button of the design. [enabled] false draws it dimmed and inert; [label] is what a screen reader says. */
+@Composable
+internal fun PlusButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val fill = if (enabled) colors.primary else colors.primary.copy(alpha = DISABLED_ALPHA)
+    Box(
+        Modifier
+            .size(PLUS_SIZE)
+            .background(fill, CircleShape)
+            .clickable(enabled = enabled, onClickLabel = label, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(PLUS_ICON)) {
+            val width = 3.dp.toPx()
+            drawLine(colors.onPrimary, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), width, StrokeCap.Round)
+            drawLine(colors.onPrimary, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), width, StrokeCap.Round)
+        }
+    }
+}
+
+private val MEMBER_AVATAR_SIZE = 36.dp
+private val AVATAR_OVERLAP = (-10).dp
+private val PLUS_SIZE = 72.dp
+private val PLUS_ICON = 24.dp
+private const val MAX_MEMBER_AVATARS = 3
+private const val DISABLED_ALPHA = 0.4f
