@@ -39,6 +39,10 @@ class InMemoryMessageStore : MessageStore {
 
     override suspend fun messages(groupId: KeyBytes): List<ChatMessage> = mutex.withLock { groups[groupId]?.values?.toList().orEmpty() }
 
+    override suspend fun forget(groupId: KeyBytes) {
+        mutex.withLock { groups.remove(groupId) }
+    }
+
     companion object {
         const val MAX_PER_GROUP = 1000
         const val MAX_GROUPS = 50
