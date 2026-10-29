@@ -1,5 +1,6 @@
 package app.gifitup.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,12 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -23,7 +23,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.presentation.chat.NewChatProblem
 import app.gifitup.shared.presentation.chat.NewChatState
@@ -44,25 +46,26 @@ internal fun NewChatScreen(
         if (state.created != null && state.problem == null) onDone()
     }
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(ChatTexts.NEW_CHAT, style = MaterialTheme.typography.titleLarge)
-        Text(ChatTexts.NEW_CHAT_HINT)
+        AppTopBar(ChatTexts.NEW_CHAT, if (state.created != null) onDone else onBack)
+        Text(ChatTexts.NEW_CHAT_HINT, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!state.loaded) CircularProgressIndicator()
-        if (state.loaded && state.friends.isEmpty() && state.problem != NewChatProblem.FRIENDS_UNAVAILABLE) Text(ChatTexts.NO_FRIENDS)
+        if (state.loaded && state.friends.isEmpty() && state.problem != NewChatProblem.FRIENDS_UNAVAILABLE) {
+            Text(ChatTexts.NO_FRIENDS, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         state.friends.forEach { name ->
             FriendRow(name, name in state.selected, !state.creating && state.created == null) { holder.toggle(name) }
         }
         Notices(state)
         if (state.creating) CircularProgressIndicator()
-        Button(onClick = holder::create, enabled = state.canCreate) { Text(ChatTexts.START_CHAT) }
-        TextButton(onClick = if (state.created != null) onDone else onBack, enabled = !state.creating) {
-            Text(if (state.created != null) "Done" else ChatTexts.BACK)
-        }
+        PrimaryButton(ChatTexts.START_CHAT, onClick = holder::create, enabled = state.canCreate)
+        if (state.created != null) SecondaryButton("Done", onClick = onDone, enabled = !state.creating)
     }
 }
 
+/** A friend as a card with a checkbox: a tap on the card toggles it; selected ones have an accent outline. */
 @Composable
 private fun FriendRow(
     name: String,
@@ -70,23 +73,38 @@ private fun FriendRow(
     enabled: Boolean,
     onToggle: () -> Unit,
 ) {
-    Row(
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        color = colors.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
+        border = if (checked) BorderStroke(2.dp, colors.secondary) else null,
         modifier =
             Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = 48.dp)
+                .clip(MaterialTheme.shapes.large)
                 .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) { onToggle() },
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Checkbox(checked = checked, onCheckedChange = null)
-        Text(ChatTexts.isolated(name), modifier = Modifier.padding(start = 12.dp))
+        Row(
+            modifier = Modifier.defaultMinSize(minHeight = 64.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Avatar(name)
+            Text(
+                ChatTexts.isolated(name),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            Checkbox(checked = checked, onCheckedChange = null)
+        }
     }
 }
 
 /** What went wrong or only partly worked, in words. */
 @Composable
 private fun Notices(state: NewChatState) {
-    state.problem?.let { Text(ChatTexts.newChatProblem(it), color = MaterialTheme.colorScheme.error) }
+    state.problem?.let { Text(ChatTexts.newChatProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
     if (state.notAdded.isNotEmpty()) Text("Not added: " + state.notAdded.joinToString(", ") { ChatTexts.isolated(it) })
     if (state.created != null && state.problem != null) Text(ChatTexts.CREATED)
 }

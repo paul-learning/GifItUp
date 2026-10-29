@@ -3,12 +3,13 @@ package app.gifitup.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,14 +34,22 @@ internal fun SettingsScreen(
     var text by remember { mutableStateOf(currentOrigin) }
     val problem by holder.problem.collectAsState()
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Server", style = MaterialTheme.typography.titleMedium)
-        Text("Only change this if the person who runs your server told you to. Default: $defaultOrigin")
-        OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("https://…") }, singleLine = true)
-        problem?.let { Text(Texts.settings(it), color = MaterialTheme.colorScheme.error) }
-        Button(onClick = { holder.apply(text) }) { Text("Use this server") }
-        TextButton(onClick = onBack) { Text("Back") }
+        AppTopBar("Server", onBack, modifier = Modifier.padding(bottom = 4.dp))
+        CardSurface {
+            Text("Only change this if the person who runs your server told you to. Default: $defaultOrigin")
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("https://…") },
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            problem?.let { Text(Texts.settings(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
+            PrimaryButton("Use this server", onClick = { holder.apply(text) })
+        }
     }
 }
