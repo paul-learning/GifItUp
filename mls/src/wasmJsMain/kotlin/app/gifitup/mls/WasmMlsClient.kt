@@ -63,8 +63,9 @@ private object WasmMlsClientFactory : MlsClientFactory {
 }
 
 /**
- * Hands [create] a JS copy of a secret key (the snapshot key or the history key); the key's JS copy and our copy are both zeroed afterwards (Rust keeps its
- * own). [guarded] always returns, even after a trap, so the `finally` here runs (tested with a real trap).
+ * Hands [create] a JS copy of a secret key (the snapshot key or the history key); the key's JS copy and our copy are
+ * both zeroed afterwards (Rust keeps its own). [guarded] always returns, even after a trap, so the `finally` here runs
+ * (tested with a real trap).
  */
 internal fun <T> withKeyCopy(
     snapshotKey: ByteArray,
