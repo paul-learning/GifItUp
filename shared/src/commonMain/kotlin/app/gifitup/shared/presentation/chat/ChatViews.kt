@@ -28,6 +28,14 @@ val ConversationTitle.isGroup: Boolean
             is ConversationTitle.Members -> names.size >= 2
         }
 
+/** The name whose first letter an avatar shows: the group's name, else the first other member (empty if there is none). */
+val ConversationTitle.avatarName: String
+    get() =
+        when (this) {
+            is ConversationTitle.Named -> name
+            is ConversationTitle.Members -> names.firstOrNull().orEmpty()
+        }
+
 /** A stable text key for a list row or message: the identity's bytes in hex. */
 fun KeyBytes.listKey(): String = bytes.joinToString("") { it.toUByte().toString(HEX_RADIX).padStart(2, '0') }
 
