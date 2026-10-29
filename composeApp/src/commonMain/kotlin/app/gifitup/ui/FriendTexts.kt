@@ -40,7 +40,7 @@ internal object FriendTexts {
         reason: TrustConflict?,
     ): String =
         when (status) {
-            FriendStatus.SAVED -> "Key saved"
+            FriendStatus.SAVED -> "Tap to compare"
             FriendStatus.NOT_SAVED -> "Not saved yet"
             FriendStatus.CHANGED -> (reason?.let(::reviewTitle) ?: "Something changed") + ". Needs your review."
             FriendStatus.GONE -> "Not in your list any more"
