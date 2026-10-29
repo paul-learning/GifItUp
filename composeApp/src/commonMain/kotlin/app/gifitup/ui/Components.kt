@@ -131,9 +131,7 @@ internal fun PeopleIcon(color: Color) {
                 sweepAngle = 180f,
                 useCenter = false,
                 topLeft = Offset(size.width * (x - 0.2f), size.height * 0.6f),
-                size =
-                    androidx.compose.ui.geometry
-                        .Size(size.width * 0.4f, size.height * 0.5f),
+                size = Size(size.width * 0.4f, size.height * 0.5f),
                 style = Stroke(width, cap = StrokeCap.Round),
             )
         }
