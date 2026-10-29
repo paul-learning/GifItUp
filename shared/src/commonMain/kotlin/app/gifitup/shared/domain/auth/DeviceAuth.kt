@@ -4,10 +4,12 @@ import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.data.storage.HistoryKeyStore
 import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.LocalStore
 import app.gifitup.shared.data.storage.RecordContactStore
 import app.gifitup.shared.data.storage.RecordIdentityStore
+import app.gifitup.shared.data.storage.RecordStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredRestoreCounter
 import app.gifitup.shared.domain.chat.FriendNames
@@ -30,18 +32,32 @@ import kotlin.time.Clock
  * (#108 SEC-22).
  *
  * [keyStoreFor] builds the wrapped-key store for a canonical origin over [store] and the given identity store; it is
- * the platform's `EnvelopeSnapshotKeyStore` (`:mls`), since `:shared` never sees a wrapping key.
+ * the platform's `EnvelopeSnapshotKeyStore` (`:mls`), since `:shared` never sees a wrapping key. [historyKeyStoreFor] is the
+ * same for the history key (`EnvelopeHistoryKeyStore`, ADR-0017).
  */
 class DeviceStorage(
     val store: LocalStore,
     val data: DeviceData,
     private val keyStoreFor: (origin: String, identities: IdentityStore) -> SnapshotKeyStore,
+    private val historyKeyStoreFor: (origin: String) -> HistoryKeyStore,
 ) {
     val identities: IdentityStore = RecordIdentityStore(store)
     val restores = StoredRestoreCounter(store)
     internal val lock = DeviceLock()
 
     fun snapshotKeys(origin: String): SnapshotKeyStore = keyStoreFor(origin, identities)
+
+    fun historyKeys(origin: String): HistoryKeyStore = historyKeyStoreFor(origin)
+
+    /**
+     * The history key of the registered identity of [origin] (the canonical, configured one), made once if neither a key
+     * nor any history exists; see [OpenHistoryKey]. The caller zeroes the array after use.
+     */
+    suspend fun openHistoryKey(
+        origin: String,
+        records: RecordStore,
+        random: SecureRandomSource,
+    ): ByteArray = OpenHistoryKey(historyKeys(origin), identities, origin, records, random, lock)()
 
     /** The server origin setting over this storage and its lock (ADR-0013); [default] is the build's origin. */
     fun originSetting(default: String): ServerOriginSetting = ServerOriginSetting(store, identities, lock, default)

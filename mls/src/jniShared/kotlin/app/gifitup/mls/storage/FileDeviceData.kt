@@ -29,7 +29,10 @@ internal fun fileDeviceStorage(
     keys: WrappingKeySupplier,
 ): DeviceStorage {
     val aead = JcaWrappingAead(keys)
-    return DeviceStorage(store, FileDeviceData(store, aead)) { origin, identities ->
-        EnvelopeSnapshotKeyStore(aead, store, identities, origin)
-    }
+    return DeviceStorage(
+        store,
+        FileDeviceData(store, aead),
+        { origin, identities -> EnvelopeSnapshotKeyStore(aead, store, identities, origin) },
+        { origin -> EnvelopeHistoryKeyStore(aead, store, origin) },
+    )
 }

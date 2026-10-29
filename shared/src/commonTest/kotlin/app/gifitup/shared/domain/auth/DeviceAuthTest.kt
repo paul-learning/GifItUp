@@ -40,7 +40,7 @@ class DeviceAuthTest {
                 wiped += "records"
             }
         }
-    private val storage = DeviceStorage(store, data) { _, _ -> InMemoryKeyStore() }
+    private val storage = DeviceStorage(store, data, { _, _ -> InMemoryKeyStore() }, { InMemoryHistoryKeyStore() })
 
     private fun auth() = DeviceAuth(storage, server.api(), FakeMlsClient.Factory, CountingRandom())
 
