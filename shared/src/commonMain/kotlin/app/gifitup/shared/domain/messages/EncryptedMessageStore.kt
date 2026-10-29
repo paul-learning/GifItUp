@@ -43,14 +43,17 @@ class HistoryStoreException(
  * asked for, and kept decrypted in memory from then on.
  *
  * - `insert` is idempotent per (group, reference), first one seen wins, and writes the record **before** the message
- *   becomes visible. A store failure throws [HistoryStoreException] and nothing is half done: the caller must not treat
- *   the message as stored (the sync engine reprocesses it, ADR-0017).
+ *   becomes visible. It returns `false` both for a message already stored and for a new group over the limit. A store
+ *   failure throws [HistoryStoreException] and nothing is half done: the caller must not treat the message as stored (the
+ *   sync engine reprocesses it, ADR-0017).
  * - A message the cipher refuses to seal because the record would be too big is kept as [MessageBody.Unavailable]
  *   (ADR-0017: content over the codec's cap is `Unavailable` before it gets here, so this is a defect check); it never
  *   becomes a storage failure that blocks the group.
  * - Retention is per group (the oldest of that group goes), and a new group over [HistoryLimits.maxGroups] gets no
  *   records; nothing ever evicts another group's history. A delete that fails leaves the record for the next insert to
  *   remove: a crash leaves more, never fewer.
+ * - A record store that can't be **read** while a group loads is a [HistoryStoreException] for that group (nothing is cached
+ *   half loaded; the next call tries again): receive is reprocessed by the sync engine, not skipped.
  * - A record that doesn't open or read is **counted** ([unreadable]), never shown, never deleted, never logged.
  */
 class EncryptedMessageStore(
@@ -76,12 +79,18 @@ class EncryptedMessageStore(
             guarded {
                 val log = logFor(message.groupId, create = true) ?: return@guarded false
                 if (log.items.any { it.message.reference == message.reference }) return@guarded false
-                val stored = StoredMessage(message, log.nextArrival)
-                history.write(log.folder, stored)
+                // What was written is what is shown, also when the record had to be stored as unavailable (SEC-21).
+                val stored = history.write(log.folder, StoredMessage(message, log.nextArrival))
                 log.nextArrival++
                 log.items += stored
                 known().add(log.folder)
-                history.evict(log.folder, log.items, limits.maxPerGroup)
+                groups[message.groupId] = log
+                // The message is durable and visible now: a failure while tidying up must not make the insert fail.
+                try {
+                    history.evict(log.folder, log.items, limits.maxPerGroup)
+                } catch (_: MlsException) {
+                    // The next insert evicts again.
+                }
                 true
             }
         }
@@ -99,8 +108,7 @@ class EncryptedMessageStore(
                 val old = log.items.getOrNull(index)?.takeIf { it.message.state != null } ?: return@guarded
                 val m = old.message
                 val updated = StoredMessage(ChatMessage(m.groupId, m.reference, m.sender, seq ?: m.seq, m.body, state, m.at), old.arrival)
-                history.write(log.folder, updated)
-                log.items[index] = updated
+                log.items[index] = history.write(log.folder, updated)
             }
         }
     }
@@ -140,8 +148,15 @@ class EncryptedMessageStore(
         groups[groupId]?.let { return it }
         val folder = hex(cipher.groupName(groupId.bytes))
         val exists = folder in known()
-        val allowed = exists || (create && known().size < limits.maxGroups)
-        return if (allowed) load(groupId, folder).also { groups[groupId] = it } else null
+        return when {
+            exists -> load(groupId, folder).also { groups[groupId] = it }
+
+            // A group with no record yet is not remembered until its first record is durable: a failed first write must
+            // not let a group past the limit later (SEC-19).
+            create && known().size < limits.maxGroups -> GroupLog(folder, mutableListOf(), 0, 0L)
+
+            else -> null
+        }
     }
 
     private suspend fun known(): MutableSet<String> = folders ?: records.folders().toMutableSet().also { folders = it }
@@ -167,6 +182,9 @@ class EncryptedMessageStore(
         } catch (_: RecordStoreException) {
             throw HistoryStoreException(HistoryStoreException.Kind.STORAGE)
         } catch (_: MlsException) {
+            throw HistoryStoreException(HistoryStoreException.Kind.CIPHER)
+        } catch (_: IllegalStateException) {
+            // A message the codec can't encode (a reference of the wrong size): a defect, closed like the cipher's.
             throw HistoryStoreException(HistoryStoreException.Kind.CIPHER)
         }
 }

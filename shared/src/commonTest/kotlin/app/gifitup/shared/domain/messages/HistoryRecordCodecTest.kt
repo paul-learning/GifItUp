@@ -81,4 +81,26 @@ class HistoryRecordCodecTest {
         val unknownTag = bytes.copyOf().also { it[it.size - 1 - "name".length - 4] = 9 }
         assertNull(HistoryRecordCodec.decode(unknownTag))
     }
+
+    @Test
+    fun strictFieldsAreRefused() {
+        val stored = message(MessageBody.Unavailable)
+        val bytes = HistoryRecordCodec.encode(stored)
+        // version(1) group(4+16) reference(32) arrival(8) sender flag(1) sender(4+3) seq flag(1)
+        val seqFlag = 1 + 4 + 16 + 32 + 8 + 1 + 4 + 3
+        assertNull(HistoryRecordCodec.decode(bytes.copyOf().also { it[seqFlag] = 2 }), "a seq flag is 0 or 1")
+        val negativeArrival = bytes.copyOf().also { it[1 + 4 + 16 + 32] = 0x80.toByte() }
+        assertNull(HistoryRecordCodec.decode(negativeArrival), "an arrival number is not negative")
+        val stateByte = seqFlag + 1 + 8
+        assertNull(HistoryRecordCodec.decode(bytes.copyOf().also { it[stateByte] = 9 }), "no such delivery state")
+    }
+
+    @Test
+    fun theStateIsStoredAsFixedCodesNotAsEnumOrdinals() {
+        val own = HistoryRecordCodec.encode(message(MessageBody.Unavailable, sender = null, state = DeliveryState.FAILED))
+        val stateByte = 1 + 4 + 16 + 32 + 8 + 1 + 1 + 8
+        assertEquals(3, own[stateByte].toInt())
+        val sent = HistoryRecordCodec.encode(message(MessageBody.Unavailable, sender = null, state = DeliveryState.SENT))
+        assertEquals(2, sent[stateByte].toInt())
+    }
 }
