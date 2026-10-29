@@ -79,7 +79,7 @@ class EncryptedMessageStore(
         val items: MutableList<StoredMessage>,
         var unreadable: Int,
         var nextArrival: Long,
-        /** The names of every record in the folder, readable or not: an unreadable record is never overwritten. */
+        /** Every message record's name (not the read mark's), readable or not: an unreadable record is never overwritten. */
         val names: MutableSet<String> = mutableSetOf(),
     )
 
