@@ -4,6 +4,7 @@ import app.gifitup.shared.data.content.GifReference
 import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -64,12 +65,17 @@ class HistoryRecordCodecTest {
 
     @Test
     fun aSenderWithoutAStateOrAStateWithoutASenderDoesNotRead() {
-        assertNull(HistoryRecordCodec.decode(HistoryRecordCodec.encode(message(MessageBody.Unavailable, sender = null, state = null))))
-        assertNull(
-            HistoryRecordCodec.decode(
-                HistoryRecordCodec.encode(message(MessageBody.Unavailable, sender = "bob", state = DeliveryState.SENT)),
-            ),
-        )
+        // Such a message is refused when it is encoded; a stored one with the state byte changed is refused when read.
+        val received = HistoryRecordCodec.encode(message(MessageBody.Unavailable))
+        val receivedState = 1 + 4 + 16 + 32 + 8 + 1 + 4 + 3 + 1 + 8
+        assertNull(HistoryRecordCodec.decode(received.copyOf().also { it[receivedState] = 2 }), "a received message has no state")
+        val own = HistoryRecordCodec.encode(message(MessageBody.Unavailable, sender = null, state = DeliveryState.FAILED))
+        val ownState = 1 + 4 + 16 + 32 + 8 + 1 + 1 + 8
+        assertNull(HistoryRecordCodec.decode(own.copyOf().also { it[ownState] = 0 }), "one of ours has a state")
+        assertFailsWith<IllegalStateException> {
+            HistoryRecordCodec.encode(message(MessageBody.Unavailable, sender = "bob", state = DeliveryState.SENT))
+        }
+        assertFailsWith<IllegalStateException> { HistoryRecordCodec.encode(message(MessageBody.Unavailable, sender = null, state = null)) }
     }
 
     @Test

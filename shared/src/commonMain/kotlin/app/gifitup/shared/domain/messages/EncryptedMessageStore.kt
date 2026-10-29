@@ -43,7 +43,8 @@ class HistoryStoreException(
  * asked for, and kept decrypted in memory from then on.
  *
  * - `insert` is idempotent per (group, reference), first one seen wins, and writes the record **before** the message
- *   becomes visible. It returns `false` both for a message already stored and for a new group over the limit. A store
+ *   becomes visible. It returns `false` for a message already stored (also one whose record can't be read: a record is
+ *   never overwritten) and for a new group over the limit. A store
  *   failure throws [HistoryStoreException] and nothing is half done: the caller must not treat the message as stored (the
  *   sync engine reprocesses it, ADR-0017).
  * - A message the cipher refuses to seal because the record would be too big is kept as [MessageBody.Unavailable]
@@ -72,22 +73,26 @@ class EncryptedMessageStore(
         val items: MutableList<StoredMessage>,
         var unreadable: Int,
         var nextArrival: Long,
+        /** The names of every record in the folder, readable or not: an unreadable record is never overwritten. */
+        val names: MutableSet<String> = mutableSetOf(),
     )
 
     override suspend fun insert(message: ChatMessage): Boolean =
         mutex.withLock {
             guarded {
                 val log = logFor(message.groupId, create = true) ?: return@guarded false
-                if (log.items.any { it.message.reference == message.reference }) return@guarded false
+                val name = hex(cipher.messageName(message.groupId.bytes, message.reference.bytes))
+                if (name in log.names || log.items.any { it.message.reference == message.reference }) return@guarded false
                 // What was written is what is shown, also when the record had to be stored as unavailable (SEC-21).
                 val stored = history.write(log.folder, StoredMessage(message, log.nextArrival))
                 log.nextArrival++
+                log.names += name
                 log.items += stored
                 known().add(log.folder)
                 groups[message.groupId] = log
                 // The message is durable and visible now: a failure while tidying up must not make the insert fail.
                 try {
-                    history.evict(log.folder, log.items, limits.maxPerGroup)
+                    history.evict(log.folder, log.items, log.names, limits.maxPerGroup)
                 } catch (_: MlsException) {
                     // The next insert evicts again.
                 }
@@ -166,13 +171,14 @@ class EncryptedMessageStore(
         folder: String,
     ): GroupLog {
         val items = mutableListOf<StoredMessage>()
+        val names = records.list(folder)
         var unreadable = 0
-        for (name in records.list(folder)) {
+        for (name in names) {
             val stored = history.read(groupId, folder, name)
             if (stored == null) unreadable++ else items += stored
         }
         items.sortWith(compareBy<StoredMessage> { it.arrival }.thenBy { hex(it.message.reference.bytes) })
-        return GroupLog(folder, items, unreadable, (items.maxOfOrNull { it.arrival } ?: -1L) + 1)
+        return GroupLog(folder, items, unreadable, (items.maxOfOrNull { it.arrival } ?: -1L) + 1, names.toMutableSet())
     }
 
     /** Store and cipher failures leave as [HistoryStoreException]; nothing else about them escapes. */
