@@ -15,14 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +41,7 @@ import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ConversationSummary
-import app.gifitup.shared.presentation.chat.ConversationTitle
+import app.gifitup.shared.presentation.chat.avatarName
 import app.gifitup.shared.presentation.chat.listKey
 import kotlinx.coroutines.delay
 import kotlin.time.Clock
@@ -140,7 +137,7 @@ private fun ConversationRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // On the highlighted row the usual avatar color is the row's own color; the plain surface stands out.
-            Avatar(avatarName(row.title), color = if (isSelected) colors.surface else colors.surfaceContainerHigh)
+            Avatar(row.title.avatarName, color = if (isSelected) colors.surface else colors.surfaceContainerHigh)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     title,
@@ -164,13 +161,6 @@ private fun ConversationRow(
         }
     }
 }
-
-/** The name whose first letter the avatar shows: the group's name, else the first other member. */
-private fun avatarName(title: ConversationTitle): String =
-    when (title) {
-        is ConversationTitle.Named -> title.name
-        is ConversationTitle.Members -> title.names.firstOrNull().orEmpty()
-    }
 
 @Composable
 private fun UnreadBadge(count: String) {

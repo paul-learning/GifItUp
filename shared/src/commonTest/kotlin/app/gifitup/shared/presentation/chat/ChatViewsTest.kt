@@ -17,6 +17,13 @@ class ChatViewsTest {
     }
 
     @Test
+    fun theAvatarShowsTheGroupNameOrTheFirstOtherMember() {
+        assertEquals("Trip", ConversationTitle.Named("Trip").avatarName)
+        assertEquals("bob", ConversationTitle.Members(listOf("bob", "cy")).avatarName)
+        assertEquals("", ConversationTitle.Members(emptyList()).avatarName)
+    }
+
+    @Test
     fun theListKeyIsTheIdentityInHexWithLeadingZeros() {
         assertEquals("000aff10", KeyBytes(byteArrayOf(0, 10, -1, 16)).listKey())
     }
