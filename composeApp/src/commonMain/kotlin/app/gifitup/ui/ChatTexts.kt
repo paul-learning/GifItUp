@@ -14,6 +14,7 @@ import app.gifitup.shared.presentation.chat.Preview
 internal object ChatTexts {
     const val TITLE = "Chats"
     const val NEW_CHAT = "New chat"
+    const val FRIENDS = "Friends"
     const val NO_CHATS = "No chats yet. Start one with a friend."
     const val NO_MESSAGES = "No messages yet"
     const val REFRESHING = "Looking for new messages…"
