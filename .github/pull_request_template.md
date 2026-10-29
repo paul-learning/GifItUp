@@ -3,6 +3,8 @@
 
 Closes #
 
+Tool: <the AI tool that authored this PR, e.g. Claude Code>
+
 ## Risk tier
 <!-- high | normal | low (see AGENTS.md, "Risk tiers"): the highest tier any change hits, plus a one-line reason. -->
 **Tier:**
