@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 // The shared pieces of the visual design (#154): top bar, cards, avatars, small icon buttons. Icons are drawn, not fonts or files.
 
 /** A screen's top bar: the rounded back button, the title (and a line under it), and room for something on the right. */
+@Suppress("LongParameterList") // One slot for each part of the bar.
 @Composable
 internal fun AppTopBar(
     title: String,
@@ -47,10 +48,12 @@ internal fun AppTopBar(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     trailing: (@Composable () -> Unit)? = null,
+    backLabel: String = ChatTexts.BACK,
+    backEnabled: Boolean = true,
 ) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         if (onBack != null) {
-            IconTile(ChatTexts.BACK, onBack) { color -> Chevron(color) }
+            IconTile(backLabel, onBack, enabled = backEnabled) { color -> Chevron(color) }
         }
         Column(Modifier.weight(1f)) {
             Text(
@@ -72,14 +75,15 @@ internal fun AppTopBar(
 internal fun IconTile(
     label: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
     icon: @Composable (Color) -> Unit,
 ) {
-    val color = MaterialTheme.colorScheme.onSurface
+    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else DISABLED_ALPHA)
     Box(
         Modifier
             .size(TILE_SIZE)
             .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.medium)
-            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+            .clickable(enabled = enabled, onClickLabel = label, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) { icon(color) }

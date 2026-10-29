@@ -19,6 +19,7 @@ internal object ChatTexts {
     const val NO_MESSAGES = "No messages yet"
     const val REFRESHING = "Looking for new messages…"
     const val BACK = "Back"
+    const val DONE = "Done"
     const val START_CHAT = "Start chat"
     const val NEW_CHAT_HINT = "Choose one friend for a chat, or several for a group."
     const val NO_FRIENDS = "You have no saved friends yet. Invite someone, or open the Friends screen."

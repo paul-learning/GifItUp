@@ -49,7 +49,12 @@ internal fun NewChatScreen(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AppTopBar(ChatTexts.NEW_CHAT, if (state.created != null) onDone else onBack)
+        AppTopBar(
+            ChatTexts.NEW_CHAT,
+            if (state.created != null) onDone else onBack,
+            backLabel = if (state.created != null) ChatTexts.DONE else ChatTexts.BACK,
+            backEnabled = !state.creating,
+        )
         Text(ChatTexts.NEW_CHAT_HINT, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!state.loaded) CircularProgressIndicator()
         if (state.loaded && state.friends.isEmpty() && state.problem != NewChatProblem.FRIENDS_UNAVAILABLE) {
@@ -61,7 +66,7 @@ internal fun NewChatScreen(
         Notices(state)
         if (state.creating) CircularProgressIndicator()
         PrimaryButton(ChatTexts.START_CHAT, onClick = holder::create, enabled = state.canCreate)
-        if (state.created != null) SecondaryButton("Done", onClick = onDone, enabled = !state.creating)
+        if (state.created != null) SecondaryButton(ChatTexts.DONE, onClick = onDone, enabled = !state.creating)
     }
 }
 
