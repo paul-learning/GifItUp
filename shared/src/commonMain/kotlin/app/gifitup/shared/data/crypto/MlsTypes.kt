@@ -152,6 +152,7 @@ enum class MlsErrorCode {
 
     /** A history record did not authenticate: another key, name or origin, or a changed byte (ADR-0017). */
     HistoryAuth,
+
     Poisoned,
     Internal,
 }
