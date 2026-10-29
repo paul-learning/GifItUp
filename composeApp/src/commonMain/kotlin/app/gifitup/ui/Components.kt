@@ -12,15 +12,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -86,23 +91,17 @@ internal fun IconTile(
 }
 
 @Composable
-internal fun Chevron(color: Color) {
+internal fun Chevron(
+    color: Color,
+    pointRight: Boolean = false,
+) {
     Canvas(Modifier.size(20.dp)) {
-        val stroke = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
-        drawLine(
-            color,
-            Offset(size.width * 0.65f, size.height * 0.15f),
-            Offset(size.width * 0.3f, size.height * 0.5f),
-            stroke.width,
-            stroke.cap,
-        )
-        drawLine(
-            color,
-            Offset(size.width * 0.3f, size.height * 0.5f),
-            Offset(size.width * 0.65f, size.height * 0.85f),
-            stroke.width,
-            stroke.cap,
-        )
+        val width = 2.5.dp.toPx()
+
+        // Drawn pointing left, mirrored for the right.
+        fun x(fraction: Float) = size.width * if (pointRight) 1f - fraction else fraction
+        drawLine(color, Offset(x(0.65f), size.height * 0.15f), Offset(x(0.3f), size.height * 0.5f), width, StrokeCap.Round)
+        drawLine(color, Offset(x(0.3f), size.height * 0.5f), Offset(x(0.65f), size.height * 0.85f), width, StrokeCap.Round)
     }
 }
 
