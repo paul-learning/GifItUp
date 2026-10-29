@@ -50,23 +50,23 @@ private object WasmMlsClientFactory : MlsClientFactory {
     override fun create(
         username: String,
         snapshotKey: ByteArray,
-    ): MlsClient = withSnapshotKey(snapshotKey) { key -> WasmMlsClient(guarded { NativeMlsClient(username, key) }) }
+    ): MlsClient = withKeyCopy(snapshotKey) { key -> WasmMlsClient(guarded { NativeMlsClient(username, key) }) }
 
     override fun restore(
         state: ByteArray,
         snapshotKey: ByteArray,
     ): MlsClient =
-        withSnapshotKey(snapshotKey) { key ->
+        withKeyCopy(snapshotKey) { key ->
             val bytes = state.toUint8Array()
             WasmMlsClient(guarded { NativeMlsClient.restore(bytes, key) })
         }
 }
 
 /**
- * Hands [create] a JS copy of the key; the key's JS copy and our copy are both zeroed afterwards (Rust keeps its
+ * Hands [create] a JS copy of a secret key (the snapshot key or the history key); the key's JS copy and our copy are both zeroed afterwards (Rust keeps its
  * own). [guarded] always returns, even after a trap, so the `finally` here runs (tested with a real trap).
  */
-internal fun <T> withSnapshotKey(
+internal fun <T> withKeyCopy(
     snapshotKey: ByteArray,
     create: (Uint8Array) -> T,
 ): T {

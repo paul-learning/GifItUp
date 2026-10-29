@@ -32,7 +32,7 @@ class TrapTest {
 
             val e =
                 assertFailsWith<MlsException> {
-                    withSnapshotKey(key) { k ->
+                    withKeyCopy(key) { k ->
                         jsKey = k
                         guarded {
                             TestNativeMlsClient("alice", k).inspectKeyPackage(Uint8Array(0), "__panic__")

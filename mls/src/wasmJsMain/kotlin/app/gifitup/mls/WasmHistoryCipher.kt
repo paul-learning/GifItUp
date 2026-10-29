@@ -15,7 +15,7 @@ private object WasmHistoryCipherFactory : HistoryCipherFactory {
     override fun create(
         historyKey: ByteArray,
         origin: String,
-    ): HistoryCipher = withSnapshotKey(historyKey) { key -> WasmHistoryCipher(guarded { NativeHistoryCipher(key, origin) }) }
+    ): HistoryCipher = withKeyCopy(historyKey) { key -> WasmHistoryCipher(guarded { NativeHistoryCipher(key, origin) }) }
 }
 
 /** [HistoryCipher] over one wasm-bindgen `NativeHistoryCipher`; frees it in [close]. */
