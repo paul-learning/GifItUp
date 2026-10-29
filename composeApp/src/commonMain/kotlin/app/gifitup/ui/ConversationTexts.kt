@@ -37,14 +37,10 @@ internal object ConversationTexts {
         }
 
     /** The line under the title: how many people are in it (you included), and that it is encrypted. */
-    fun subtitle(others: Int): String =
-        if (others <
-            2
-        ) {
-            ENCRYPTED.replaceFirstChar { it.uppercase() }
-        } else {
-            "${others + 1} friends · $ENCRYPTED"
-        }
+    fun subtitle(others: Int): String {
+        val encrypted = ENCRYPTED.replaceFirstChar { it.uppercase() }
+        return if (others < 2) encrypted else "${others + 1} friends · $ENCRYPTED"
+    }
 
     fun renamed(name: String): String = "The chat was renamed to ${ChatTexts.isolated(name)}"
 
