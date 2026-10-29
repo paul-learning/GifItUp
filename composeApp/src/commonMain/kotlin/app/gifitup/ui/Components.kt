@@ -116,6 +116,29 @@ internal fun InfoIcon(color: Color) {
     }
 }
 
+/** Two people: a head and shoulders, twice, the second behind the first. */
+@Composable
+internal fun PeopleIcon(color: Color) {
+    Canvas(Modifier.size(24.dp)) {
+        val width = 2.dp.toPx()
+        listOf(0.38f to 1f, 0.72f to 0.7f).forEach { (x, alpha) ->
+            val c = color.copy(alpha = alpha)
+            drawCircle(c, radius = size.width * 0.14f, center = Offset(size.width * x, size.height * 0.34f), style = Stroke(width))
+            drawArc(
+                c,
+                startAngle = 180f,
+                sweepAngle = 180f,
+                useCenter = false,
+                topLeft = Offset(size.width * (x - 0.2f), size.height * 0.6f),
+                size =
+                    androidx.compose.ui.geometry
+                        .Size(size.width * 0.4f, size.height * 0.5f),
+                style = Stroke(width, cap = StrokeCap.Round),
+            )
+        }
+    }
+}
+
 /** A card of the design: a container surface with rounded corners and, to ask for attention, an accent outline. */
 @Composable
 internal fun CardSurface(
@@ -138,11 +161,12 @@ internal fun CardSurface(
 internal fun Avatar(
     name: String,
     size: Dp = AVATAR_SIZE,
+    color: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
 ) {
     Box(
         Modifier
             .size(size)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)
+            .background(color, CircleShape)
             .clearAndSetSemantics { },
         contentAlignment = Alignment.Center,
     ) {

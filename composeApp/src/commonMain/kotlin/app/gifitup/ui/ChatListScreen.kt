@@ -1,5 +1,6 @@
 package app.gifitup.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,14 +9,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -38,6 +44,7 @@ import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ConversationSummary
+import app.gifitup.shared.presentation.chat.ConversationTitle
 import app.gifitup.shared.presentation.chat.listKey
 import kotlinx.coroutines.delay
 import kotlin.time.Clock
@@ -64,21 +71,25 @@ internal fun ChatListScreen(
     }
     DisposableEffect(holder) { onDispose { holder.leave() } }
     Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
+        modifier = modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(ChatTexts.TITLE, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-            Button(onClick = actions.onNewChat) { Text(ChatTexts.NEW_CHAT) }
-        }
+        AppTopBar(
+            title = ChatTexts.TITLE,
+            onBack = onBack,
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconTile(ChatTexts.FRIENDS, actions.onFriends) { PeopleIcon(it) }
+                    Button(onClick = actions.onNewChat, shape = MaterialTheme.shapes.medium, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(ChatTexts.NEW_CHAT, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+        )
         if (state.refreshing) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CircularProgressIndicator(modifier = Modifier.defaultMinSize(minWidth = 16.dp, minHeight = 16.dp), strokeWidth = 2.dp)
-                Text(ChatTexts.REFRESHING, style = MaterialTheme.typography.bodySmall)
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text(ChatTexts.REFRESHING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         state.problem?.let {
@@ -88,67 +99,88 @@ internal fun ChatListScreen(
                 modifier = Modifier.polite(),
             )
         }
-        if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS)
-        LazyColumn(modifier = Modifier.weight(1f)) {
+        if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.conversations, key = { it.id.listKey() }) { row ->
                 ConversationRow(row, actions.onOpen, isSelected = row.id == selected)
-                HorizontalDivider()
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = actions.onFriends) { Text("Friends") }
-            TextButton(onClick = onBack) { Text(ChatTexts.BACK) }
         }
     }
 }
 
+/** One chat as a card: avatar, title, the last message as a line, the time and the unread count. */
 @Composable
 private fun ConversationRow(
     row: ConversationSummary,
     onOpen: ((GroupInfo) -> Unit)?,
     isSelected: Boolean,
 ) {
+    val colors = MaterialTheme.colorScheme
     val title = ChatTexts.title(row.title)
     val preview = row.problem?.let(ChatTexts::problem) ?: ChatTexts.preview(row.preview)
     val ago = row.lastAt?.let { ChatTexts.ago(Ago.of(Clock.System.now().epochSeconds, it)) }
     val clickable = if (onOpen != null) Modifier.clickable(role = Role.Button) { onOpen(row.info) } else Modifier
-    val background = if (isSelected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier
-    Row(
+    Surface(
+        color = if (isSelected) colors.secondaryContainer else colors.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
+        border = if (isSelected) BorderStroke(2.dp, colors.secondary) else null,
         modifier =
             Modifier
                 .fillMaxWidth()
-                .then(background)
+                .clip(MaterialTheme.shapes.large)
                 .then(clickable)
-                .defaultMinSize(minHeight = 56.dp)
-                .padding(vertical = 8.dp)
                 .semantics(mergeDescendants = true) {
                     contentDescription = ChatTexts.rowDescription(title, preview, ago, row.unread)
                     selected = isSelected
                 },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = if (row.unread > 0) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                preview,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (row.problem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            ago?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            if (row.unread > 0) Badge { Text(ChatTexts.unread(row.unread)) }
+        Row(
+            modifier = Modifier.defaultMinSize(minHeight = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // On the highlighted row the usual avatar color is the row's own color; the plain surface stands out.
+            Avatar(avatarName(row.title), color = if (isSelected) colors.surface else colors.surfaceContainerHigh)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (row.unread > 0) FontWeight.ExtraBold else FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    preview,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (row.problem != null) colors.error else colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ago?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant) }
+                if (row.unread > 0) UnreadBadge(ChatTexts.unread(row.unread))
+            }
         }
     }
+}
+
+/** The name whose first letter the avatar shows: the group's name, else the first other member. */
+private fun avatarName(title: ConversationTitle): String =
+    when (title) {
+        is ConversationTitle.Named -> title.name
+        is ConversationTitle.Members -> title.names.firstOrNull().orEmpty()
+    }
+
+@Composable
+private fun UnreadBadge(count: String) {
+    Text(
+        count,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).padding(horizontal = 8.dp, vertical = 2.dp),
+    )
 }
 
 private const val REFRESH_MILLIS = 15_000L
