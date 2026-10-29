@@ -26,6 +26,23 @@ internal class HistoryRecords(
         return stored?.takeIf { it.message.groupId == groupId && expected == name }
     }
 
+    /** The reference in the group's read-mark record, or `null` if there is none or it doesn't open. */
+    suspend fun readMark(
+        folder: String,
+        name: ByteArray,
+    ): ByteArray? {
+        val plain = records.get(folder, hex(name))?.let { open(name, it) }
+        return plain?.takeIf { it.size == READ_MARK_SIZE && it[0] == READ_MARK_VERSION }?.copyOfRange(1, READ_MARK_SIZE)
+    }
+
+    suspend fun writeMark(
+        folder: String,
+        name: ByteArray,
+        reference: ByteArray,
+    ) {
+        records.put(folder, hex(name), cipher.seal(name, byteArrayOf(READ_MARK_VERSION) + reference))
+    }
+
     /** `null` for a typed refusal (this record is unreadable); a poisoned cipher is the caller's matter, so it is thrown. */
     private fun open(
         name: ByteArray,
@@ -90,3 +107,6 @@ internal class HistoryRecords(
         }
     }
 }
+
+private const val READ_MARK_VERSION: Byte = 1
+private const val READ_MARK_SIZE = 1 + 32
