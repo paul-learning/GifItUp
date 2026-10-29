@@ -8,6 +8,7 @@ use crate::auth::AuthPurpose;
 use crate::client::Client;
 use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook, module_call};
 use crate::group::{EncryptedMessage, IncomingMessage, LeafInfo, PreparedCommit, WelcomeInfo};
+use crate::history::HistoryCipher;
 use crate::identity::{CreatedKeyPackage, PublicIdentity};
 use crate::snapshot::take_key;
 
@@ -212,5 +213,59 @@ impl NativeMlsClient {
             self.client
                 .sign_auth(purpose, &challenge, &origin, &subject)
         })
+    }
+}
+
+/// Seals and opens the records of the local message history (ADR-0017), under a key of its own. Separate from the MLS
+/// client: its lifetime and its failures don't depend on the group state.
+#[derive(uniffi::Object)]
+pub struct NativeHistoryCipher {
+    guard: PanicGuard,
+    cipher: HistoryCipher,
+}
+
+#[uniffi::export]
+impl NativeHistoryCipher {
+    /// `history_key` (32 bytes) is copied and our copy of the passed bytes is wiped (best effort, as for the snapshot
+    /// key); `origin` is the account's canonical origin, part of what every record is bound to.
+    #[uniffi::constructor]
+    pub fn new(history_key: Vec<u8>, origin: String) -> Result<Arc<Self>, ErrorCode> {
+        install_silent_panic_hook();
+        module_call(|| catch(|| HistoryCipher::new(history_key, &origin))).map(|cipher| {
+            Arc::new(Self {
+                guard: PanicGuard::default(),
+                cipher,
+            })
+        })
+    }
+
+    pub fn group_name(&self, group_id: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
+        self.guard
+            .run(|| self.cipher.group_name(&group_id).map(|n| n.to_vec()))
+    }
+
+    pub fn message_name(
+        &self,
+        group_id: Vec<u8>,
+        reference: Vec<u8>,
+    ) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| {
+            self.cipher
+                .message_name(&group_id, &reference)
+                .map(|n| n.to_vec())
+        })
+    }
+
+    pub fn read_mark_name(&self, group_id: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
+        self.guard
+            .run(|| self.cipher.read_mark_name(&group_id).map(|n| n.to_vec()))
+    }
+
+    pub fn seal(&self, name: Vec<u8>, plaintext: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.cipher.seal(&name, &plaintext))
+    }
+
+    pub fn open(&self, name: Vec<u8>, sealed: Vec<u8>) -> Result<Vec<u8>, ErrorCode> {
+        self.guard.run(|| self.cipher.open(&name, &sealed))
     }
 }

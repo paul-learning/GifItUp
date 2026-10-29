@@ -189,3 +189,30 @@ internal external class JsWelcomeInfo : JsAny {
 
     fun free()
 }
+
+/** Mirrors `NativeHistoryCipher` in crypto/src/wasm_api.rs (ADR-0017). */
+internal external class NativeHistoryCipher(
+    historyKey: Uint8Array,
+    origin: String,
+) : JsAny {
+    fun groupName(groupId: Uint8Array): Uint8Array
+
+    fun messageName(
+        groupId: Uint8Array,
+        reference: Uint8Array,
+    ): Uint8Array
+
+    fun readMarkName(groupId: Uint8Array): Uint8Array
+
+    fun seal(
+        name: Uint8Array,
+        plaintext: Uint8Array,
+    ): Uint8Array
+
+    fun open(
+        name: Uint8Array,
+        sealed: Uint8Array,
+    ): Uint8Array
+
+    fun free()
+}

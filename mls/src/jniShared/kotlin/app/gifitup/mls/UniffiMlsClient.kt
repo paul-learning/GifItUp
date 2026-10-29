@@ -205,6 +205,8 @@ private fun ErrorCode.toShared(): MlsErrorCode =
         is ErrorCode.Refused -> MlsErrorCode.Refused
         is ErrorCode.LimitExceeded -> MlsErrorCode.LimitExceeded
         is ErrorCode.UnknownToken -> MlsErrorCode.UnknownToken
+        is ErrorCode.HistoryInvalid -> MlsErrorCode.HistoryInvalid
+        is ErrorCode.HistoryAuth -> MlsErrorCode.HistoryAuth
         is ErrorCode.Poisoned -> MlsErrorCode.Poisoned
         is ErrorCode.Internal -> MlsErrorCode.Internal
     }
