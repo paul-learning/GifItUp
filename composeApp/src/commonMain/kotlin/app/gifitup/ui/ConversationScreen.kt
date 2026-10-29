@@ -139,6 +139,7 @@ private fun SendArea(
     canSend: Boolean,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
+    // The field being open is kept over a recreation; what was typed is not (nothing the user writes goes into saved state).
     var caption by remember { mutableStateOf("") }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         problem?.let { Text(ConversationTexts.sendProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }

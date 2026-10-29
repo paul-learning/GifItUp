@@ -241,6 +241,18 @@ class ChatStateTest {
         }
 
     @Test
+    fun theMembersOfAConversationAreItsOtherUsernamesAndSurviveLeaving() =
+        runTest {
+            val holder = conversation(group(2, "bob", "cy"))
+            assertEquals(listOf("bob", "cy"), holder.state.value.members)
+            holder.open()
+            advanceUntilIdle()
+            holder.leave()
+            assertEquals(listOf("bob", "cy"), holder.state.value.members)
+            assertEquals(emptyList(), conversation(group(3, status = GroupStatus.REMOVED)).state.value.members)
+        }
+
+    @Test
     fun openingAConversationShowsTheStoredMessagesAtOnceReadsTheLogAndMarksItRead() =
         runTest {
             val info = group(1, "bob")
@@ -251,6 +263,7 @@ class ChatStateTest {
             holder.open()
             advanceUntilIdle()
             val state = holder.state.value
+            assertEquals(listOf("bob"), state.members, "the other members, from the first frame to the last")
             assertEquals(2, state.messages.size)
             assertEquals("new", assertIs<MessageBody.Gif>(state.messages.last().body).caption)
             assertTrue(state.loaded)
