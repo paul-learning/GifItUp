@@ -360,4 +360,61 @@ class EncryptedMessageStoreTest {
             assertTrue(all.values.all { folder -> folder.keys.all { it.length == 64 } })
             assertEquals(1, all.values.sumOf { it.size })
         }
+
+    @Test
+    fun theReadMarkIsOneMoreRecordThatIsNotAMessageAndSurvivesARestart() =
+        runTest {
+            val s = store()
+            s.insert(received(1, 1))
+            s.insert(received(1, 2))
+            assertNull(s.newestSeen(id(1)))
+            s.markSeen(id(1), ref(2))
+            assertEquals(3, records.snapshot().values.sumOf { it.size }, "two messages and the mark")
+            val again = store()
+            assertEquals(ref(2), again.newestSeen(id(1)))
+            assertEquals(2, again.messages(id(1)).size)
+            assertEquals(0, again.unreadable(id(1)), "the mark is not an unreadable message")
+            again.markSeen(id(1), ref(1))
+            assertEquals(ref(1), store().newestSeen(id(1)), "the mark is overwritten, not added")
+            assertEquals(3, records.snapshot().values.sumOf { it.size })
+        }
+
+    @Test
+    fun aMarkIsOnlyWrittenForAHeldGroupAndAHeldMessage() =
+        runTest {
+            val s = store()
+            s.markSeen(id(1), ref(1))
+            assertEquals(emptyList(), records.folders(), "a group nothing is held for gets no folder")
+            s.insert(received(1, 1))
+            s.markSeen(id(1), ref(7))
+            assertNull(s.newestSeen(id(1)), "not a message of the group")
+            s.markSeen(id(1), ref(1))
+            s.forget(id(1))
+            s.markSeen(id(1), ref(1))
+            assertEquals(emptyList(), records.folders(), "a mark can't outlive the group's history")
+        }
+
+    @Test
+    fun aMarkThatNamesAnEvictedMessageOrDoesNotOpenReadsAsNone() =
+        runTest {
+            val s = store(HistoryLimits(maxPerGroup = 2))
+            s.insert(received(1, 1))
+            s.markSeen(id(1), ref(1))
+            s.insert(received(1, 2))
+            s.insert(received(1, 3))
+            assertNull(store(HistoryLimits(maxPerGroup = 2)).newestSeen(id(1)), "message 1 was evicted")
+            assertNull(store(c = FakeHistoryCipher(key = 8)).newestSeen(id(1)))
+        }
+
+    @Test
+    fun aFailedMarkWriteIsAStorageFailureAndKeepsTheOldMark() =
+        runTest {
+            val s = store()
+            s.insert(received(1, 1))
+            s.insert(received(1, 2))
+            s.markSeen(id(1), ref(1))
+            records.failNextWrite = true
+            assertEquals(HistoryStoreException.Kind.STORAGE, assertFailsWith<HistoryStoreException> { s.markSeen(id(1), ref(2)) }.kind)
+            assertEquals(ref(1), store().newestSeen(id(1)))
+        }
 }

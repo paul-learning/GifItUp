@@ -4,6 +4,7 @@ import app.gifitup.shared.data.crypto.HistoryCipher
 import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.storage.RecordStore
 import app.gifitup.shared.data.storage.RecordStoreException
+import app.gifitup.shared.domain.chat.ReadMarkStore
 import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -55,13 +56,18 @@ class HistoryStoreException(
  *   remove: a crash leaves more, never fewer.
  * - A record store that can't be **read** while a group loads is a [HistoryStoreException] for that group (nothing is cached
  *   half loaded; the next call tries again): receive is reprocessed by the sync engine, not skipped.
+ * - The read mark of a group (the newest message shown, [ReadMarkStore]) is one more sealed record in the group's folder,
+ *   under its own name; it is not a message, so a load neither shows nor counts it. A mark is only written for a group
+ *   that is held and for a message that is held, so it can't create a folder past the limit or outlive [forget].
  * - A record that doesn't open or read is **counted** ([unreadable]), never shown, never deleted, never logged.
  */
+@Suppress("TooManyFunctions") // One locked log behind two ports (messages and the read mark): splitting would share the lock by hand.
 class EncryptedMessageStore(
     private val cipher: HistoryCipher,
     private val records: RecordStore,
     private val limits: HistoryLimits = HistoryLimits(),
-) : MessageStore {
+) : MessageStore,
+    ReadMarkStore {
     private val history = HistoryRecords(cipher, records)
     private val mutex = Mutex()
     private val groups = HashMap<KeyBytes, GroupLog>()
@@ -132,6 +138,29 @@ class EncryptedMessageStore(
         }
     }
 
+    override suspend fun newestSeen(group: KeyBytes): KeyBytes? =
+        mutex.withLock {
+            guarded {
+                val log = logFor(group, create = false) ?: return@guarded null
+                val name = cipher.readMarkName(group.bytes)
+                val reference = history.readMark(log.folder, name)?.let(::KeyBytes)
+                reference?.takeIf { ref -> log.items.any { it.message.reference == ref } }
+            }
+        }
+
+    override suspend fun markSeen(
+        group: KeyBytes,
+        reference: KeyBytes,
+    ) {
+        mutex.withLock {
+            guarded {
+                val log = logFor(group, create = false) ?: return@guarded
+                if (log.items.none { it.message.reference == reference }) return@guarded
+                history.writeMark(log.folder, cipher.readMarkName(group.bytes), reference.bytes)
+            }
+        }
+    }
+
     /** How many records of the group could not be opened or read (0 for a group nothing is known of). */
     suspend fun unreadable(groupId: KeyBytes): Int = mutex.withLock { guarded { logFor(groupId, create = false)?.unreadable ?: 0 } }
 
@@ -171,7 +200,9 @@ class EncryptedMessageStore(
         folder: String,
     ): GroupLog {
         val items = mutableListOf<StoredMessage>()
-        val names = records.list(folder)
+        val markName = hex(cipher.readMarkName(groupId.bytes))
+        // The read mark is not a message: it is neither opened as one, nor counted, nor evicted.
+        val names = records.list(folder).filter { it != markName }
         var unreadable = 0
         for (name in names) {
             val stored = history.read(groupId, folder, name)
