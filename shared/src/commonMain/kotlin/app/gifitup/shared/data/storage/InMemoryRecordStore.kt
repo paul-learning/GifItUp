@@ -4,6 +4,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** A [RecordStore] in memory: for tests and for anything that must run without a platform store. Keeps the name rule. */
+@Suppress("TooManyFunctions") // The port's functions plus the test hooks; a test double, not logic.
 class InMemoryRecordStore : RecordStore {
     private val mutex = Mutex()
     private val data = LinkedHashMap<String, LinkedHashMap<String, ByteArray>>()
@@ -67,6 +68,12 @@ class InMemoryRecordStore : RecordStore {
         }
 
     override suspend fun folders(): List<String> = mutex.withLock { data.keys.toList() }
+
+    override suspend fun isEmpty(): Boolean =
+        mutex.withLock {
+            failIfAsked(read = true)
+            data.isEmpty()
+        }
 
     override suspend fun deleteAll() =
         mutex.withLock {

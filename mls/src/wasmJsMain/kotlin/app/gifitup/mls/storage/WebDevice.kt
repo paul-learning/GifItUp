@@ -62,9 +62,12 @@ internal suspend fun claimWebDeviceStorage(
     val db = WebDatabase(databaseName)
     val aead = WebCryptoWrappingAead(db)
     val store = IndexedDbLocalStore(db)
-    return DeviceStorage(store, WebDeviceData(db, aead)) { origin, identities ->
-        EnvelopeSnapshotKeyStore(aead, store, identities, origin)
-    }
+    return DeviceStorage(
+        store,
+        WebDeviceData(db, aead),
+        { origin, identities -> EnvelopeSnapshotKeyStore(aead, store, identities, origin) },
+        { origin -> EnvelopeHistoryKeyStore(aead, store, origin) },
+    )
 }
 
 /**

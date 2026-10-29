@@ -43,6 +43,13 @@ interface RecordStore {
 
     suspend fun folders(): List<String>
 
+    /**
+     * `true` only if the store **positively** holds nothing: no folder and no record, malformed or foreign names
+     * included (a leftover that [folders] would skip still counts). A listing error is a [RecordStoreException], never
+     * `true`: a new history key is made on this answer, and a wrong "empty" would orphan existing history (ADR-0017).
+     */
+    suspend fun isEmpty(): Boolean
+
     /** Deletes every folder and record (a reset or a wipe). */
     suspend fun deleteAll()
 }
