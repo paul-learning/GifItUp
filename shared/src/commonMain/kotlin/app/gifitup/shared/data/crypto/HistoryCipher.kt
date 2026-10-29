@@ -37,7 +37,11 @@ interface HistoryCipher : AutoCloseable {
 
 /** Makes a [HistoryCipher]; the platform module implements it (uniffi on Android and the JVM, wasm in the browser). */
 fun interface HistoryCipherFactory {
-    /** [historyKey] (32 bytes) is copied and our copy of it zeroed whatever happens; [origin] is the canonical origin. */
+    /**
+     * [historyKey] (32 bytes) is copied and our copy of it zeroed whatever happens. It **must be uniformly random** from
+     * the platform CSPRNG (the crate expands it with HKDF without an extract step): never derived from a password or
+     * another secret. [origin] must be the canonical origin the rest of the app uses; another spelling opens nothing.
+     */
     fun create(
         historyKey: ByteArray,
         origin: String,
