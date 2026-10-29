@@ -1,6 +1,10 @@
 # GifItUp — Claude Code additions
 
-The tool-neutral working agreement lives in [`AGENTS.md`](AGENTS.md): the hard rule, security rules, git & PR workflow, risk tiers and review process, architecture rules, environment notes and commands. **Read it at the start of every session and follow it; this file only adds what is specific to Claude Code and never overrides it.** `docs/session-brief.md` stays the session-start summary (hard rules, current milestone, pointers); in a Claude session this file and the brief are already in context, `AGENTS.md` is not — so read it.
+The tool-neutral working agreement lives in `AGENTS.md`: the hard rule, security rules, git & PR workflow, risk tiers and review process, architecture rules, environment notes and commands. Claude Code imports it into context automatically:
+
+@AGENTS.md
+
+**This file only adds what is specific to Claude Code and never overrides `AGENTS.md`; on any difference `AGENTS.md` wins.** `docs/session-brief.md` stays the session-start summary (hard rules, current milestone, pointers); in a Claude session this file and the brief are already in context — the import above makes `AGENTS.md` loaded too.
 
 ## Claude-specific mechanics
 

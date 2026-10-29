@@ -3,7 +3,7 @@
 Client logic for Android, web and the dev CLI (Kotlin Multiplatform). No UI and no MLS implementation: the screens live in
 `composeApp`, and `MlsClient` is implemented in `:mls` (ADR-0007).
 
-Layers (`CLAUDE.md`, *Architecture rules*), each a package under `app.gifitup.shared`. Dependencies point inward only:
+Layers (`AGENTS.md`, *Architecture rules*), each a package under `app.gifitup.shared`. Dependencies point inward only:
 
 - `presentation`: plain state holders the screens render (ADR-0013); no androidx. They call domain use cases and read
   data types (stores, `ApiError`).

@@ -94,7 +94,7 @@ if grep -rnE --include='*.kt' --include='*.kts' --exclude-dir=build 'ApiEndpoint
   fail "the app modules must not use ApiEndpoint.loopback (#94 SEC-14)"
 fi
 
-# The dev CLI and the end-to-end test are dev/test tools (CLAUDE.md "Dev CLI"; #79 round-0 SEC-11): no build file
+# The dev CLI and the end-to-end test are dev/test tools (AGENTS.md "Dev CLI"; #79 round-0 SEC-11): no build file
 # other than settings.gradle.kts and the end-to-end test's own (it runs the installed CLI; #79 PR C) may refer to
 # them, so no module (app or library) can depend on them, and nothing can depend on :e2e. The
 # DevOnlyEndpoint allowlist above relies on this. A text check of the usual spellings: type-safe accessors, project

@@ -4,7 +4,7 @@ The build pins and verifies every dependency (#33).
 
 | Mechanism | File(s) | Protects against |
 |---|---|---|
-| **Version catalog** | `gradle/libs.versions.toml` | Scattered versions. The catalog is the single source of declared versions (CLAUDE.md). |
+| **Version catalog** | `gradle/libs.versions.toml` | Scattered versions. The catalog is the single source of declared versions (AGENTS.md). |
 | **Dependency locking** | `gradle.lockfile` per project, `buildscript-gradle.lockfile`, `settings-gradle.lockfile` | Silent version drift through transitive dependencies or dynamic versions. Every configuration that **has** lock state must match it exactly. Gradle's default lock mode is used, not `STRICT`: a configuration *without* lock state (a new module, or one only the IDE or a rarely run task resolves) resolves unlocked without warning. `STRICT` would also fail Android Studio's sync on configurations we can't pre-lock. Dependency verification still applies to those configurations, so unlocked never means unverified. |
 | **Dependency verification** | `gradle/verification-metadata.xml` | Tampered or swapped artifacts. Every downloaded artifact (jar, aar, klib, pom, module, plugin, Node/Yarn/Binaryen tool archive) must match a recorded SHA-256. |
 | **Repository filtering** | `settings.gradle.kts` | Dependency confusion. Projects can't add repositories (`FAIL_ON_PROJECT_REPOS`). Google Maven only serves `androidx`/`com.android`/`com.google`. The Gradle Plugin Portal exclusively serves the ktlint plugin, and that plugin only comes from there. The Node.js/Yarn/Binaryen repositories each exclusively serve exactly one module. |
@@ -35,7 +35,7 @@ CI fails if a lockfile or the verification metadata is out of date. There's no s
    - **New checksums are trust-on-first-use.** For a new direct dependency, compare at least one SHA-256 against the publisher's own checksum (Maven Central `.sha256`/`.sha1`, GitHub release digest) and name the source in the PR.
    - **Red flag: a changed or additional checksum for an artifact whose version did not change**, or any `<also-trust>` entry. Same coordinates must mean same bytes. Stop and investigate instead of committing. Also a red flag: anything that weakens verification, i.e. `<verify-metadata>` not `true`, a `<trust>` rule beyond the IDE sources/javadoc one, or a verification-mode override (`org.gradle.dependency.verification`, `--dependency-verification`/`-F`). The `Gradle check` CI job has a text-based tripwire for the common forms of these, plus `<also-trust>` entries and a missing metadata file. It catches accidental weakening, not a deliberate bypass: equivalent spellings (other properties-file syntax, `-Foff`, other whitespace, XML comments, JVM options, `verify-signatures` with an added `<trusted-key>`) get past it. Reviewing the diff of `verification-metadata.xml`, `gradle.properties`, `gradlew*` and `.github/` is the real control.
    - Remove entries the build no longer uses (Gradle doesn't prune the verification file; see "Pruning" below).
-4. Commit `libs.versions.toml`, the lockfiles and `verification-metadata.xml` together, and justify the dependency in the PR (CLAUDE.md rule 9).
+4. Commit `libs.versions.toml`, the lockfiles and `verification-metadata.xml` together, and justify the dependency in the PR (AGENTS.md rule 9).
 
 **Platform-specific artifacts.** A few artifacts differ per OS:
 - Android's `aapt2` (`…:aapt2:<ver>:windows|linux|osx`)
@@ -53,7 +53,7 @@ Dependabot updates `libs.versions.toml` (and `Cargo.toml`/`Cargo.lock`, which is
 3. Review the diff as in step 3.
 4. Push.
 
-An agent can do this on request. No automation writes to Dependabot branches: that would need a workflow with write permissions, which we don't want (CLAUDE.md rule 8).
+An agent can do this on request. No automation writes to Dependabot branches: that would need a workflow with write permissions, which we don't want (AGENTS.md rule 8).
 
 ## Rust
 - `cargo update -p <crate>` (or edit `Cargo.toml`), then `cargo test --locked`.

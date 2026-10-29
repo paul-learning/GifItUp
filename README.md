@@ -12,4 +12,4 @@ A messenger for friends where you can only send GIFs. Every chat is end-to-end e
 - [Roadmap](docs/ROADMAP.md)
 - [Architecture decisions](docs/adr/)
 - [Threat model](docs/security/threat-model.md)
-- [Contributor / agent working agreement](CLAUDE.md)
+- [Contributor / agent working agreement](AGENTS.md)

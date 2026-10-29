@@ -201,7 +201,7 @@ Every command logs in and out again; the server allows 10 logins per device per 
 }
 
 /**
- * The commands, over the same use cases the app uses: argument handling, the state dir and printing only (CLAUDE.md
+ * The commands, over the same use cases the app uses: argument handling, the state dir and printing only (AGENTS.md
  * "Dev CLI": no client logic of its own). Output is fixed text per result code; tokens, keys and invite codes are never
  * printed. Returns the process exit code.
  */

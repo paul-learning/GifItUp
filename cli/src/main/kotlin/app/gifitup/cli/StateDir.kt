@@ -19,7 +19,7 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.Base64
 
 /**
- * The CLI's state dir: one identity, its snapshot key and a lock file. **Unprotected by design** (CLAUDE.md "Dev CLI"):
+ * The CLI's state dir: one identity, its snapshot key and a lock file. **Unprotected by design** (AGENTS.md "Dev CLI"):
  * the key sits in a plain file next to the snapshot, so a copy of the dir is the account. Test accounts only.
  *
  * - Files are created owner-only (`rw-------`) where the file system supports POSIX permissions, and so is the dir

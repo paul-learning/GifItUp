@@ -1,6 +1,6 @@
 # VM setup (Hetzner, Ubuntu 24.04)
 
-How GifItUp runs on the owner's VM, and the one-time setup. Design: [ADR-0005](../adr/0005-deployment-shared-vm.md). **The owner runs every command here; agents never touch the VM** (CLAUDE.md).
+How GifItUp runs on the owner's VM, and the one-time setup. Design: [ADR-0005](../adr/0005-deployment-shared-vm.md). **The owner runs every command here; agents never touch the VM** (AGENTS.md).
 
 The VM is shared with other services. An existing Caddy (its own Compose project) owns ports 80/443 and terminates TLS for all hostnames. GifItUp adds:
 - a Compose project `gifitup` in `/opt/gifitup/deploy` ([`deploy/docker-compose.yml`](../../deploy/docker-compose.yml)): `server` + its own `postgres`. No published host ports.
@@ -131,7 +131,7 @@ Caddy reaches the server as `gifitup-server:8080` on the shared `proxy` network.
 
 Afterwards, make sure no access log is written for GifItUp. Check that the shared Caddyfile has no global or imported `log` block that covers this host, and that no new file shows up in Caddy's log directory after a request. The snippet's `log_skip` is a second line of defence.
 
-The block deliberately has **no access log**. Logs must not map users to IPs (CLAUDE.md, security rule 4). Caddy's error log can still include a client IP for failed requests (e.g. while the server is down); it stays in Docker's rotated container log. It also caps request bodies at 1 MB and sets an API-only CSP, which the web app (#27) will replace.
+The block deliberately has **no access log**. Logs must not map users to IPs (AGENTS.md, security rule 4). Caddy's error log can still include a client IP for failed requests (e.g. while the server is down); it stays in Docker's rotated container log. It also caps request bodies at 1 MB and sets an API-only CSP, which the web app (#27) will replace.
 
 ## 6. Backups
 Nightly `pg_dump` (custom format) into `/var/backups/gifitup`, kept for 14 days, on the VM only for now (owner decision, 2026-10-14). A lost or compromised VM loses the backups too. That's acceptable while there's no real user data; revisit before the friends alpha (#27).
