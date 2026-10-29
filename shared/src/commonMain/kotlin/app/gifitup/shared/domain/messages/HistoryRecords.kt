@@ -44,9 +44,10 @@ internal class HistoryRecords(
     suspend fun write(
         folder: String,
         stored: StoredMessage,
-    ) {
+    ): StoredMessage {
         val message = stored.message
         val name = cipher.messageName(message.groupId.bytes, message.reference.bytes)
+        var written = stored
         val sealed =
             try {
                 cipher.seal(name, HistoryRecordCodec.encode(stored))
@@ -62,9 +63,11 @@ internal class HistoryRecords(
                         message.state,
                         message.at,
                     )
-                cipher.seal(name, HistoryRecordCodec.encode(StoredMessage(plain, stored.arrival)))
+                written = StoredMessage(plain, stored.arrival)
+                cipher.seal(name, HistoryRecordCodec.encode(written))
             }
         records.put(folder, hex(name), sealed)
+        return written
     }
 
     /** Deletes the oldest records of the group beyond [max]; one that can't be deleted stays for the next insert. */

@@ -28,7 +28,10 @@ internal object HistoryRecordCodec {
     const val REFERENCE_BYTES = 32
     private const val MAX_ID = 128
     private const val MAX_TEXT = 1024
-    private const val MAX_SIDE = 0xFFFF
+
+    private const val SENDING_CODE = 1
+    private const val SENT_CODE = 2
+    private const val FAILED_CODE = 3
 
     private const val GIF = 1
     private const val RENAME = 2
@@ -46,7 +49,7 @@ internal object HistoryRecordCodec {
         val seq = message.seq
         out.u8(if (seq == null) 0 else 1)
         if (seq != null) out.i64(seq)
-        out.u8(message.state?.let { it.ordinal + 1 } ?: 0)
+        out.u8(stateCode(message.state))
         out.i64(message.at)
         writeBody(out, message.body)
         return out.toByteArray()
@@ -65,10 +68,10 @@ internal object HistoryRecordCodec {
         if (input.u8() != VERSION) return null
         val group = KeyBytes(input.blob(MAX_ID))
         val reference = KeyBytes(input.bytes(REFERENCE_BYTES))
-        val arrival = input.i64()
+        val arrival = input.i64().takeIf { it >= 0 } ?: return null
         val sender = optionalText(input)
-        val seq = if (input.u8() == 1) input.i64() else null
-        val state = input.u8().let { if (it == 0) null else DeliveryState.entries.getOrNull(it - 1) ?: return null }
+        val seq = optionalLong(input)
+        val state = stateOf(input.u8())
         val at = input.i64()
         val body = readBody(input) ?: return null
         // A sender and a delivery state go together: ours have a state, received ones don't (and the reverse).
@@ -110,8 +113,8 @@ internal object HistoryRecordCodec {
             GIF -> {
                 val slug = input.blob(MAX_TEXT).decodeToString(throwOnInvalidSequence = true)
                 val url = input.blob(MAX_TEXT).decodeToString(throwOnInvalidSequence = true)
-                val width = input.u16().coerceAtMost(MAX_SIDE)
-                val height = input.u16().coerceAtMost(MAX_SIDE)
+                val width = input.u16()
+                val height = input.u16()
                 val caption = optionalText(input)
                 // Checked again like anything that arrives: the stored bytes are ours, the rules are the codec's.
                 GifReference.of(GifReference.PROVIDER, slug, url, width, height)?.let { MessageBody.Gif(it, caption) }
@@ -132,6 +135,31 @@ internal object HistoryRecordCodec {
             else -> {
                 null
             }
+        }
+
+    /** The state's code on disk: 0 none, 1 sending, 2 sent, 3 failed; never the enum's ordinal. */
+    private fun stateCode(state: DeliveryState?): Int =
+        when (state) {
+            null -> 0
+            DeliveryState.SENDING -> SENDING_CODE
+            DeliveryState.SENT -> SENT_CODE
+            DeliveryState.FAILED -> FAILED_CODE
+        }
+
+    private fun stateOf(code: Int): DeliveryState? =
+        when (code) {
+            0 -> null
+            SENDING_CODE -> DeliveryState.SENDING
+            SENT_CODE -> DeliveryState.SENT
+            FAILED_CODE -> DeliveryState.FAILED
+            else -> invalidRecord()
+        }
+
+    private fun optionalLong(input: ByteReader): Long? =
+        when (input.u8()) {
+            0 -> null
+            1 -> input.i64()
+            else -> invalidRecord()
         }
 
     private fun optionalText(

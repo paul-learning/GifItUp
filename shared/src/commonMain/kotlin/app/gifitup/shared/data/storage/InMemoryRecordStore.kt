@@ -11,6 +11,9 @@ class InMemoryRecordStore : RecordStore {
     /** Makes the next write or delete fail, once: lets a test see how the callers behave on a store failure. */
     var failNextWrite = false
 
+    /** Makes the next read (a `get` or a `list`) fail, once. */
+    var failNextRead = false
+
     override suspend fun put(
         folder: String,
         name: String,
@@ -27,12 +30,14 @@ class InMemoryRecordStore : RecordStore {
     ): ByteArray? =
         mutex.withLock {
             check(folder, name)
+            failIfAsked(read = true)
             data[folder]?.get(name)?.copyOf()
         }
 
     override suspend fun list(folder: String): List<String> =
         mutex.withLock {
             check(folder)
+            failIfAsked(read = true)
             data[folder]?.keys?.toList().orEmpty()
         }
 
@@ -77,10 +82,9 @@ class InMemoryRecordStore : RecordStore {
         if (!isRecordName(folder) || (name != null && !isRecordName(name))) throw RecordStoreException()
     }
 
-    private fun failIfAsked() {
-        if (failNextWrite) {
-            failNextWrite = false
-            throw RecordStoreException()
-        }
+    private fun failIfAsked(read: Boolean = false) {
+        val asked = if (read) failNextRead else failNextWrite
+        if (read) failNextRead = false else failNextWrite = false
+        if (asked) throw RecordStoreException()
     }
 }

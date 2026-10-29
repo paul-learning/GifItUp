@@ -138,6 +138,54 @@ class EncryptedMessageStoreTest {
         }
 
     @Test
+    fun aFailedFirstWriteDoesNotLetAGroupPastTheLimitLater() =
+        runTest {
+            val s = store(HistoryLimits(maxPerGroup = 5, maxGroups = 2))
+            assertTrue(s.insert(received(1, 1)))
+            records.failNextWrite = true
+            assertFailsWith<HistoryStoreException> { s.insert(received(2, 1)) }
+            assertTrue(s.insert(received(3, 1)), "group 3 takes the second place")
+            assertFalse(s.insert(received(2, 2)), "group 2 has no record, and the limit is reached")
+            assertEquals(emptyList(), s.messages(id(2)))
+            assertEquals(2, records.folders().size)
+        }
+
+    @Test
+    fun aRecordStoredAsUnavailableIsShownAsUnavailableAtOnce() =
+        runTest {
+            val small = FakeHistoryCipher(maxPlaintext = 300)
+            val s = store(c = small)
+            assertTrue(s.insert(received(1, 1, caption = "x".repeat(200))))
+            assertIs<MessageBody.Unavailable>(s.messages(id(1)).single().body, "what is shown is what was written")
+        }
+
+    @Test
+    fun theLongestMessageStillFitsARecordAndStaysAGif() =
+        runTest {
+            val longUrl = "https://static.klipy.com/ii/0123456789abcdef0123456789abcdef/ab/cd/" + "a".repeat(64) + ".webp"
+            val slug = "s".repeat(128)
+            val longGif = assertNotNull(GifReference.of("klipy", slug, longUrl, 2048, 2048))
+            val caption = "😀".repeat(120)
+            val sender = "u".repeat(64)
+            val message = ChatMessage(id(1), ref(1), sender, 4_000_000_000L, MessageBody.Gif(longGif, caption), null, Long.MAX_VALUE)
+            val s = store()
+            assertTrue(s.insert(message))
+            val back = assertIs<MessageBody.Gif>(store().messages(id(1)).single().body)
+            assertEquals(caption, back.caption)
+            assertEquals(longGif, back.reference)
+        }
+
+    @Test
+    fun aGroupThatCannotBeReadIsAStorageFailureAndIsNotCachedHalfLoaded() =
+        runTest {
+            store().insert(received(1, 1))
+            val s = store()
+            records.failNextRead = true
+            assertEquals(HistoryStoreException.Kind.STORAGE, assertFailsWith<HistoryStoreException> { s.messages(id(1)) }.kind)
+            assertEquals(1, s.messages(id(1)).size, "the next call loads it")
+        }
+
+    @Test
     fun aRecordThatDoesNotOpenIsCountedKeptAndNeverShown() =
         runTest {
             val first = store()
