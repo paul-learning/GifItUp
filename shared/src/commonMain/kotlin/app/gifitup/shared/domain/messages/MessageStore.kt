@@ -23,4 +23,7 @@ interface MessageStore {
 
     /** The group's messages in the order they were added. */
     suspend fun messages(groupId: KeyBytes): List<ChatMessage>
+
+    /** Deletes the group's messages (the group was forgotten on this device). */
+    suspend fun forget(groupId: KeyBytes)
 }
