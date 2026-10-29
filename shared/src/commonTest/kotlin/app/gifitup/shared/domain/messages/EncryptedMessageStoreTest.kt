@@ -417,4 +417,22 @@ class EncryptedMessageStoreTest {
             assertEquals(HistoryStoreException.Kind.STORAGE, assertFailsWith<HistoryStoreException> { s.markSeen(id(1), ref(2)) }.kind)
             assertEquals(ref(1), store().newestSeen(id(1)))
         }
+
+    @Test
+    fun aMarkCopiedIntoAnotherGroupsFolderDoesNotOpen() =
+        runTest {
+            val s = store()
+            s.insert(received(1, 1))
+            s.insert(received(2, 1))
+            s.markSeen(id(1), ref(1))
+            val from = hex(cipher.groupName(id(1).bytes))
+            val to = hex(cipher.groupName(id(2).bytes))
+            val markOne = hex(cipher.readMarkName(id(1).bytes))
+            val markTwo = hex(cipher.readMarkName(id(2).bytes))
+            val sealed = assertNotNull(records.get(from, markOne))
+            records.put(to, markTwo, sealed)
+            assertNull(store().newestSeen(id(2)), "sealed for another name")
+            records.put(to, markOne, sealed)
+            assertEquals(1, store().unreadable(id(2)), "a stray record of a wrong name is counted, not shown")
+        }
 }

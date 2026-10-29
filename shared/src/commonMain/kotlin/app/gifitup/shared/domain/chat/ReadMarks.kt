@@ -2,7 +2,7 @@ package app.gifitup.shared.domain.chat
 
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.messages.ChatMessage
-import kotlinx.coroutines.CancellationException
+import app.gifitup.shared.domain.messages.HistoryStoreException
 
 /**
  * Which messages the user has seen: the ones up to the newest that was on screen when the conversation was last shown.
@@ -18,20 +18,23 @@ class ReadMarks(
 ) {
     private val newest = mutableMapOf<KeyBytes, KeyBytes?>()
 
+    /** What the last marked list of each group held: an older list (a slower screen) can't move the mark back. */
+    private val shown = mutableMapOf<KeyBytes, Set<KeyBytes>>()
+
     /** The user is looking at [messages] of [group] (in arrival order). */
     suspend fun markRead(
         group: KeyBytes,
         messages: List<ChatMessage>,
     ) {
         val latest = messages.lastOrNull()?.reference ?: return
-        if (current(group) == latest) return
+        if (current(group) == latest || latest in shown[group].orEmpty()) return
+        shown[group] = messages.mapTo(mutableSetOf()) { it.reference }
         newest[group] = latest
         try {
             persisted?.markSeen(group, latest)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // Unread again after a restart; nothing else is lost.
+        } catch (e: HistoryStoreException) {
+            // Unread again after a restart; nothing else is lost. A cipher failure is not a storage problem: it goes on.
+            if (e.kind != HistoryStoreException.Kind.STORAGE) throw e
         }
     }
 
@@ -50,10 +53,9 @@ class ReadMarks(
         if (group !in newest) {
             try {
                 newest[group] = persisted?.newestSeen(group)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
+            } catch (e: HistoryStoreException) {
                 // Counts as unread for now; the next call asks again.
+                if (e.kind != HistoryStoreException.Kind.STORAGE) throw e
             }
         }
         return newest[group]

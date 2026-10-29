@@ -3,10 +3,12 @@ package app.gifitup.shared.domain.chat
 import app.gifitup.shared.data.content.GifReference
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.messages.ChatMessage
+import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.MessageBody
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
 class ReadMarksTest {
@@ -30,13 +32,14 @@ class ReadMarksTest {
     ) : ReadMarkStore {
         var writes = 0
 
-        override suspend fun newestSeen(group: KeyBytes): KeyBytes? = if (failRead) error("closed") else mark
+        override suspend fun newestSeen(group: KeyBytes): KeyBytes? =
+            if (failRead) throw HistoryStoreException(HistoryStoreException.Kind.STORAGE) else mark
 
         override suspend fun markSeen(
             group: KeyBytes,
             reference: KeyBytes,
         ) {
-            if (failWrite) error("closed")
+            if (failWrite) throw HistoryStoreException(HistoryStoreException.Kind.STORAGE)
             writes++
             mark = reference
         }
@@ -84,5 +87,34 @@ class ReadMarksTest {
             marks.markRead(group, list)
             assertEquals(0, marks.unread(group, list), "still read for this session")
             assertEquals(2, ReadMarks(store).unread(group, list), "unread again after a restart")
+        }
+
+    @Test
+    fun aSlowerScreenWithAnOlderListCannotMoveTheMarkBack() =
+        runTest {
+            val store = Memory()
+            val marks = ReadMarks(store)
+            val older = listOf(msg(1), msg(2))
+            val newer = older + msg(3)
+            marks.markRead(group, newer)
+            marks.markRead(group, older)
+            assertEquals(ref(3), store.mark)
+            assertEquals(0, marks.unread(group, newer))
+        }
+
+    @Test
+    fun aCipherFailureIsNotSwallowed() =
+        runTest {
+            val broken =
+                object : ReadMarkStore {
+                    override suspend fun newestSeen(group: KeyBytes): KeyBytes? =
+                        throw HistoryStoreException(HistoryStoreException.Kind.CIPHER)
+
+                    override suspend fun markSeen(
+                        group: KeyBytes,
+                        reference: KeyBytes,
+                    ) = throw HistoryStoreException(HistoryStoreException.Kind.CIPHER)
+                }
+            assertFailsWith<HistoryStoreException> { ReadMarks(broken).unread(group, listOf(msg(1))) }
         }
 }
