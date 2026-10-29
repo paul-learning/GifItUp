@@ -14,6 +14,9 @@ class InMemoryRecordStore : RecordStore {
     /** Makes the next read (a `get` or a `list`) fail, once. */
     var failNextRead = false
 
+    /** Makes the next delete fail, once. */
+    var failNextDelete = false
+
     override suspend fun put(
         folder: String,
         name: String,
@@ -46,7 +49,10 @@ class InMemoryRecordStore : RecordStore {
         name: String,
     ) = mutex.withLock {
         check(folder, name)
-        failIfAsked()
+        if (failNextDelete) {
+            failNextDelete = false
+            throw RecordStoreException()
+        }
         data[folder]?.remove(name)
         if (data[folder]?.isEmpty() == true) data.remove(folder)
         Unit

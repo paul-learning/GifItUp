@@ -186,6 +186,68 @@ class EncryptedMessageStoreTest {
         }
 
     @Test
+    fun aMessageThatCouldNotBeReadBackIsRefusedBeforeAnythingIsWritten() =
+        runTest {
+            val s = store()
+            val bothSet = ChatMessage(id(1), ref(1), "bob", null, MessageBody.Unavailable, DeliveryState.SENT, 1L)
+            val neitherSet = ChatMessage(id(1), ref(2), null, null, MessageBody.Unavailable, null, 1L)
+            for (bad in listOf(bothSet, neitherSet)) {
+                assertEquals(HistoryStoreException.Kind.CIPHER, assertFailsWith<HistoryStoreException> { s.insert(bad) }.kind)
+            }
+            assertEquals(emptyList(), records.folders())
+            assertEquals(emptyList(), s.messages(id(1)))
+        }
+
+    @Test
+    fun aRecordThatCannotBeReadIsNeverOverwrittenByTheMessageArrivingAgain() =
+        runTest {
+            store().insert(received(1, 1, caption = "original"))
+            val folder = records.folders().single()
+            val (name, bytes) =
+                records
+                    .snapshot()
+                    .getValue(folder)
+                    .entries
+                    .single()
+            val damaged = bytes.copyOf().also { it[it.size - 1] = (it[it.size - 1] + 1).toByte() }
+            records.put(folder, name, damaged)
+            val s = store()
+            assertFalse(s.insert(received(1, 1, caption = "again")), "its record is there, readable or not")
+            assertEquals(1, s.unreadable(id(1)))
+            assertTrue(damaged.contentEquals(records.snapshot().getValue(folder).getValue(name)), "the bytes on disk are untouched")
+        }
+
+    @Test
+    fun aFailedEvictionDeleteLeavesTheRecordForTheNextInsert() =
+        runTest {
+            val s = store(HistoryLimits(maxPerGroup = 2, maxGroups = 5))
+            s.insert(received(1, 1))
+            s.insert(received(1, 2))
+            records.failNextDelete = true
+            assertTrue(s.insert(received(1, 3)), "the message is stored although the old record could not be deleted")
+            assertEquals(3, s.messages(id(1)).size)
+            assertEquals(
+                3,
+                records
+                    .snapshot()
+                    .values
+                    .single()
+                    .size,
+            )
+            assertTrue(s.insert(received(1, 4)))
+            assertEquals(listOf(ref(3), ref(4)), s.messages(id(1)).map { it.reference })
+            assertEquals(
+                2,
+                records
+                    .snapshot()
+                    .values
+                    .single()
+                    .size,
+            )
+            assertEquals(listOf(ref(3), ref(4)), store(HistoryLimits(maxPerGroup = 2, maxGroups = 5)).messages(id(1)).map { it.reference })
+        }
+
+    @Test
     fun aRecordThatDoesNotOpenIsCountedKeptAndNeverShown() =
         runTest {
             val first = store()

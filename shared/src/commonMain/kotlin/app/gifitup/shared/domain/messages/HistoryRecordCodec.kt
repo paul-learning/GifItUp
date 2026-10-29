@@ -40,6 +40,8 @@ internal object HistoryRecordCodec {
 
     fun encode(stored: StoredMessage): ByteArray {
         val message = stored.message
+        // Ours have a state and no sender, received ones a sender and no state: anything else would not read back.
+        check((message.sender == null) == (message.state != null)) { "sender and state disagree" }
         val out = ByteWriter()
         out.u8(VERSION)
         out.blob(message.groupId.bytes)

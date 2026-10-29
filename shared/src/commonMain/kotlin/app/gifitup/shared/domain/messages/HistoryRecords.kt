@@ -74,6 +74,7 @@ internal class HistoryRecords(
     suspend fun evict(
         folder: String,
         items: MutableList<StoredMessage>,
+        names: MutableSet<String>,
         max: Int,
     ) {
         while (items.size > max) {
@@ -85,6 +86,7 @@ internal class HistoryRecords(
                 return
             }
             items.removeAt(0)
+            names -= name
         }
     }
 }
