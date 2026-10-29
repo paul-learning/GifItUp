@@ -78,7 +78,7 @@ class EnvelopeSnapshotKeyStore(
         }
         val sealed =
             try {
-                aead.seal(key, aad()).also { verify(it, key) }
+                aead.seal(key, aad()).also { verifyWrappedKey(aead, it, key, aad()) }
             } catch (e: CancellationException) {
                 // A cancelled save leaves a wrapping key it made: the next save reuses one that works, and a cleanup
                 // here would be cancelled itself.
@@ -99,28 +99,9 @@ class EnvelopeSnapshotKeyStore(
         store.putAll(mapOf(KEY to byteArrayOf(VERSION) + sealed))
     }
 
-    /**
-     * The write path checks what [load] checks: the size, and that the sealed key opens to the same key, so a broken
-     * platform key fails here, before the identity is registered, not on the next start (#111 SEC-1).
-     */
-    private suspend fun verify(
-        sealed: ByteArray,
-        key: ByteArray,
-    ) {
-        if (sealed.size != WRAPPED_SIZE - 1) throw LocalStateException(STORAGE)
-        val opened = aead.open(sealed, aad())
-        try {
-            var difference = opened.size xor key.size
-            for (i in 0 until minOf(opened.size, key.size)) difference = difference or (opened[i].toInt() xor key[i].toInt())
-            if (difference != 0) throw LocalStateException(STORAGE)
-        } finally {
-            opened.fill(0)
-        }
-    }
-
     override suspend fun clear() = store.putAll(mapOf(KEY to null))
 
-    private fun aad(): ByteArray = LABEL.encodeToByteArray() + byteArrayOf(0, VERSION) + origin.encodeToByteArray()
+    private fun aad(): ByteArray = wrappedKeyAad(LABEL, VERSION, origin)
 
     internal companion object {
         const val KEY = "wrapped-snapshot-key"

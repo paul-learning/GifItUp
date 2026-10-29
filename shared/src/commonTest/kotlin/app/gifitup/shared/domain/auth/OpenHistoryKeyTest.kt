@@ -10,6 +10,7 @@ import app.gifitup.shared.data.storage.RecordStoreException
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -102,7 +103,7 @@ class OpenHistoryKeyTest {
         }
 
     @Test
-    fun aFailedSaveLeavesNoKeyAndThrowsOn() =
+    fun aFailedSaveLeavesNoKeyAndRethrows() =
         runTest {
             val failing =
                 object : app.gifitup.shared.data.storage.HistoryKeyStore {
@@ -140,15 +141,16 @@ class OpenHistoryKeyTest {
     @Test
     fun theCallHoldsTheStoragesLock() =
         runTest {
-            var inside = false
-            val result =
+            val call =
                 lock.holding {
                     val call = async { open()() }
-                    inside = call.isCompleted
+                    testScheduler.runCurrent()
+                    assertEquals(false, call.isCompleted, "blocked while the lock is held")
+                    assertEquals(0, keys.saves)
+                    assertEquals(0, random.sizes.size)
                     call
                 }
-            assertEquals(false, inside)
-            assertEquals(32, result.await().size)
+            assertEquals(32, call.await().size)
         }
 
     private companion object {
