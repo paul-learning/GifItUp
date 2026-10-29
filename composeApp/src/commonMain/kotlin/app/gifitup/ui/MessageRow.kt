@@ -1,10 +1,12 @@
 package app.gifitup.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -23,19 +25,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.data.content.GifReference
 import app.gifitup.shared.domain.messages.DeliveryState
 import app.gifitup.shared.domain.messages.MessageBody
-import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.GifTile
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
 import app.gifitup.shared.presentation.chat.MessageView
-import kotlin.time.Clock
 
 /** The tile holder and this bubble's tile in it. */
 private data class GifMedia(
@@ -43,21 +47,19 @@ private data class GifMedia(
     val tile: GifTile?,
 )
 
-/** One message: a GIF bubble with its caption below, sender and time, or a plain line for a rename or an unreadable one. */
+/** One message: a GIF bubble with its caption on it, and under it who sent it and when; or a plain line for a rename. */
 @Composable
 internal fun MessageRow(
     message: MessageView,
     tiles: GifTilesStateHolder,
     tile: GifTile?,
-    group: Boolean,
 ) {
     val mine = message.sender == null
     val sender = message.sender?.let(ChatTexts::isolated) ?: ConversationTexts.YOU
-    val ago = ChatTexts.ago(Ago.of(Clock.System.now().epochSeconds, message.at))
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         when (val body = message.body) {
             is MessageBody.Gif -> GifBubble(message, body, GifMedia(tiles, tile), sender, mine)
@@ -65,23 +67,42 @@ internal fun MessageRow(
             MessageBody.Unavailable -> Text(ConversationTexts.UNAVAILABLE, style = MaterialTheme.typography.bodySmall)
             MessageBody.UpdateNeeded -> Text(ConversationTexts.UPDATE_NEEDED, style = MaterialTheme.typography.bodySmall)
         }
-        val state =
-            when (message.state) {
-                DeliveryState.SENDING -> " · ${ConversationTexts.SENDING}"
-                DeliveryState.FAILED -> " · ${ConversationTexts.NOT_SENT}"
-                else -> ""
-            }
+        SenderLine(message, sender, mine)
+    }
+}
+
+/** Under a bubble: the sender with an avatar (theirs) or "you" (ours), the time, and where one of ours stands. */
+@Composable
+private fun SenderLine(
+    message: MessageView,
+    sender: String,
+    mine: Boolean,
+) {
+    val colors = MaterialTheme.colorScheme
+    val time = formatClockTime(message.at)
+    val state =
+        when (message.state) {
+            DeliveryState.SENDING -> " · ${ConversationTexts.SENDING}"
+            DeliveryState.FAILED -> " · ${ConversationTexts.NOT_SENT}"
+            DeliveryState.SENT -> " · ${ConversationTexts.SENT}"
+            null -> ""
+        }
+    Row(
+        Modifier.padding(horizontal = 4.dp).semantics(mergeDescendants = true) { contentDescription = "$sender, $time$state" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (!mine) Avatar(message.sender.orEmpty(), SENDER_AVATAR_SIZE)
         Text(
-            (if (group || mine) "$sender · " else "") + ago + state,
-            style = MaterialTheme.typography.labelSmall,
-            color =
-                if (message.state ==
-                    DeliveryState.FAILED
-                ) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+            sender,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (mine) colors.secondary else colors.onSurface,
+        )
+        Text(
+            time + state,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (message.state == DeliveryState.FAILED) colors.error else colors.onSurfaceVariant,
         )
     }
 }
@@ -100,31 +121,64 @@ private fun GifBubble(
         tiles.show(message.reference, body.reference)
         onDispose { tiles.hide(message.reference) }
     }
-    // Three quarters of the width, at most BUBBLE_MAX_WIDTH, on the side of the sender.
+    // Four fifths of the width, at most BUBBLE_MAX_WIDTH, on the side of the sender.
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Surface(
-            color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            shape = MaterialTheme.shapes.medium,
+            color = if (mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = MaterialTheme.shapes.large,
             modifier = Modifier.width(minOf(maxWidth * BUBBLE_FRACTION, BUBBLE_MAX_WIDTH)),
         ) {
-            Column(modifier = Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Box {
                 GifTileView(
                     tile,
                     body.reference,
                     ConversationTexts.gifDescription(sender, body.caption),
                 ) { tiles.tap(message.reference, body.reference) }
-                body.caption?.let {
-                    // One line, clipped to a bounded height: a stack of combining marks can't grow the bubble.
-                    Text(
-                        ChatTexts.isolated(it),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.heightIn(max = CAPTION_MAX_HEIGHT).clipToBounds(),
-                    )
-                }
+                GifChip(Modifier.align(Alignment.TopStart).padding(12.dp))
+                body.caption?.let { CaptionOnGif(it, Modifier.align(Alignment.BottomStart)) }
             }
         }
+    }
+}
+
+/** The small "GIF" label on a bubble; decorative, the description of the bubble says what it is. */
+@Composable
+private fun GifChip(modifier: Modifier) {
+    Text(
+        ConversationTexts.GIF_CHIP,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = Color.White,
+        modifier =
+            modifier
+                .background(Color.Black.copy(alpha = CHIP_SCRIM), MaterialTheme.shapes.small)
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+                .clearAndSetSemantics { },
+    )
+}
+
+/** The caption over the lower edge of the GIF, on a dark fade so it reads on any picture; plain text, one line. */
+@Composable
+private fun CaptionOnGif(
+    caption: String,
+    modifier: Modifier,
+) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = CAPTION_SCRIM))))
+            .padding(start = 12.dp, end = 12.dp, top = 20.dp, bottom = 12.dp),
+    ) {
+        // One line, clipped to a bounded height: a stack of combining marks can't grow the bubble.
+        Text(
+            ChatTexts.isolated(caption),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.heightIn(max = CAPTION_MAX_HEIGHT).clipToBounds(),
+        )
     }
 }
 
@@ -213,7 +267,10 @@ private fun Placeholder(
     }
 }
 
-private const val BUBBLE_FRACTION = 0.75f
+private const val BUBBLE_FRACTION = 0.8f
+private const val CHIP_SCRIM = 0.45f
+private const val CAPTION_SCRIM = 0.65f
+private val SENDER_AVATAR_SIZE = 24.dp
 private val BUBBLE_MAX_WIDTH = 320.dp
 private val CAPTION_MAX_HEIGHT = 28.dp
 private const val MIN_RATIO = 0.5f

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,6 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -30,7 +32,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.presentation.chat.ConversationState
@@ -103,7 +105,7 @@ internal fun ConversationScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(state.messages.asReversed(), key = { it.reference.listKey() }) { message ->
-                MessageRow(message, tiles, tileStates[message.reference], state.title.isGroup)
+                MessageRow(message, tiles, tileStates[message.reference])
             }
         }
         SendArea(holder, state.sendProblem, state.hasUnsettled, state.canSend)
@@ -115,20 +117,20 @@ private fun ConversationHeader(
     state: ConversationState,
     onBack: (() -> Unit)?,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (onBack != null) TextButton(onClick = onBack) { Text(ChatTexts.BACK) }
-        Text(
-            ChatTexts.title(state.title),
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).semantics { heading() },
-        )
-        if (state.refreshing) CircularProgressIndicator(modifier = Modifier.padding(4.dp), strokeWidth = 2.dp)
-    }
+    AppTopBar(
+        title = ChatTexts.title(state.title),
+        onBack = onBack,
+        subtitle = ConversationTexts.subtitle(state.members.size),
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (state.refreshing) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                MemberAvatars(state.members)
+            }
+        },
+    )
 }
 
-/** The caption field and the send button. The button is off until the GIF picker (#23) can hand over a GIF. */
+/** The caption field, the send button and what it needs to say. The button is off until the GIF picker (#23) can hand over a GIF. */
 @Composable
 private fun SendArea(
     holder: ConversationStateHolder,
@@ -136,20 +138,27 @@ private fun SendArea(
     unsettled: Boolean,
     canSend: Boolean,
 ) {
-    var open by remember { mutableStateOf(false) }
+    var open by rememberSaveable { mutableStateOf(false) }
     var caption by remember { mutableStateOf("") }
-    problem?.let { Text(ConversationTexts.sendProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
-    if (unsettled) TextButton(onClick = holder::resend, enabled = canSend) { Text(ConversationTexts.RESEND) }
-    if (open) {
-        CaptionField(holder.captions, caption, onChange = { caption = it }, onRemove = {
-            caption = ""
-            open = false
-        })
-    } else {
-        TextButton(onClick = { open = true }) { Text(ConversationTexts.ADD_CAPTION) }
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        problem?.let { Text(ConversationTexts.sendProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
+        if (unsettled) TextButton(onClick = holder::resend, enabled = canSend) { Text(ConversationTexts.RESEND) }
+        if (open) {
+            CaptionField(holder.captions, caption, onChange = { caption = it }, onRemove = {
+                caption = ""
+                open = false
+            })
+        } else {
+            TextButton(onClick = { open = true }) { Text(ConversationTexts.ADD_CAPTION) }
+        }
+        PlusButton(ConversationTexts.SEND, enabled = false, onClick = {})
+        Text(
+            ConversationTexts.SEND_NEEDS_PICKER,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
-    Button(onClick = {}, enabled = false) { Text(ConversationTexts.SEND) }
-    Text(ConversationTexts.SEND_NEEDS_PICKER, style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable

@@ -12,7 +12,10 @@ internal object ConversationTexts {
     const val SEND = "Send GIF"
     const val SEND_NEEDS_PICKER = "Choosing a GIF comes with the GIF picker, which is not part of the app yet."
     const val RESEND = "Send again"
-    const val YOU = "You"
+    const val YOU = "you"
+    const val SENT = "sent"
+    const val GIF_CHIP = "GIF"
+    const val ENCRYPTED = "end-to-end encrypted"
     const val SENDING = "Sending…"
     const val NOT_SENT = "Not sent"
     const val LOAD_GIF = "Load the GIF"
@@ -31,6 +34,16 @@ internal object ConversationTexts {
             UnavailableReason.FETCH_FAILED -> "The GIF could not be loaded."
             UnavailableReason.TOO_LARGE -> "The GIF is too large to show."
             UnavailableReason.REJECTED -> "The GIF is not a file this app shows."
+        }
+
+    /** The line under the title: how many people are in it (you included), and that it is encrypted. */
+    fun subtitle(others: Int): String =
+        if (others <
+            2
+        ) {
+            ENCRYPTED.replaceFirstChar { it.uppercase() }
+        } else {
+            "${others + 1} friends · $ENCRYPTED"
         }
 
     fun renamed(name: String): String = "The chat was renamed to ${ChatTexts.isolated(name)}"
