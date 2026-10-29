@@ -4,11 +4,11 @@
 Closes #
 
 ## Risk tier
-<!-- high | normal | low (see CLAUDE.md, "Risk tiers"): the highest tier any change hits, plus a one-line reason. -->
+<!-- high | normal | low (see AGENTS.md, "Risk tiers"): the highest tier any change hits, plus a one-line reason. -->
 **Tier:**
 
 ## Decision
-<!-- Only for decisions that don't need an ADR (CLAUDE.md: ADRs are for hard-to-reverse decisions). Delete if none. -->
+<!-- Only for decisions that don't need an ADR (AGENTS.md: ADRs are for hard-to-reverse decisions). Delete if none. -->
 
 ## How it was tested
 - [ ] `./gradlew check` passes locally
@@ -24,7 +24,7 @@ Closes #
 - [ ] ADR added/updated for a hard-to-reverse decision, or a *Decision* paragraph above for any other decision
 
 ## Review log
-<!-- One line, set once when the reviews are done (CLAUDE.md, Risk tiers, step 4). Each review round and delta check is
+<!-- One line, set once when the reviews are done (AGENTS.md, Risk tiers, step 4). Each review round and delta check is
      its own reviewer comment, and the author answers every finding in a reply comment (fix SHA, reason for declining,
      or `later` issue); neither is copied here. Max 2 rounds (round 0, the plan review, doesn't count); delta security
      checks are their own comments and don't count as rounds. -->
