@@ -11,6 +11,7 @@ pub mod client;
 pub mod error;
 mod fingerprint;
 pub mod group;
+mod history;
 pub mod identity;
 mod list;
 mod provider;
@@ -21,7 +22,7 @@ mod test_panic;
 #[cfg(not(target_arch = "wasm32"))]
 mod uniffi_api;
 #[cfg(not(target_arch = "wasm32"))]
-pub use uniffi_api::NativeMlsClient;
+pub use uniffi_api::{NativeHistoryCipher, NativeMlsClient};
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_api;

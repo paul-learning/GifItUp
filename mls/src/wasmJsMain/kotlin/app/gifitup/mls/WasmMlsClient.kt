@@ -23,6 +23,12 @@ import org.khronos.webgl.set
  * restores from the last persisted snapshot.
  */
 suspend fun loadWasmMlsClientFactory(): MlsClientFactory {
+    loadWasmModule()
+    return WasmMlsClientFactory
+}
+
+/** Loads the wasm module (once, shared by every caller) and returns when it is ready. */
+internal suspend fun loadWasmModule() {
     // Concurrent first callers share one load instead of instantiating the module twice (#66 CR-4).
     val loading = WasmModule.loading ?: initCrypto().also { WasmModule.loading = it }
     var loaded = false
@@ -33,7 +39,6 @@ suspend fun loadWasmMlsClientFactory(): MlsClientFactory {
         // A failed load (e.g. a network error fetching the .wasm) is retried on the next call (#66 SEC-9).
         if (!loaded) WasmModule.loading = null
     }
-    return WasmMlsClientFactory
 }
 
 internal object WasmModule {

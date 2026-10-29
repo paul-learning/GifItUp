@@ -45,6 +45,12 @@ pub enum ErrorCode {
     /// No staged commit or welcome under that token, or nothing pending to merge or clear.
     #[error("UnknownToken")]
     UnknownToken,
+    /// A history record has a size, header or inner layout that no seal makes (ADR-0017).
+    #[error("HistoryInvalid")]
+    HistoryInvalid,
+    /// A history record did not authenticate: another key, name or origin, or a changed byte (ADR-0017).
+    #[error("HistoryAuth")]
+    HistoryAuth,
     /// A panic or a poisoned lock: the client is unusable and must be dropped (ADR-0007).
     #[error("Poisoned")]
     Poisoned,

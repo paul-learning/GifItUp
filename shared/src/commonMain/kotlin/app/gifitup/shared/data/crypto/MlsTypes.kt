@@ -146,6 +146,12 @@ enum class MlsErrorCode {
 
     /** No staged commit or welcome under that token, or nothing pending. */
     UnknownToken,
+
+    /** A history record has a size, header or inner layout that no seal makes (ADR-0017). */
+    HistoryInvalid,
+
+    /** A history record did not authenticate: another key, name or origin, or a changed byte (ADR-0017). */
+    HistoryAuth,
     Poisoned,
     Internal,
 }

@@ -11,6 +11,7 @@ use crate::auth::AuthPurpose;
 use crate::client::Client;
 use crate::error::{ErrorCode, PanicGuard, catch, install_silent_panic_hook, module_call};
 use crate::group::{EncryptedMessage, IncomingMessage, LeafInfo, PreparedCommit, WelcomeInfo};
+use crate::history::HistoryCipher;
 use crate::identity::{CreatedKeyPackage, PublicIdentity};
 use crate::list::{decode_byte_lists, decode_u32_list};
 use crate::snapshot::take_key;
@@ -510,6 +511,66 @@ impl NativeMlsClient {
                 let purpose = AuthPurpose::from_name(purpose)?;
                 self.client.sign_auth(purpose, challenge, origin, subject)
             })
+            .map_err(js_err)
+    }
+}
+
+/// Seals and opens the records of the local message history (ADR-0017). See [`HistoryCipher`].
+#[wasm_bindgen]
+pub struct NativeHistoryCipher {
+    guard: PanicGuard,
+    cipher: HistoryCipher,
+}
+
+#[wasm_bindgen]
+impl NativeHistoryCipher {
+    /// `history_key` (32 bytes) is copied and its copy in wasm memory is wiped (best effort); `origin` is the
+    /// account's canonical origin.
+    #[wasm_bindgen(constructor)]
+    pub fn new(history_key: Vec<u8>, origin: String) -> Result<NativeHistoryCipher, JsError> {
+        install_silent_panic_hook();
+        module_call(|| catch(|| HistoryCipher::new(history_key, &origin)))
+            .map(|cipher| Self {
+                guard: PanicGuard::default(),
+                cipher,
+            })
+            .map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = groupName)]
+    pub fn group_name(&self, group_id: &[u8]) -> Result<Vec<u8>, JsError> {
+        self.guard
+            .run(|| self.cipher.group_name(group_id).map(|n| n.to_vec()))
+            .map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = messageName)]
+    pub fn message_name(&self, group_id: &[u8], reference: &[u8]) -> Result<Vec<u8>, JsError> {
+        self.guard
+            .run(|| {
+                self.cipher
+                    .message_name(group_id, reference)
+                    .map(|n| n.to_vec())
+            })
+            .map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = readMarkName)]
+    pub fn read_mark_name(&self, group_id: &[u8]) -> Result<Vec<u8>, JsError> {
+        self.guard
+            .run(|| self.cipher.read_mark_name(group_id).map(|n| n.to_vec()))
+            .map_err(js_err)
+    }
+
+    pub fn seal(&self, name: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, JsError> {
+        self.guard
+            .run(|| self.cipher.seal(name, plaintext))
+            .map_err(js_err)
+    }
+
+    pub fn open(&self, name: &[u8], sealed: &[u8]) -> Result<Vec<u8>, JsError> {
+        self.guard
+            .run(|| self.cipher.open(name, sealed))
             .map_err(js_err)
     }
 }
