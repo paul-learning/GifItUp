@@ -1,6 +1,6 @@
 #!/bin/sh
 # Refuses every push that would create, update or delete main on the remote (#52).
-# Backstop for the hard rule in CLAUDE.md: the agent runs with the owner's account, which can bypass the
+# Backstop for the hard rule in AGENTS.md: the agent runs with the owner's account, which can bypass the
 # ruleset, so GitHub itself won't stop it. Catches every spelling (`git push origin HEAD` on main,
 # refspecs, aliases) because git hands the hook the resolved remote ref.
 # Activated per clone with `git config core.hooksPath .githooks`; agent sessions do this automatically
@@ -8,7 +8,7 @@
 status=0
 while read -r _local_ref _local_sha remote_ref _remote_sha; do
   if [ "$remote_ref" = "refs/heads/main" ]; then
-    echo "pre-push: refusing to push to main. Open a PR instead (CLAUDE.md, Git & PR workflow)." >&2
+    echo "pre-push: refusing to push to main. Open a PR instead (AGENTS.md, Git & PR workflow)." >&2
     status=1
   fi
 done

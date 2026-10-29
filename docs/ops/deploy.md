@@ -23,7 +23,7 @@ How a merge to `main` reaches the VM, and the one-time setup the owner does. VM 
 
 **What approving a deploy means:** that commit's `docker-compose.yml` and `deploy.sh` run on the shared VM with the `deploy` user's rights. Those are root-equivalent through Docker (ADR-0005). Approve only commits you merged yourself.
 
-**Agents never dispatch, re-run or approve deploys** (CLAUDE.md hard rule; deny list in `.claude/settings.json`).
+**Agents never dispatch, re-run or approve deploys** (AGENTS.md hard rule; deny list in `.claude/settings.json`).
 
 ## Invites and accounts (admin CLI, ADR-0010)
 On the VM, as `deploy`, from `/opt/gifitup/deploy`. Always with `--rm`: the `admin` service has Docker logging off, and `--rm` removes the container afterwards, so an invite link isn't kept on disk.

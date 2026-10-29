@@ -24,8 +24,7 @@ _Users can join through an invite, devices register keys, and the server can rel
 
 **Next: walking skeleton.** After #13 and #76, M1 continues with one thin end-to-end slice, in this order:
 1. ✅ Content-format amendments to ADR-0006 (one docs-only PR, #92): optional GIF caption (#80) and the content-format decision from the owner's comment on #24 (message reference/ID, "annotation" types that old clients ignore).
-2. ✅ Dev CLI client + end-to-end test in CI (#79; PRs #94, #
-95, #102, #103, #104).
+2. ✅ Dev CLI client + end-to-end test in CI (#79; PRs #94, #95, #102, #103, #104).
 3. ✅ Minimal onboarding screen (#17), on the same use cases as the CLI (PRs #129, #130, #131, #132, #142, #143, #145: foundation, onboarding logic and screens, the create-invite logic and screen, Android App Links; checked on a phone, Android 15). Not built yet: a web page at `/invite` (today the server answers an error page there); it belongs to the web client's hosting and CSP work, #27.
 
 Everything else in M1 below that this slice doesn't need comes after it.
@@ -41,8 +40,7 @@ Everything else in M1 below that this slice doesn't need comes after it.
 - 🏛️ Architecture review M1 · 🛡️ Security review M1 — #19, #20
 
 ## M2 — Encrypted GIF messaging MVP ⬜ → first friends alpha
-_The first usable version: 1:1 and group chats that send GIFs, all
- MLS-encrypted._
+_The first usable version: 1:1 and group chats that send GIFs, all MLS-encrypted._
 
 - Server: MLS Delivery Service. Covers per-group ordered message log, commit ordering per epoch, Welcome delivery, and a WebSocket push channel for online clients. (#21)
 - Client: create a group / 1:1 chat (a group of 2), add members, process Welcome/Commit, persist MLS group state, message references from `crypto/` (ADR-0006 B9). (#22)
@@ -59,8 +57,7 @@ _The first usable version: 1:1 and group chats that send GIFs, all
 - Push notifications without content (FCM data-only "wake up" or UnifiedPush/ntfy, decided by ADR).
 - Group management: leave, remove member, rename (the name is sent as an encrypted `GroupMeta` message, not in the GroupContext), self-update / key rotation schedule.
 - Safety-number / key-fingerprint verification UI and key-change warnings.
-- Multi-device per user (each device is its own MLS leaf; per-user identity key signing device credentials, ADR first): linking a
- second device and removing a lost one (#72; #12 registers the first device only, ADR-0009).
+- Multi-device per user (each device is its own MLS leaf; per-user identity key signing device credentials, ADR first): linking a second device and removing a lost one (#72; #12 registers the first device only, ADR-0009).
 - Local state backup/restore strategy (ADR).
 - Reactions (as GIFs, naturally) and read receipts, both encrypted.
 - Own GIF uploads (encrypted attachments): blob pad/encrypt in `crypto/` (ADR-0003) and the encrypted blob store (#15, moved from M1 after spike #5).
@@ -77,11 +74,10 @@ _The first usable version: 1:1 and group chats that send GIFs, all
 ---
 
 ## Owner setup (one-time, cannot be done by the agent)
-1. **Agent identity (decided 2026-10-13):** no separate bot account. The agent uses the owner's account, and the owner merges PRs via the admin bypass. GitHub therefore **cannot** stop the agent from merging. The guard is the hard rule in `CLAUDE.md` plus the `.claude/settings.json` deny list. This is an accepted risk in the threat model. Revisit if a bot account or GitHub App becomes possible.
+1. **Agent identity (decided 2026-10-13):** no separate bot account. The agent uses the owner's account, and the owner merges PRs via the admin bypass. GitHub therefore **cannot** stop the agent from merging. The guard is the hard rule in `AGENTS.md` plus the `.claude/settings.json` deny list. This is an accepted risk in the threat model. Revisit if a bot account or GitHub App becomes possible.
 2. **Ruleset on `main`:** require a PR, block force pushes and deletions, require CI status checks once #2 exists, and re-enable the CodeQL rule once #2 has added the CodeQL workflow. Keep the admin bypass; only the owner uses it.
 3. **Local toolchain:** JDK 21, Android Studio (SDK + NDK), Rust via rustup (+ `wasm32-unknown-unknown` and Android targets, `cargo-ndk`), Docker Desktop (required for the server's database tests in `./gradlew check` and for running the server locally, ADR-0008).
-4. **Domain** pointing at the Hetzner VM (A/AAAA record), needed for TLS and th
-e web app (#6).
+4. **Domain** pointing at the Hetzner VM (A/AAAA record), needed for TLS and the web app (#6).
 5. **VM access** for the deploy workflow: a `deploy` user, a restricted SSH key and the `production` environment (#6, #7; steps in `docs/ops/deploy.md`).
 6. **GIF API key (Klipy, free; spike #5):** create a Partner Panel account and an API key (testing mode, 100 requests/hour), keep ads **off**, and set the content filter. The key goes into the server's environment (deploy secret), never into the repo or a client build; the server hands it to logged-in clients. **Request production access (free, unlimited) before the friends alpha (#27)**, because all clients share the key's rate limit.
 7. **Repository security features (#8):** verified on 2026-10-14: secret scanning and push protection, Dependabot alerts and security updates are on. *Private vulnerability reporting*, which `SECURITY.md` relies on, is enabled (verified 2026-10-15). **To do:** secret scanning for non-provider patterns (generic private keys, passwords; #53), and under Settings → Actions, require SHA-pinned actions and an allowlist of actions (SEC-M0-11).

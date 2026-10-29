@@ -12,7 +12,7 @@
 #
 # Bodies come only from a .md file under /tmp (the session scratchpad) or the gitignored .gh-rest/ in the repo.
 # Every body gets a fixed marker as its first and last line: text with it is agent text, never owner consent
-# (CLAUDE.md rule 7). Exit 2 on any refusal, before any write (pr-edit reads the PR first). Run from anywhere; Git Bash on Windows works.
+# (AGENTS.md rule 7). Exit 2 on any refusal, before any write (pr-edit reads the PR first). Run from anywhere; Git Bash on Windows works.
 set -euo pipefail
 
 readonly REPO=paul-learning/GifItUp

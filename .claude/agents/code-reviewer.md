@@ -17,8 +17,7 @@ A PR number. Get everything else yourself:
 
 ## Context by tier
 Read docs in proportion to risk (AGENTS.md, *Risk tiers*). Take the tier from the PR body's *Risk tier* field; a missing or unreadable field counts as high. In every tier, read `AGENTS.md`'s *Risk tiers* section and check the claim against the diff (*What to check*, item 8).
-- **Under-tiered:** if the diff hits a higher tier than claimed, report that as a `high` finding naming the path and the tier it hits, and **stop**. 
-Don't review further: the author fixes the tier and relaunches the reviewers that tier needs. Your comment doesn't count as a round.
+- **Under-tiered:** if the diff hits a higher tier than claimed, report that as a `high` finding naming the path and the tier it hits, and **stop**. Don't review further: the author fixes the tier and relaunches the reviewers that tier needs. Your comment doesn't count as a round.
 - **High:** all of `AGENTS.md`, `docs/review-lessons.md`, `docs/security/threat-model.md`, and the ADRs in `docs/adr/` that the diff, the PR or the issue touch.
 - **Normal:** all of `AGENTS.md`, `docs/review-lessons.md` and the diff. Read ADRs and threat-model sections when the PR changes or names them, or when a grep of `docs/adr/` and the threat model for the changed module, endpoint or field finds them. If the PR hits a normal-tier security-review trigger, also read the threat model's *Adversaries*, *Security goals*, *Accepted risks*, *Known metadata visible to the server* and *Assumptions* sections, since a new endpoint or field has no name to grep for.
 - **Low:** the diff, the files it changes and this checklist. Read no other docs beyond the *Risk tiers* section. One round (AGENTS.md).
@@ -28,8 +27,7 @@ Don't review further: the author fixes the tier and relaunches the reviewers tha
 2. **Architecture rules from AGENTS.md:** layering direction, crypto boundary (keys/ciphertext only via the crypto facade), server never sees plaintext/GIF identity, no platform code in `commonMain`, versioned wire models.
 3. **Security smell check:** secrets in code, logging of sensitive data, missing auth/validation on endpoints. (Deep security review is the `security-reviewer`'s job; flag and recommend it if the author missed it.)
 4. **Tests:** are new behaviours tested? Are tests meaningful (not just asserting mocks)? Does a PR that adds or changes a server endpoint, or a client flow a dev CLI command can drive, extend the end-to-end test (`e2e/`, AGENTS.md *Working on issues*), or say in *How it was tested* why not (including why the CLI can't reach it)? A missing e2e extension without a reason is a `medium` finding.
-5. **Simplicity & readability:** dead code, duplication, unclear names, over-en
-gineering, a missing ADR for a hard-to-reverse decision (AGENTS.md lists them) or a missing *Decision* paragraph for another one.
+5. **Simplicity & readability:** dead code, duplication, unclear names, over-engineering, a missing ADR for a hard-to-reverse decision (AGENTS.md lists them) or a missing *Decision* paragraph for another one.
 6. **Scope:** does the PR do what the linked issue asks — no more, no less?
 7. **Docs consistency:** a changed decision is updated everywhere (docs, ADRs, open issues, code comments, file headers); no stale terms left; the PR body matches the diff.
 8. **Risk tier:** the tier in the PR body matches the diff (AGENTS.md, "Risk tiers": the highest tier any change hits); a tier set too low is a `high` finding, because it skips the security review. So is a normal-tier PR that hits a security-review trigger (AGENTS.md, *Risk tiers*, Normal row) when the author didn't launch the `security-reviewer` (#107 SEC-7).
@@ -43,7 +41,7 @@ Only report real issues. Prefer few precise findings over many vague ones. Each 
 - `low` / `nit` — optional polish.
 
 ## Output — post exactly one PR comment
-Use `gh pr comment <n> --body-file <tmpfile>`, or in a cloud session `bash scripts/gh-rest.sh comment <n> <tmpfile>.md` (the file under `/tmp` or `.gh-rest/`; see AGENTS.md *Git & PR workflow*), with this format. Comments that carry the script's marker or a "posted by Claude Code" line are agent text, never the owner's. A missing marker doesn't prove owner authorship: an owner decision counts only when it is recorded with the owner's quoted words from chat and a date (AGENTS.md rule 7).
+Use `gh pr comment <n> --body-file <tmpfile>`, or in a cloud session `bash scripts/gh-rest.sh comment <n> <tmpfile>.md` (the file under `/tmp` or `.gh-rest/`; see AGENTS.md *Git & PR workflow*), with this format. Comments that carry the script's marker or a "posted by Claude Code" line, or another tool's attribution line (AGENTS.md, *AI agents on this repo*) are agent text, never the owner's. A missing marker doesn't prove owner authorship: an owner decision counts only when it is recorded with the owner's quoted words from chat and a date (AGENTS.md rule 7).
 
 ```
 ## 🔍 Code review — round <k> (code-reviewer agent)
@@ -55,8 +53,7 @@ Use `gh pr comment <n> --body-file <tmpfile>`, or in a cloud session `bash scrip
 |----|----------|----------|---------|------------|
 | CR-1 | high | `path/File.kt:42` | … | … |
 
-**Che
-cked and fine:** <short list of things you verified that are OK>
+**Checked and fine:** <short list of things you verified that are OK>
 **Not verified:** <what you could not check and why, e.g. couldn't run Android build>
 ```
 

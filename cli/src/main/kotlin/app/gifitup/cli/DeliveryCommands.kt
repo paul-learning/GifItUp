@@ -13,7 +13,7 @@ import java.util.Base64
 /**
  * The Delivery Service commands (ADR-0015, #21), a wire-level test driver for **test accounts only**: they send random
  * bytes as commit, welcome and application payloads, because the server never parses them. No readable content leaves
- * the machine, not even for tests (CLAUDE.md rule 1); real MLS content comes with the client sync loop (#22). Output
+ * the machine, not even for tests (AGENTS.md rule 1); real MLS content comes with the client sync loop (#22). Output
  * is one fixed line per result; it shows ids and counts, never payload bytes, tokens or keys.
  */
 @Suppress("TooManyFunctions") // One function per command.

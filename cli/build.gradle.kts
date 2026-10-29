@@ -1,6 +1,6 @@
 // The dev CLI (#79): a JVM command-line client over the same use cases as the app, for agents, CI's end-to-end test and
 // smoke tests with test accounts. A dev/test tool only: never shipped, never part of an app artifact, and no module
-// depends on it (CLAUDE.md "Dev CLI"; checked by scripts/check-repo-hygiene.sh). Keys live unprotected in its state dir.
+// depends on it (AGENTS.md "Dev CLI"; checked by scripts/check-repo-hygiene.sh). Keys live unprotected in its state dir.
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
