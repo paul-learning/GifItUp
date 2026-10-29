@@ -4,7 +4,6 @@ import app.gifitup.shared.data.storage.HistoryKeyStore
 import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.LocalStateException.Problem.DAMAGED
 import app.gifitup.shared.data.storage.LocalStateException.Problem.KEY_UNAVAILABLE
-import app.gifitup.shared.data.storage.LocalStateException.Problem.STORAGE
 import app.gifitup.shared.data.storage.LocalStore
 
 /**
@@ -38,29 +37,13 @@ class EnvelopeHistoryKeyStore(
         check(store.get(KEY) == null) { "a stored history key is never replaced" }
         if (!aead.exists()) throw LocalStateException(KEY_UNAVAILABLE)
         val sealed = aead.seal(key, aad())
-        verify(sealed, key)
+        verifyWrappedKey(aead, sealed, key, aad())
         store.putAll(mapOf(KEY to byteArrayOf(VERSION) + sealed))
-    }
-
-    /** The write path checks what [load] checks: the size, and that the sealed key opens to the same key. */
-    private suspend fun verify(
-        sealed: ByteArray,
-        key: ByteArray,
-    ) {
-        if (sealed.size != EnvelopeSnapshotKeyStore.WRAPPED_SIZE - 1) throw LocalStateException(STORAGE)
-        val opened = aead.open(sealed, aad())
-        try {
-            var difference = opened.size xor key.size
-            for (i in 0 until minOf(opened.size, key.size)) difference = difference or (opened[i].toInt() xor key[i].toInt())
-            if (difference != 0) throw LocalStateException(STORAGE)
-        } finally {
-            opened.fill(0)
-        }
     }
 
     override suspend fun clear() = store.putAll(mapOf(KEY to null))
 
-    private fun aad(): ByteArray = LABEL.encodeToByteArray() + byteArrayOf(0, VERSION) + origin.encodeToByteArray()
+    private fun aad(): ByteArray = wrappedKeyAad(LABEL, VERSION, origin)
 
     internal companion object {
         const val KEY = "wrapped-history-key"

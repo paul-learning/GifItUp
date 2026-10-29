@@ -47,7 +47,8 @@ class DeviceStorage(
 
     fun snapshotKeys(origin: String): SnapshotKeyStore = keyStoreFor(origin, identities)
 
-    fun historyKeys(origin: String): HistoryKeyStore = historyKeyStoreFor(origin)
+    /** Private on purpose: the only way to a history key is [openHistoryKey], with its checks (reset history comes with PR 4). */
+    private fun historyKeys(origin: String): HistoryKeyStore = historyKeyStoreFor(origin)
 
     /**
      * The history key of the registered identity of [origin] (the canonical, configured one), made once if neither a key
