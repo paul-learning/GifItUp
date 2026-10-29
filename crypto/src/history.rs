@@ -422,7 +422,8 @@ mod tests {
 
     /// A record with a right tag and a wrong inner layout: sealed by hand under the cipher's own key.
     fn sealed_by_hand(c: &HistoryCipher, name: &[u8], body: &[u8]) -> Vec<u8> {
-        let nonce = [9u8; NONCE_LEN];
+        // A random nonce, like `seal` makes: a fixed one in a test would be copied into real code (CodeQL).
+        let nonce: [u8; NONCE_LEN] = c.crypto.random_array().unwrap();
         let mut out = header(&nonce);
         let sealed = c
             .crypto
