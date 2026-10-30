@@ -6,10 +6,12 @@ import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.HistoryKeyStore
 import app.gifitup.shared.data.storage.IdentityStore
+import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.LocalStore
 import app.gifitup.shared.data.storage.RecordContactStore
 import app.gifitup.shared.data.storage.RecordIdentityStore
 import app.gifitup.shared.data.storage.RecordStore
+import app.gifitup.shared.data.storage.RecordStoreException
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredRestoreCounter
 import app.gifitup.shared.domain.chat.FriendNames
@@ -38,6 +40,8 @@ import kotlin.time.Clock
 class DeviceStorage(
     val store: LocalStore,
     val data: DeviceData,
+    /** The sealed history records of this device (ADR-0017): files on Android, the second IndexedDB database on the web. */
+    val records: RecordStore,
     private val keyStoreFor: (origin: String, identities: IdentityStore) -> SnapshotKeyStore,
     private val historyKeyStoreFor: (origin: String) -> HistoryKeyStore,
 ) {
@@ -49,6 +53,20 @@ class DeviceStorage(
 
     /** Private on purpose: the only way to a history key is [openHistoryKey], with its checks (reset history comes with PR 4). */
     private fun historyKeys(origin: String): HistoryKeyStore = historyKeyStoreFor(origin)
+
+    /**
+     * Removes what an earlier account or an interrupted wipe left of the history: the records first, then the wrapped history
+     * key, so a crash in between leaves records without a key (the state "reset history" starts from), never a key that opens
+     * leftover records. Any failure is `STORAGE`.
+     */
+    internal suspend fun clearHistoryLeftovers(origin: String) {
+        try {
+            records.deleteAll()
+        } catch (_: RecordStoreException) {
+            throw LocalStateException(LocalStateException.Problem.STORAGE)
+        }
+        historyKeys(origin).clear()
+    }
 
     /**
      * The history key of the registered identity of [origin] (the canonical, configured one), made once if neither a key
@@ -69,20 +87,33 @@ class DeviceStorage(
  * storage's [DeviceLock], and every restore goes through one [GuardedMlsFactory] over the storage's counter.
  */
 class DeviceAuth(
-    storage: DeviceStorage,
+    private val storage: DeviceStorage,
     api: GifItUpApi,
     mls: MlsClientFactory,
     random: SecureRandomSource,
+    /** Closes the history before the wipe destroys its key (the app's `LazyHistory`); nothing to close by default. */
+    closeHistory: HistoryCloser = HistoryCloser.None,
 ) {
     private val lock = storage.lock
     private val guarded = GuardedMlsFactory(mls, storage.restores)
     private val keys = storage.snapshotKeys(api.endpoint.origin)
 
-    val register = RegisterDevice(api, guarded, storage.identities, keys, random, lock)
+    val register =
+        RegisterDevice(
+            api,
+            guarded,
+            storage.identities,
+            keys,
+            random,
+            lock,
+            HistoryLeftovers {
+                storage.clearHistoryLeftovers(api.endpoint.origin)
+            },
+        )
     val refillKeyPackages = RefillKeyPackages(api, guarded, storage.identities, keys, lock)
     val logIn = LogIn(api, guarded, storage.identities, keys, lock)
     val logOut = LogOut(api)
-    val wipe = WipeLocalData(storage.data, logOut, lock)
+    val wipe = WipeLocalData(storage.data, logOut, lock, closeHistory)
 
     private val book = ContactBookAccess(RecordContactStore(storage.store, storage.identities)) { Clock.System.now().epochSeconds }
 

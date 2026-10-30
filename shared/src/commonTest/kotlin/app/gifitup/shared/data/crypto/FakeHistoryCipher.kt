@@ -66,7 +66,11 @@ class FakeHistoryCipher(
         return plaintext
     }
 
-    override fun close() = Unit
+    var closed = false
+
+    override fun close() {
+        closed = true
+    }
 
     private fun checksum(plaintext: ByteArray): Byte = (plaintext.fold(key) { acc, b -> acc * 31 + b }).toByte()
 

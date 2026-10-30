@@ -109,4 +109,29 @@ class WipeLocalDataTest {
             assertEquals(emptyList(), server.requests)
             assertEquals(listOf("destroy key", "delete records"), steps)
         }
+
+    /** The history is closed after the clients and before the key is destroyed, so nothing is written or kept afterwards. */
+    @Test
+    fun theHistoryIsClosedAfterTheClientsAndBeforeTheKeyIsDestroyed() =
+        runTest {
+            val order = mutableListOf<String>()
+            val client = FakeMlsClient.Factory.create("ann", ByteArray(32))
+            val closing =
+                HistoryCloser {
+                    order +=
+                        "history closed after client poisoned=${runCatching { client.publicIdentity() }.isFailure}"
+                }
+            val recording =
+                object : DeviceData {
+                    override suspend fun destroyWrappingKey() {
+                        order += "destroy key"
+                    }
+
+                    override suspend fun deleteAll() {
+                        order += "delete records"
+                    }
+                }
+            WipeLocalData(recording, LogOut(server.api()), DeviceLock(), closing)(null, listOf(client))
+            assertEquals(listOf("history closed after client poisoned=true", "destroy key", "delete records"), order)
+        }
 }

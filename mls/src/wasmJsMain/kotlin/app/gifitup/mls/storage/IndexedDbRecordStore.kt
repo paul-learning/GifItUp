@@ -43,6 +43,20 @@ private fun idbOpenRecords(
 private fun isClosedRecords(db: JsAny): Boolean = js("db.gifitupClosed === true")
 
 @Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun closeRecords(db: JsAny): JsAny? = js("db.close()")
+
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbDeleteDatabase(name: String): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const request = indexedDB.deleteDatabase(name);
+            request.onsuccess = () => resolve(null);
+            request.onerror = () => reject(request.error);
+            request.onblocked = () => reject(new Error('blocked'));
+        })""",
+    )
+
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
 private fun idbGetRecord(
     db: JsAny,
     store: String,
@@ -196,7 +210,7 @@ private fun idbClearRecords(
 class IndexedDbRecordStore internal constructor(
     private val databaseName: String,
 ) : RecordStore {
-    constructor() : this(DATABASE_NAME)
+    internal constructor() : this(DATABASE_NAME)
 
     private val opening = Mutex()
     private var db: JsAny? = null
@@ -244,6 +258,18 @@ class IndexedDbRecordStore internal constructor(
 
     override suspend fun deleteAll() {
         settle(idbClearRecords(connection(), RECORDS))
+    }
+
+    /**
+     * Deletes the whole database (the wipe): this connection is closed first, so it does not block its own delete; a
+     * connection of another tab would, which is a [RecordStoreException]. Later calls open a fresh, empty database.
+     */
+    internal suspend fun deleteDatabase() {
+        opening.withLock {
+            db?.let { closeRecords(it) }
+            db = null
+        }
+        settle(idbDeleteDatabase(databaseName))
     }
 
     /** The record keys of [folder] (all folders if empty), as text lines turned into keys. */

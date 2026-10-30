@@ -5,6 +5,7 @@ import app.gifitup.shared.data.network.FakeAuthServer
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.DEVICE_ID
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.InMemoryLocalStore
+import app.gifitup.shared.data.storage.InMemoryRecordStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
@@ -40,7 +41,7 @@ class DeviceAuthTest {
                 wiped += "records"
             }
         }
-    private val storage = DeviceStorage(store, data, { _, _ -> InMemoryKeyStore() }, { InMemoryHistoryKeyStore() })
+    private val storage = DeviceStorage(store, data, InMemoryRecordStore(), { _, _ -> InMemoryKeyStore() }, { InMemoryHistoryKeyStore() })
 
     private fun auth() = DeviceAuth(storage, server.api(), FakeMlsClient.Factory, CountingRandom())
 

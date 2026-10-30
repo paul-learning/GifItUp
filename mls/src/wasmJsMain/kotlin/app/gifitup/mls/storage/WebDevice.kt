@@ -62,9 +62,12 @@ internal suspend fun claimWebDeviceStorage(
     val db = WebDatabase(databaseName)
     val aead = WebCryptoWrappingAead(db)
     val store = IndexedDbLocalStore(db)
+    // Built here, after the page lock is held, and nowhere else: a tab that lost the lock never touches the history (ADR-0017).
+    val records = IndexedDbRecordStore()
     return DeviceStorage(
         store,
-        WebDeviceData(db, aead),
+        WebDeviceData(db, aead, records),
+        records,
         { origin, identities -> EnvelopeSnapshotKeyStore(aead, store, identities, origin) },
         { origin -> EnvelopeHistoryKeyStore(aead, store, origin) },
     )

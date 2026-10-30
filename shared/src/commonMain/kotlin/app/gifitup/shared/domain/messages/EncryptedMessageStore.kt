@@ -35,6 +35,12 @@ class HistoryStoreException(
 
         /** The cipher refused: a defect or a poisoned module (the web shares one with MLS), not a storage problem. */
         CIPHER,
+
+        /** The history key is missing, does not open or is damaged: only a reset or the wipe helps (ADR-0017). */
+        KEY,
+
+        /** The history was closed (a wipe, the end of the session): it never opens again; nothing is stored or read. */
+        CLOSED,
     }
 }
 
@@ -72,6 +78,7 @@ class EncryptedMessageStore(
     private val mutex = Mutex()
     private val groups = HashMap<KeyBytes, GroupLog>()
     private var folders: MutableSet<String>? = null
+    private var closed = false
 
     /** One group's decrypted messages in arrival order, and what could not be read. */
     private class GroupLog(
@@ -164,6 +171,19 @@ class EncryptedMessageStore(
     /** How many records of the group could not be opened or read (0 for a group nothing is known of). */
     suspend fun unreadable(groupId: KeyBytes): Int = mutex.withLock { guarded { logFor(groupId, create = false)?.unreadable ?: 0 } }
 
+    /**
+     * Ends this store for good: the decrypted logs and the folder set are dropped, the cipher (and with it the history key
+     * in memory) is closed, and every later call fails with [HistoryStoreException.Kind.CLOSED]. Waits for a running call.
+     */
+    suspend fun close() {
+        mutex.withLock {
+            closed = true
+            groups.clear()
+            folders = null
+            cipher.close()
+        }
+    }
+
     /** Deletes the whole history and forgets what was loaded ("reset history", the wipe). */
     suspend fun deleteAll() {
         mutex.withLock {
@@ -215,6 +235,7 @@ class EncryptedMessageStore(
     /** Store and cipher failures leave as [HistoryStoreException]; nothing else about them escapes. */
     private inline fun <T> guarded(block: () -> T): T =
         try {
+            if (closed) throw HistoryStoreException(HistoryStoreException.Kind.CLOSED)
             block()
         } catch (_: RecordStoreException) {
             throw HistoryStoreException(HistoryStoreException.Kind.STORAGE)

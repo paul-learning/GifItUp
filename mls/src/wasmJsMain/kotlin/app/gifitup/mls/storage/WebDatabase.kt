@@ -8,6 +8,7 @@ import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.LocalStateException.Problem.DAMAGED
 import app.gifitup.shared.data.storage.LocalStateException.Problem.STORAGE
 import app.gifitup.shared.data.storage.LocalStore
+import app.gifitup.shared.data.storage.RecordStoreException
 import app.gifitup.shared.domain.auth.DeviceData
 import kotlinx.coroutines.await
 import kotlinx.coroutines.sync.Mutex
@@ -203,8 +204,21 @@ internal class IndexedDbLocalStore(
 internal class WebDeviceData(
     private val db: WebDatabase,
     private val aead: WrappingAead,
+    private val records: IndexedDbRecordStore,
 ) : DeviceData {
     override suspend fun destroyWrappingKey() = aead.destroy()
 
-    override suspend fun deleteAll() = db.delete()
+    /**
+     * The history database first, through the record store's own connection (which closes itself on `versionchange`), then
+     * the device database: if the history cannot be deleted (another connection keeps it open) the identity stays and the
+     * wipe is offered again. The web wipe is best effort (ADR-0011): the browser may keep remnants on disk.
+     */
+    override suspend fun deleteAll() {
+        try {
+            records.deleteDatabase()
+        } catch (_: RecordStoreException) {
+            throw LocalStateException(STORAGE)
+        }
+        db.delete()
+    }
 }

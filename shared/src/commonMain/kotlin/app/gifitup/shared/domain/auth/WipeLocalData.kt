@@ -22,11 +22,24 @@ interface DeviceData {
 }
 
 /**
+ * Closes the history the app has open (ADR-0017): its decrypted cache and the history key in memory go, and nothing is
+ * stored or read through it afterwards. The wipe calls it before the wrapping key is destroyed.
+ */
+fun interface HistoryCloser {
+    suspend fun close()
+
+    companion object {
+        val None: HistoryCloser = HistoryCloser { }
+    }
+}
+
+/**
  * "Wipe all local data" (ADR-0011): this device forgets its account. It doesn't delete the account on the server (the
  * owner's admin command, ADR-0010); a wiped device registers again with a new invite.
  *
  * The order matters (#16 SEC-3, SEC-8): end the session while it still works, close every client so Rust and wasm drop
- * the key and the MLS state, destroy the wrapping key so nothing stored can be decrypted any more, then delete the
+ * the key and the MLS state, close the history (its cache and key in memory), destroy the wrapping key so nothing
+ * stored can be decrypted any more, then delete the
  * records. The caller then drops the [Session] and, on the web, reloads the page; the web wipe is best effort against
  * what the browser leaves on disk.
  */
@@ -34,6 +47,7 @@ class WipeLocalData(
     private val data: DeviceData,
     private val logOut: LogOut,
     private val lock: DeviceLock,
+    private val history: HistoryCloser = HistoryCloser.None,
 ) {
     suspend operator fun invoke(
         session: Session?,
@@ -42,6 +56,8 @@ class WipeLocalData(
         // Best effort: a failed logout leaves a token that expires on its own and isn't stored anywhere.
         if (session != null) runCatching { logOut(session) }
         openClients.forEach { runCatching { it.close() } }
+        // Before the key goes: a call that is still running finishes first, and nothing is written or kept after it.
+        history.close()
         data.destroyWrappingKey()
         data.deleteAll()
     }
