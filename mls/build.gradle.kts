@@ -417,12 +417,18 @@ kotlin {
         jvmMain {
             kotlin.srcDir(uniffiBindgen.map { it.outputDir })
             kotlin.srcDir("src/jniShared/kotlin")
-            dependencies { implementation(libs.jna) }
+            dependencies {
+                implementation(libs.jna)
+                implementation(libs.kotlinx.coroutines.core)
+            }
         }
         androidMain {
             kotlin.srcDir(uniffiBindgen.map { it.outputDir })
             kotlin.srcDir("src/jniShared/kotlin")
-            dependencies { implementation("${libs.jna.get()}@aar") }
+            dependencies {
+                implementation("${libs.jna.get()}@aar")
+                implementation(libs.kotlinx.coroutines.core)
+            }
         }
         wasmJsMain.dependencies {
             implementation(npm("gifitup-crypto", wasmPkgDir.get().asFile))
