@@ -29,10 +29,14 @@ internal class SendSide(
         // Fresh first, then settle: re-posting an old pending message into a log that already dropped it would be
         // accepted as new and make a stale state look fresh (SEC-1).
         poster.checkFresh(id, record.pending)
+        observed { observer.reconcile(stateOf(store.recordOf(id))) }
         record.pending?.let { settle(id, it, observer) }
         if (store.recordOf(id).ownSeqs.size >= SyncStateCodec.MAX_OWN_SEQS) halt(SyncOutcome.Busy)
         if (!fitsAnother(id)) halt(SyncOutcome.Busy)
         val sealed = crate { mls.encrypt(id.bytes, plaintext) }
+        // The history record first (ADR-0017): if it cannot be stored, nothing is persisted or posted and the engine, which
+        // has used up a generation, is dead.
+        stored { observer.sealed(sealed.messageRef) }
         val pending =
             PendingSend(
                 random.nextBytes(SyncStateCodec.MSG_ID_BYTES),
@@ -42,14 +46,14 @@ internal class SendSide(
                 emptyList(),
                 null,
                 sealed.message,
+                sealed.messageRef,
             )
         store.put(id, store.recordOf(id).copy(pending = pending))
         store.persist()
-        observed { observer.sealed(sealed.messageRef) }
         return post(id, pending)
     }
 
-    /** Runs an observer call; a failing observer never stops the send (only a history record hangs on it). */
+    /** Runs bookkeeping of an observer: a failing one never stops the send (the next reconcile retries); a cancellation does. */
     @Suppress("TooGenericExceptionCaught")
     private suspend fun observed(call: suspend () -> Unit) {
         try {
@@ -57,14 +61,30 @@ internal class SendSide(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (ignored: Exception) {
-            // The history is not part of the send.
+            // The history bookkeeping is not part of the send.
+        }
+    }
+
+    /** Runs the observer call the send depends on: a failure is a storage failure (nothing was stored or posted). */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun stored(call: suspend () -> Unit) {
+        try {
+            call()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            halt(SyncOutcome.StorageFailed)
         }
     }
 
     /** Posts the pending message again (a fresh start, or after [SyncOutcome.InFlight]); nothing pending is nothing to do. */
-    suspend fun resume(id: KeyBytes): SyncOutcome {
+    suspend fun resume(
+        id: KeyBytes,
+        observer: SendObserver = SendObserver.None,
+    ): SyncOutcome {
         val pending = activeRecord(store, id).pending
         if (pending != null) poster.checkFresh(id, pending)
+        observed { observer.reconcile(stateOf(store.recordOf(id))) }
         return if (pending == null) SyncOutcome.CaughtUp(0) else post(id, pending)
     }
 
@@ -95,7 +115,7 @@ internal class SendSide(
         observer: SendObserver,
     ) {
         val outcome = post(id, pending)
-        observed { observer.earlierSettled(outcome) }
+        observed { observer.earlierSettled(pending.reference, outcome) }
         if (outcome !is SyncOutcome.Sent) halt(SyncOutcome.PendingFirst(outcome))
     }
 
@@ -133,6 +153,8 @@ internal class SendSide(
         const val MAX_PAYLOAD = 2 * 1024
     }
 }
+
+private fun stateOf(record: GroupRecord) = SendState(record.pending?.reference, record.lastSentReference, record.lastSentSeq)
 
 /** The record of a group that is syncing; otherwise the call ends here. */
 internal fun activeRecord(

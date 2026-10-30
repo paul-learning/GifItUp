@@ -45,6 +45,8 @@ class PendingSend(
     val removed: List<String>,
     val welcome: ByteArray?,
     val payload: ByteArray,
+    /** The message reference (ADR-0006 B9) of an application message, from `encrypt`; `null` for a commit and for older snapshots. */
+    val reference: ByteArray? = null,
 ) {
     override fun toString(): String = "PendingSend(kind=$kind, size=${payload.size})"
 }
@@ -94,6 +96,9 @@ class GroupRecord(
     val lastMsgId: ByteArray?,
     val pending: PendingSend?,
     val ownSeqs: List<OwnSend>,
+    /** The reference and seq of the last application message the server accepted, so a history left SENDING can be settled. */
+    val lastSentReference: ByteArray? = null,
+    val lastSentSeq: Long? = null,
 ) {
     @Suppress("LongParameterList") // Mirrors the constructor.
     fun copy(
@@ -105,7 +110,9 @@ class GroupRecord(
         lastMsgId: ByteArray? = this.lastMsgId,
         pending: PendingSend? = this.pending,
         ownSeqs: List<OwnSend> = this.ownSeqs,
-    ) = GroupRecord(cursor, status, failures, quarantined, unverified, lastMsgId, pending, ownSeqs)
+        lastSentReference: ByteArray? = this.lastSentReference,
+        lastSentSeq: Long? = this.lastSentSeq,
+    ) = GroupRecord(cursor, status, failures, quarantined, unverified, lastMsgId, pending, ownSeqs, lastSentReference, lastSentSeq)
 
     companion object {
         fun joinedAt(
