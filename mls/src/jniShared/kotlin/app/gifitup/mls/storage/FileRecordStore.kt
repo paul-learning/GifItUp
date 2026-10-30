@@ -29,8 +29,8 @@ import kotlinx.coroutines.withContext
  */
 class FileRecordStore(
     private val root: File,
-    private val moveIntoPlace: (from: Path, to: Path) -> Unit = FileLocalStore.atomicMove,
-    private val syncDirectory: (Path) -> Unit = FileLocalStore.forceDirectory,
+    private val moveIntoPlace: (from: Path, to: Path) -> Unit = ::atomicMove,
+    private val syncDirectory: (dir: Path) -> Unit = ::forceDirectory,
 ) : RecordStore {
     private val mutex = Mutex()
 
@@ -74,7 +74,7 @@ class FileRecordStore(
             check(folder, name)
             val path = folderPath(folder).resolve(name)
             try {
-                if (!path.exists()) return@withLock null
+                if (!path.exists()) return@withContext null
                 Files.readAllBytes(path)
             } catch (_: IOException) {
                 throw RecordStoreException()
@@ -89,7 +89,7 @@ class FileRecordStore(
             check(folder)
             val folderPath = folderPath(folder)
             try {
-                if (!folderPath.exists()) return@withLock emptyList()
+                if (!folderPath.exists()) return@withContext emptyList()
                 val result = mutableListOf<String>()
                 val dir = folderPath.toFile()
                 for (file in dir.listFiles().orEmpty()) {
@@ -175,11 +175,11 @@ class FileRecordStore(
     override suspend fun isEmpty(): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
-                if (!root.exists()) return@withLock true
+                if (!root.exists()) return@withContext true
                 val dir = root
-                if (!dir.isDirectory) return@withLock false
+                if (!dir.isDirectory) return@withContext false
                 for (entry in dir.listFiles().orEmpty()) {
-                    return@withLock false
+                    return@withContext false
                 }
                 true
             } catch (_: IOException) {
@@ -225,4 +225,15 @@ class FileRecordStore(
     }
 
     private fun folderPath(folder: String): Path = root.toPath().resolve(folder)
+
+    companion object {
+        internal fun atomicMove(
+            from: Path,
+            to: Path,
+        ) {
+            Files.move(from, to, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        }
+
+        internal fun forceDirectory(dir: Path) = FileChannel.open(dir, StandardOpenOption.READ).use { it.force(true) }
+    }
 }

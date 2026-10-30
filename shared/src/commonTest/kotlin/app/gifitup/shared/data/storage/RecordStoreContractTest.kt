@@ -5,10 +5,9 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 /**
  * Contract test suite for [RecordStore] implementations.
@@ -161,7 +160,7 @@ abstract class RecordStoreContractTest {
         val badName = validName.uppercase()
         try {
             store.put(validFolder, badName, validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)
@@ -174,7 +173,7 @@ abstract class RecordStoreContractTest {
         val badName = "a".repeat(63)
         try {
             store.put(validFolder, badName, validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)
@@ -187,7 +186,7 @@ abstract class RecordStoreContractTest {
         val badName = "a".repeat(65)
         try {
             store.put(validFolder, badName, validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)
@@ -199,7 +198,7 @@ abstract class RecordStoreContractTest {
         val store = createStore()
         try {
             store.put(validFolder, "", validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)
@@ -211,7 +210,7 @@ abstract class RecordStoreContractTest {
         val store = createStore()
         try {
             store.put(validFolder, "..", validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)
@@ -223,7 +222,7 @@ abstract class RecordStoreContractTest {
         val store = createStore()
         try {
             store.put(validFolder, "a/b", validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)
@@ -235,7 +234,7 @@ abstract class RecordStoreContractTest {
         val store = createStore()
         try {
             store.put(validFolder, "%2e%2e", validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)
@@ -247,7 +246,7 @@ abstract class RecordStoreContractTest {
         val store = createStore()
         try {
             store.put(validFolder, "a\u0000b", validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)
@@ -260,7 +259,7 @@ abstract class RecordStoreContractTest {
         val badFolder = validFolder.uppercase()
         try {
             store.put(badFolder, validName, validBytes)
-            assertFalse("Expected RecordStoreException", true)
+            fail("Expected RecordStoreException")
         } catch (e: RecordStoreException) {
             assertNull(e.message)
             assertNull(e.cause)

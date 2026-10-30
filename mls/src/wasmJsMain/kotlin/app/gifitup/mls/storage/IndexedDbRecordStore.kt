@@ -45,29 +45,16 @@ class IndexedDbRecordStore(
         check(folder, name)
         val key = "$folder/$name"
         val db = ensureDb()
-        val result = settled(idbGet(db, STORE_NAME, key)) ?: return null
-        if (!isUint8Array(result)) return null
-        @Suppress("UNCHECKED_CAST")
-        return (result as Uint8Array).toByteArray()
+        val result = settled(idbGet(db, STORE_NAME, key))
+        if (result !is Uint8Array) return null
+        return result.toByteArray()
     }
 
     override suspend fun list(folder: String): List<String> {
         check(folder)
         val db = ensureDb()
-        val result = settled(idbGetAllKeysInRange(db, STORE_NAME, "$folder/", "${folder}0"))
-        @Suppress("UNCHECKED_CAST")
-        val jsKeys = result as? JsArray<JsString> ?: return emptyList()
-        val keys = ArrayList<String>(jsKeys.length)
-        for (i in 0 until jsKeys.length) {
-            val jsKey = jsKeys[i]
-            @Suppress("UNCHECKED_CAST")
-            val key = jsKey as String
-            val slashIndex = key.lastIndexOf('/')
-            if (slashIndex >= 0 && slashIndex < key.length - 1) {
-                keys.add(key.substring(slashIndex + 1))
-            }
-        }
-        return keys.filter { isRecordName(it) }
+        val jsKeys = settled(idbGetAllKeysInRange(db, STORE_NAME, "$folder/", "${folder}0"))
+        return extractNames(jsKeys)
     }
 
     override suspend fun delete(
@@ -83,36 +70,17 @@ class IndexedDbRecordStore(
     override suspend fun deleteFolder(folder: String) {
         check(folder)
         val db = ensureDb()
-        val result = settled(idbGetAllKeysInRange(db, STORE_NAME, "$folder/", "${folder}0"))
-        @Suppress("UNCHECKED_CAST")
-        val jsKeys = result as? JsArray<JsString> ?: return
-        val keys = ArrayList<String>(jsKeys.length)
-        for (i in 0 until jsKeys.length) {
-            val jsKey = jsKeys[i]
-            @Suppress("UNCHECKED_CAST")
-            keys.add(jsKey as String)
-        }
+        val jsKeys = settled(idbGetAllKeysInRange(db, STORE_NAME, "$folder/", "${folder}0"))
+        val keys = extractKeys(jsKeys)
         if (keys.isNotEmpty()) {
-            settled(idbDeleteRange(db, STORE_NAME, keys.toTypedArray()))
+            settled(idbDeleteRange(db, STORE_NAME, keys))
         }
     }
 
     override suspend fun folders(): List<String> {
         val db = ensureDb()
-        val result = settled(idbGetAllKeys(db, STORE_NAME))
-        @Suppress("UNCHECKED_CAST")
-        val jsKeys = result as? JsArray<JsString> ?: return emptyList()
-        val folders = mutableSetOf<String>()
-        for (i in 0 until jsKeys.length) {
-            val jsKey = jsKeys[i]
-            @Suppress("UNCHECKED_CAST")
-            val key = jsKey as String
-            val slashIndex = key.indexOf('/')
-            if (slashIndex >= 0) {
-                folders.add(key.substring(0, slashIndex))
-            }
-        }
-        return folders.filter { isRecordName(it) }.toList()
+        val jsKeys = settled(idbGetAllKeys(db, STORE_NAME))
+        return extractFolders(jsKeys)
     }
 
     override suspend fun isEmpty(): Boolean {
@@ -142,15 +110,58 @@ class IndexedDbRecordStore(
         }
     }
 
+    private fun extractNames(jsKeys: JsAny?): List<String> {
+        @Suppress("UNCHECKED_CAST")
+        val keys = jsKeys as? JsArray<JsString> ?: return emptyList()
+        val result = ArrayList<String>(keys.length)
+        for (i in 0 until keys.length) {
+            val jsKey = keys[i]
+            @Suppress("UNCHECKED_CAST")
+            val key = jsKey as String
+            val slashIndex = key.lastIndexOf('/')
+            if (slashIndex >= 0 && slashIndex < key.length - 1) {
+                result.add(key.substring(slashIndex + 1))
+            }
+        }
+        return result.filter { isRecordName(it) }
+    }
+
+    private fun extractKeys(jsKeys: JsAny?): List<String> {
+        @Suppress("UNCHECKED_CAST")
+        val keys = jsKeys as? JsArray<JsString> ?: return emptyList()
+        val result = ArrayList<String>(keys.length)
+        for (i in 0 until keys.length) {
+            val jsKey = keys[i]
+            @Suppress("UNCHECKED_CAST")
+            result.add(jsKey as String)
+        }
+        return result
+    }
+
+    private fun extractFolders(jsKeys: JsAny?): List<String> {
+        @Suppress("UNCHECKED_CAST")
+        val keys = jsKeys as? JsArray<JsString> ?: return emptyList()
+        val folders = mutableSetOf<String>()
+        for (i in 0 until keys.length) {
+            val jsKey = keys[i]
+            @Suppress("UNCHECKED_CAST")
+            val key = jsKey as String
+            val slashIndex = key.indexOf('/')
+            if (slashIndex >= 0) {
+                folders.add(key.substring(0, slashIndex))
+            }
+        }
+        return folders.filter { isRecordName(it) }.toList()
+    }
+
     companion object {
         private const val DATABASE_NAME = "gifitup-history"
         private const val STORE_NAME = "records"
 
-        @Suppress("UnusedParameter")
-        private fun idbOpen(name: String): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
-                    const request = indexedDB.open(name, 1);
+        @JsFun(
+            """function(dbName) {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(dbName, 1);
                     request.onupgradeneeded = () => {
                         request.result.createObjectStore('records', { keyPath: null });
                     };
@@ -161,33 +172,30 @@ class IndexedDbRecordStore(
                     };
                     request.onerror = () => reject(request.error);
                     request.onblocked = () => reject(new Error('blocked'));
-                })""",
-            )
+                });
+            }""",
+        )
+        private external fun idbOpen(name: String): Promise<JsAny?>
 
-        @Suppress("UnusedParameter")
-        private fun idbGet(
-            db: JsAny,
-            store: String,
-            key: String,
-        ): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
+        @JsFun(
+            """function(db, store, key) {
+                return new Promise((resolve, reject) => {
                     const tx = db.transaction(store, 'readonly');
                     const request = tx.objectStore(store).get(key);
                     tx.oncomplete = () => resolve(request.result === undefined ? null : request.result);
                     tx.onabort = () => reject(tx.error || new Error('aborted'));
-                })""",
-            )
-
-        @Suppress("UnusedParameter")
-        private fun idbPut(
+                });
+            }""",
+        )
+        private external fun idbGet(
             db: JsAny,
             store: String,
             key: String,
-            value: JsAny,
-        ): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
+        ): Promise<JsAny?>
+
+        @JsFun(
+            """function(db, store, key, value) {
+                return new Promise((resolve, reject) => {
                     const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
                     tx.oncomplete = () => resolve(null);
                     tx.onabort = () => reject(tx.error || new Error('aborted'));
@@ -197,17 +205,19 @@ class IndexedDbRecordStore(
                         tx.abort();
                         reject(e);
                     }
-                })""",
-            )
-
-        @Suppress("UnusedParameter")
-        private fun idbDelete(
+                });
+            }""",
+        )
+        private external fun idbPut(
             db: JsAny,
             store: String,
             key: String,
-        ): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
+            value: JsAny,
+        ): Promise<JsAny?>
+
+        @JsFun(
+            """function(db, store, key) {
+                return new Promise((resolve, reject) => {
                     const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
                     tx.oncomplete = () => resolve(null);
                     tx.onabort = () => reject(tx.error || new Error('aborted'));
@@ -217,34 +227,36 @@ class IndexedDbRecordStore(
                         tx.abort();
                         reject(e);
                     }
-                })""",
-            )
-
-        @Suppress("UnusedParameter")
-        private fun idbGetAllKeysInRange(
+                });
+            }""",
+        )
+        private external fun idbDelete(
             db: JsAny,
             store: String,
-            lower: String,
-            upper: String,
-        ): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
+            key: String,
+        ): Promise<JsAny?>
+
+        @JsFun(
+            """function(db, store, lower, upper) {
+                return new Promise((resolve, reject) => {
                     const tx = db.transaction(store, 'readonly');
                     const range = IDBKeyRange.bound(lower, upper, false, true);
                     const request = tx.objectStore(store).getAllKeys(range);
                     tx.oncomplete = () => resolve(request.result);
                     tx.onabort = () => reject(tx.error || new Error('aborted'));
-                })""",
-            )
-
-        @Suppress("UnusedParameter")
-        private fun idbDeleteRange(
+                });
+            }""",
+        )
+        private external fun idbGetAllKeysInRange(
             db: JsAny,
             store: String,
-            keys: Array<String>,
-        ): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
+            lower: String,
+            upper: String,
+        ): Promise<JsAny?>
+
+        @JsFun(
+            """function(db, store, keys) {
+                return new Promise((resolve, reject) => {
                     const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
                     tx.oncomplete = () => resolve(null);
                     tx.onabort = () => reject(tx.error || new Error('aborted'));
@@ -257,44 +269,48 @@ class IndexedDbRecordStore(
                         tx.abort();
                         reject(e);
                     }
-                })""",
-            )
-
-        @Suppress("UnusedParameter")
-        private fun idbGetAllKeys(
+                });
+            }""",
+        )
+        private external fun idbDeleteRange(
             db: JsAny,
             store: String,
-        ): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
+            keys: List<String>,
+        ): Promise<JsAny?>
+
+        @JsFun(
+            """function(db, store) {
+                return new Promise((resolve, reject) => {
                     const tx = db.transaction(store, 'readonly');
                     const request = tx.objectStore(store).getAllKeys();
                     tx.oncomplete = () => resolve(request.result);
                     tx.onabort = () => reject(tx.error || new Error('aborted'));
-                })""",
-            )
-
-        @Suppress("UnusedParameter")
-        private fun idbCount(
+                });
+            }""",
+        )
+        private external fun idbGetAllKeys(
             db: JsAny,
             store: String,
-        ): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
+        ): Promise<JsAny?>
+
+        @JsFun(
+            """function(db, store) {
+                return new Promise((resolve, reject) => {
                     const tx = db.transaction(store, 'readonly');
                     const request = tx.objectStore(store).count();
                     tx.oncomplete = () => resolve(request.result);
                     tx.onabort = () => reject(tx.error || new Error('aborted'));
-                })""",
-            )
-
-        @Suppress("UnusedParameter")
-        private fun idbClear(
+                });
+            }""",
+        )
+        private external fun idbCount(
             db: JsAny,
             store: String,
-        ): Promise<JsAny?> =
-            js(
-                """new Promise((resolve, reject) => {
+        ): Promise<JsAny?>
+
+        @JsFun(
+            """function(db, store) {
+                return new Promise((resolve, reject) => {
                     const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
                     tx.oncomplete = () => resolve(null);
                     tx.onabort = () => reject(tx.error || new Error('aborted'));
@@ -304,8 +320,13 @@ class IndexedDbRecordStore(
                         tx.abort();
                         reject(e);
                     }
-                })""",
-            )
+                });
+            }""",
+        )
+        private external fun idbClear(
+            db: JsAny,
+            store: String,
+        ): Promise<JsAny?>
 
         internal suspend fun settled(promise: Promise<JsAny?>): JsAny? {
             val result = settle(promise).await<Settled>()
@@ -319,17 +340,18 @@ class IndexedDbRecordStore(
             val error: String?
         }
 
-        @Suppress("UnusedParameter")
-        private fun settle(promise: Promise<JsAny?>): Promise<Settled> =
-            js(
-                """promise.then(
+        @JsFun(
+            """function(promise) {
+                return promise.then(
                     (value) => ({ failed: false, value: value === undefined ? null : value }),
                     (e) => ({ failed: true, error: (e && typeof e.name === 'string') ? e.name : 'Error' }),
-                )""",
-            )
+                );
+            }""",
+        )
+        private external fun settle(promise: Promise<JsAny?>): Promise<Settled>
 
-        @Suppress("UnusedParameter")
-        private fun isUint8Array(value: JsAny?): Boolean =
-            js("value instanceof Uint8Array")
+        @JsFun("function(value) { return value instanceof Uint8Array; }"
+        )
+        private external fun isUint8Array(value: JsAny?): Boolean
     }
 }

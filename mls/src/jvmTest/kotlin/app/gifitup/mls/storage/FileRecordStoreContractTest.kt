@@ -2,6 +2,7 @@ package app.gifitup.mls.storage
 
 import app.gifitup.shared.data.storage.RecordStoreContractTest
 import java.io.File
+import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
