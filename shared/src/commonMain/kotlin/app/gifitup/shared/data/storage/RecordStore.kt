@@ -12,8 +12,11 @@ class RecordStoreException : Exception()
  * implementations are separate from the `LocalStore` of ADR-0011, which keeps nothing but wrapped keys and public values.
  *
  * Every write is atomic for its one record (a reader sees the old or the new bytes, never a mix) and durable when it
- * returns. There is **no** multi-record transaction. An implementation checks every folder and record name against
- * `[0-9a-f]{64}` before it touches storage, so no name can leave the store's place (SEC-9), and it ignores and removes
+ * returns, as far as the platform can make it (files: the file and its folder are synced; the browser: a strict-durability
+ * transaction, which it may weaken, and it may evict the whole origin's storage). A `put` that throws may still have
+ * stored the record (a failure at the final folder sync), so a caller that must know reads again. There is **no**
+ * multi-record transaction. An implementation checks every folder and record name against `[0-9a-f]{64}` before it touches
+ * storage, so no name can leave the store's place (SEC-9), and it ignores and removes
  * what a crash left behind (temporary files). Every failure is a [RecordStoreException].
  */
 interface RecordStore {

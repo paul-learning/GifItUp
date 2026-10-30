@@ -31,6 +31,7 @@ private fun idbOpenRecords(
             request.onsuccess = () => {
                 const db = request.result;
                 db.onversionchange = () => { db.gifitupClosed = true; db.close(); };
+                db.onclose = () => { db.gifitupClosed = true; };
                 resolve(db);
             };
             request.onerror = () => reject(request.error);

@@ -44,12 +44,10 @@ private fun dropDatabase(name: String): Promise<JsAny?> =
 /** The contract of [IndexedDbRecordStore] on the real IndexedDB in headless Chrome; each test has its own database. */
 class IndexedDbRecordStoreContractTest : RecordStoreContractTest() {
     private var databaseName = ""
-    private var open: IndexedDbRecordStore? = null
 
     @BeforeTest
     fun setup() {
         databaseName = "gifitup-history-test-${Random.nextLong()}"
-        open = null
     }
 
     @AfterTest
@@ -58,7 +56,7 @@ class IndexedDbRecordStoreContractTest : RecordStoreContractTest() {
         dropDatabase(databaseName)
     }
 
-    override fun createStore(): IndexedDbRecordStore = IndexedDbRecordStore(databaseName).also { open = it }
+    override fun createStore(): IndexedDbRecordStore = IndexedDbRecordStore(databaseName)
 
     @Test
     fun aMalformedKeyMakesTheStoreNotEmptyButIsNotAFolderOrARecord() =

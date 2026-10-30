@@ -21,8 +21,11 @@ import java.util.UUID
  * directory under `noBackupFilesDir`, so the records are never part of a backup.
  *
  * Every write is atomic for its one record: the bytes go to a temp file in the same folder, the file is synced, renamed
- * over the target, and the folder is synced; the temp file is deleted whatever happens, so a failed `put` leaves the
- * old record. A listing deletes the temp files a crash left. Nothing here deletes what it did not make, except by the
+ * over the target, and the folder is synced; the temp file is deleted whatever happens. A failure **before** the rename
+ * leaves the old record; one at the folder sync **after** it can leave the new bytes in place although `put` threw, so a
+ * caller that wants to know reads again (the history's insert is idempotent and finds the record). On Windows, which is
+ * a development machine and never a production target, a directory cannot be opened for a sync (#136) and the folder
+ * sync is skipped. A listing deletes the temp files a crash left. Nothing here deletes what it did not make, except by the
  * explicit [deleteFolder] and [deleteAll].
  *
  * [isEmpty] is `true` only if `root` holds **no entry at all** (a malformed name, a foreign file, a temp file or a
@@ -42,7 +45,7 @@ class FileRecordStore internal constructor(
     private val moveIntoPlace: (from: Path, to: Path) -> Unit,
     private val syncDirectory: (dir: Path) -> Unit,
 ) : RecordStore {
-    constructor(root: File) : this(root, { from, to -> atomicMove(from, to) }, { dir -> forceDirectory(dir) })
+    constructor(root: File) : this(root, { from, to -> atomicMove(from, to) }, { dir -> syncDirectoryUnlessWindows(dir) })
 
     private val lock = Any()
     private val rootPath: Path = root.toPath()
@@ -55,17 +58,21 @@ class FileRecordStore internal constructor(
         validate(folder, name)
         io {
             val folderPath = rootPath.resolve(folder)
-            val newFolder = !isDirectory(folderPath)
-            Files.createDirectories(folderPath)
+            val newFolder = !exists(folderPath)
+            if (newFolder) Files.createDirectories(folderPath) else requireRealDirectory(folderPath)
             val temp = folderPath.resolve("$TEMP_PREFIX${UUID.randomUUID()}")
+            var stored = false
             try {
                 Files.write(temp, bytes, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
                 FileChannel.open(temp, StandardOpenOption.WRITE).use { it.force(true) }
                 moveIntoPlace(temp, folderPath.resolve(name))
                 syncDirectory(folderPath)
                 if (newFolder) syncDirectory(rootPath)
+                stored = true
             } finally {
                 Files.deleteIfExists(temp)
+                // A first put that failed must not leave an empty folder behind: it would make the store "not empty".
+                if (!stored && newFolder) runCatching { Files.deleteIfExists(folderPath) }
             }
         }
     }
@@ -78,7 +85,11 @@ class FileRecordStore internal constructor(
             validate(folder, name)
             io {
                 try {
-                    Files.readAllBytes(rootPath.resolve(folder).resolve(name))
+                    val folderPath = rootPath.resolve(folder)
+                    requireRealDirectory(folderPath)
+                    val file = folderPath.resolve(name)
+                    if (!attributes(file).isRegularFile) throw IOException()
+                    Files.readAllBytes(file)
                 } catch (_: NoSuchFileException) {
                     null
                 }
@@ -90,7 +101,9 @@ class FileRecordStore internal constructor(
             validate(folder)
             io {
                 val names = mutableListOf<String>()
-                for (entry in entries(rootPath.resolve(folder))) {
+                val folderPath = rootPath.resolve(folder)
+                if (exists(folderPath)) requireRealDirectory(folderPath)
+                for (entry in entries(folderPath)) {
                     val file = entry.fileName.toString()
                     when {
                         file.startsWith(TEMP_PREFIX) -> runCatching { Files.deleteIfExists(entry) }
@@ -108,6 +121,7 @@ class FileRecordStore internal constructor(
         validate(folder, name)
         io {
             val folderPath = rootPath.resolve(folder)
+            if (exists(folderPath)) requireRealDirectory(folderPath)
             if (Files.deleteIfExists(folderPath.resolve(name))) syncDirectory(folderPath)
         }
     }
@@ -118,6 +132,7 @@ class FileRecordStore internal constructor(
             io {
                 val folderPath = rootPath.resolve(folder)
                 if (exists(folderPath)) {
+                    requireRealDirectory(folderPath)
                     entries(folderPath).forEach { Files.delete(it) }
                     Files.delete(folderPath)
                     syncDirectory(rootPath)
@@ -151,6 +166,12 @@ class FileRecordStore internal constructor(
     /** The attributes of [path] without following a link; a missing path throws [NoSuchFileException], other trouble an [IOException]. */
     private fun attributes(path: Path): BasicFileAttributes =
         Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+
+    /** A folder is a real directory: a link in its place (to somewhere outside the root) is refused, never followed. */
+    private fun requireRealDirectory(path: Path) {
+        val attributes = attributes(path)
+        if (attributes.isSymbolicLink || !attributes.isDirectory) throw IOException()
+    }
 
     private fun exists(path: Path): Boolean =
         try {
@@ -207,5 +228,12 @@ class FileRecordStore internal constructor(
         }
 
         fun forceDirectory(dir: Path) = FileChannel.open(dir, StandardOpenOption.READ).use { it.force(true) }
+
+        private val windows = System.getProperty("os.name").orEmpty().startsWith("Windows")
+
+        /** The folder sync of the public constructor: real everywhere a directory can be opened, skipped on Windows (#136). */
+        fun syncDirectoryUnlessWindows(dir: Path) {
+            if (!windows) forceDirectory(dir)
+        }
     }
 }

@@ -141,6 +141,7 @@ class FileRecordStoreContractTest : RecordStoreContractTest() {
     @Test
     fun aRootThatCannotBeExaminedIsAnErrorNeverEmptyAndNeverDeleted() =
         runTest {
+            if (windows) return@runTest // A path under a file is "no such file" there; Android is the production target.
             val file = File(root, "plain-file").also { it.writeBytes(byteArrayOf(1)) }
             val store = FileRecordStore(File(file, "under-a-file"), move, hostSync)
             assertFailsWith<RecordStoreException> { store.isEmpty() }
@@ -153,6 +154,7 @@ class FileRecordStoreContractTest : RecordStoreContractTest() {
     @Test
     fun aSymbolicLinkIsDeletedAsALinkAndNeverFollowed() =
         runTest {
+            if (windows) return@runTest // Creating a link needs a privilege there.
             val outside = Files.createTempDirectory("gifitup-outside-").toFile()
             try {
                 File(outside, "keep").writeBytes(byteArrayOf(1))
@@ -164,4 +166,44 @@ class FileRecordStoreContractTest : RecordStoreContractTest() {
                 outside.deleteRecursively()
             }
         }
+
+    @Test
+    fun aFolderThatIsALinkToSomewhereElseIsRefusedAndItsTargetIsNeverTouched() =
+        runTest {
+            if (windows) return@runTest
+            val outside = Files.createTempDirectory("gifitup-outside-").toFile()
+            try {
+                File(outside, validName).writeBytes(byteArrayOf(1))
+                Files.createSymbolicLink(File(root, validFolder).toPath(), outside.toPath())
+                val store = createStore()
+                assertFailsWith<RecordStoreException> { store.put(validFolder, validName, validBytes) }
+                assertFailsWith<RecordStoreException> { store.get(validFolder, validName) }
+                assertFailsWith<RecordStoreException> { store.list(validFolder) }
+                assertFailsWith<RecordStoreException> { store.delete(validFolder, validName) }
+                assertFailsWith<RecordStoreException> { store.deleteFolder(validFolder) }
+                assertContentEquals(byteArrayOf(1), File(outside, validName).readBytes())
+            } finally {
+                outside.deleteRecursively()
+            }
+        }
+
+    @Test
+    fun aFailedFirstPutLeavesNoEmptyFolderBehind() =
+        runTest {
+            val failing = FileRecordStore(root, { _: Path, _: Path -> throw java.io.IOException("disk") }, hostSync)
+            assertFailsWith<RecordStoreException> { failing.put(validFolder, validName, validBytes) }
+            assertFalse(folderDir().exists())
+            assertTrue(createStore().isEmpty())
+        }
+
+    @Test
+    fun theDefaultConstructorDoesTheRealSyncs() =
+        runTest {
+            val store = FileRecordStore(root)
+            store.put(validFolder, validName, validBytes)
+            assertContentEquals(validBytes, store.get(validFolder, validName))
+            assertEquals(listOf(validFolder), store.folders())
+        }
+
+    private val windows = System.getProperty("os.name").orEmpty().startsWith("Windows")
 }
