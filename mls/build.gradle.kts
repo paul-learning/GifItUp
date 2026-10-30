@@ -398,6 +398,7 @@ kotlin {
         commonMain.dependencies {
             // MlsClient, MlsClientFactory and their types are part of this module's API.
             api(projects.shared)
+            implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
