@@ -162,7 +162,7 @@ class GroupHistoryFailureTest {
         }
 
     @Test
-    fun theLongestMessageIsStoredAndDoesNotStallTheGroup() =
+    fun theLongestMessageIsStoredAndTheGroupGoesOnAfterIt() =
         runTest {
             val (alice, bob, groups) = twoGroups()
             val (first, _) = groups

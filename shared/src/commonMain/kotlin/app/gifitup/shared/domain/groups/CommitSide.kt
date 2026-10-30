@@ -50,16 +50,19 @@ internal class CommitSide(
     private val poster: Poster,
     private val receiver: MessageReceiver,
     private val random: SecureRandomSource,
+    private val flag: AheadFlag,
 ) {
     suspend fun create(members: List<NewMember>): GroupCreation {
         if (members.size !in 1..MAX_CHANGES || !members.all { isDeviceId(it.deviceId) }) halt(SyncOutcome.InvalidRequest)
+        val before = flag.ahead
         val groupId = crate { mls.createGroup() }
         val id = KeyBytes(groupId)
         val prepared =
             try {
                 userInput { mls.prepareAdd(groupId, members.map { it.keyPackage }) }
             } catch (stop: Halt) {
-                mls.forgetQuietly(groupId) // nothing was stored; the group the crate made for this call must not stay behind
+                // Nothing was stored; the group the crate made for this call must not stay behind. Forgotten, the client is as it was.
+                if (mls.forgetQuietly(groupId)) flag.undone(before)
                 throw stop
             }
         val pending = pendingOf(prepared, members.map { it.deviceId }, emptyList())
@@ -114,9 +117,10 @@ internal class CommitSide(
             val outcome = receiver.sync(id)
             if (outcome !is SyncOutcome.CaughtUp) halt(outcome)
             if (store.recordOf(id).ownSeqs.size >= SyncStateCodec.MAX_OWN_SEQS) halt(SyncOutcome.Busy)
+            val before = flag.ahead
             val pending = pendingOf(userInput(prepare), added, removed)
             store.put(id, store.recordOf(id).copy(pending = pending))
-            fitsOrDrop(id)
+            fitsOrDrop(id, before)
             store.persist()
             finish(id, pending)?.let { return it }
         }
@@ -124,11 +128,15 @@ internal class CommitSide(
     }
 
     /** The stored state must have room for the pending commit and its welcome; if not, the commit is dropped again. */
-    private fun fitsOrDrop(id: KeyBytes) {
+    private fun fitsOrDrop(
+        id: KeyBytes,
+        before: Boolean,
+    ) {
         try {
             SyncStateCodec.encode(store.state)
         } catch (ignored: SyncStateException) {
             crate { mls.clearPending(id.bytes) }
+            flag.undone(before) // the commit was prepared and cleared again: the client is as it was
             store.put(id, store.recordOf(id).copy(pending = null))
             halt(SyncOutcome.Busy)
         }
@@ -224,13 +232,14 @@ private val DEVICE_ID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 /** A device id as the server hands them out: a canonical lowercase UUID (it is stored with the pending commit). */
 private fun isDeviceId(value: String) = DEVICE_ID.matches(value)
 
-private fun MlsClient.forgetQuietly(groupId: ByteArray) {
+/** Whether the group was forgotten; a dead client is reported by the caller's halt. */
+private fun MlsClient.forgetQuietly(groupId: ByteArray): Boolean =
     try {
         forgetGroup(groupId)
+        true
     } catch (ignored: MlsException) {
-        // A dead client is reported by the caller's halt; nothing else can be done for a group that was never stored.
+        false
     }
-}
 
 /**
  * Reads the log up to [upTo] before the merge. If the Delivery Service can't be used meanwhile, the accepted commit

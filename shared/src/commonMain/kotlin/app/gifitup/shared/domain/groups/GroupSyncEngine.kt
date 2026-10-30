@@ -41,7 +41,7 @@ class GroupSyncEngine(
     private val welcomes = WelcomeReceiver(live, delivery, pinsSource, store)
     private val poster = Poster(live, delivery, store)
     private val sender = SendSide(live, store, poster, random)
-    private val commits = CommitSide(live, store, poster, messages, random)
+    private val commits = CommitSide(live, store, poster, messages, random, flag)
 
     /** Set when a call ended with the live client ahead of the stored snapshot: this engine does nothing more (below). */
     private var dead: SyncOutcome? = null
@@ -130,7 +130,7 @@ class GroupSyncEngine(
     suspend fun forget(groupId: ByteArray): SyncOutcome =
         mutex.withLock {
             halting {
-                store.forget(mls, KeyBytes(groupId))
+                store.forget(live, KeyBytes(groupId))
                 SyncOutcome.CaughtUp(0)
             }
         }
@@ -141,8 +141,9 @@ class GroupSyncEngine(
      * [SyncOutcome.StorageFailed] or [SyncOutcome.Poisoned], leaves this engine **dead**: every later call returns that
      * outcome at once and touches neither the client nor the saver, so nothing is ever exported from a client that has
      * used up a message's generation without that message being stored (ADR-0017). The caller drops the engine and
-     * restores from storage; what was not stored is fetched again. [statuses] and [recordOf] of a dead engine show state
-     * that was not saved.
+     * restores from storage; what was not stored is fetched again. The call that kills the engine returns its own outcome;
+     * every later call returns [SyncOutcome.StorageFailed] (or the [SyncOutcome.Poisoned] it died of), whatever the first
+     * outcome was. [statuses] and [recordOf] of a dead engine show state that was not saved.
      */
     @Suppress("TooGenericExceptionCaught") // Any exit, also a cancellation, kills an engine that is ahead; it is rethrown unchanged.
     private suspend fun halting(block: suspend () -> SyncOutcome): SyncOutcome {

@@ -32,7 +32,10 @@ sealed interface SyncOutcome {
         val seq: Long,
     ) : SyncOutcome
 
-    /** The export bound of the snapshot key is reached: rekey (`MlsClient.rekeyAndExport`), then sync again. */
+    /**
+     * The export bound of the snapshot key is reached: restore a fresh client from storage (never go on with this engine,
+     * which is dead), rekey it (`MlsClient.rekeyAndExport`), then sync again.
+     */
     data object RekeyNeeded : SyncOutcome
 
     /**
