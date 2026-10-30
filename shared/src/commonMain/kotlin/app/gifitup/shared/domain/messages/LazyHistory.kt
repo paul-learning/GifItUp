@@ -7,6 +7,7 @@ import app.gifitup.shared.domain.chat.ReadMarkStore
 import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Builds the [EncryptedMessageStore] of the registered identity: the history key, the cipher, the records (ADR-0017). */
 fun interface HistoryOpener {
@@ -104,9 +105,6 @@ class LazyHistory(
 
     private suspend fun <T> gated(block: suspend (EncryptedMessageStore) -> T): T = mutex.withLock { block(storeLocked()) }
 
-    /** Runs [block] holding the gate, as a history call would (for the tests of the gate itself). */
-    internal suspend fun <T> runGated(block: suspend () -> T): T = gated { block() }
-
     private suspend fun storeLocked(): EncryptedMessageStore {
         refusal()?.let { throw HistoryStoreException(it) }
         return store ?: openStore()
@@ -127,6 +125,8 @@ class LazyHistory(
         val kind =
             try {
                 return opener.open().also { store = it }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: LocalStateException) {
                 if (e.problem == LocalStateException.Problem.STORAGE) HistoryStoreException.Kind.STORAGE else HistoryStoreException.Kind.KEY
             } catch (_: RecordStoreException) {
@@ -134,7 +134,8 @@ class LazyHistory(
             } catch (_: MlsException) {
                 HistoryStoreException.Kind.CIPHER
             } catch (_: IllegalStateException) {
-                // Not a registered identity of this origin: a defect of the caller, not something to retry.
+                // Not a registered identity of this origin: a defect of the caller. Sticky like a dead cipher; only a
+                // user's retry asks again.
                 HistoryStoreException.Kind.CIPHER
             }
         if (kind == HistoryStoreException.Kind.STORAGE) retryAt = nowMillis() + coolDownMillis else sticky = kind

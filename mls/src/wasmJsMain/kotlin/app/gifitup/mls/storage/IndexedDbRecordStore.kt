@@ -214,6 +214,7 @@ class IndexedDbRecordStore internal constructor(
 
     private val opening = Mutex()
     private var db: JsAny? = null
+    private var deleted = false
 
     override suspend fun put(
         folder: String,
@@ -262,10 +263,12 @@ class IndexedDbRecordStore internal constructor(
 
     /**
      * Deletes the whole database (the wipe): this connection is closed first, so it does not block its own delete; a
-     * connection of another tab would, which is a [RecordStoreException]. Later calls open a fresh, empty database.
+     * connection of another tab would, which is a [RecordStoreException]. This instance is finished afterwards: every later
+     * call is a [RecordStoreException], so nothing recreates the database behind the wipe.
      */
     internal suspend fun deleteDatabase() {
         opening.withLock {
+            deleted = true
             db?.let { closeRecords(it) }
             db = null
         }
@@ -281,6 +284,8 @@ class IndexedDbRecordStore internal constructor(
     /** A connection that closed itself on `versionchange` is opened again, like [WebDatabase]'s. */
     private suspend fun connection(): JsAny =
         opening.withLock {
+            // After the wipe this instance is done: a late call must not recreate the empty database.
+            if (deleted) throw RecordStoreException()
             val open = db
             if (open != null && !isClosedRecords(open)) {
                 open

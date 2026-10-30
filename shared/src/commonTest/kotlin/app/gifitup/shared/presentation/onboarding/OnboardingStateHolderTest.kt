@@ -13,6 +13,7 @@ import app.gifitup.shared.data.storage.StoredIdentity
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.CountingRandom
 import app.gifitup.shared.domain.auth.DeviceLock
+import app.gifitup.shared.domain.auth.HistoryLeftovers
 import app.gifitup.shared.domain.auth.InMemoryIdentityStore
 import app.gifitup.shared.domain.auth.InMemoryKeyStore
 import app.gifitup.shared.domain.auth.LogIn
@@ -54,7 +55,7 @@ class OnboardingStateHolderTest {
             scope = this,
             origin = ServerOriginSetting(InMemoryLocalStore(), store, lock, settingDefault),
             identities = store,
-            register = RegisterDevice(api, unguarded(), identities, keys, random, lock) {},
+            register = RegisterDevice(api, unguarded(), identities, keys, random, lock, HistoryLeftovers.None) {},
             refill = RefillKeyPackages(api, unguarded(), identities, keys, lock),
             sessions = SessionHolder({ LogIn(api, unguarded(), identities, keys, lock)() }, this) { 0L },
         )
@@ -346,7 +347,16 @@ class OnboardingStateHolderTest {
                     scope = this,
                     origin = ServerOriginSetting(InMemoryLocalStore(), identities, lock, FakeAuthServer.ORIGIN),
                     identities = failing,
-                    register = RegisterDevice(api, unguarded(), failing, keys, random, lock) { failing.broken = true },
+                    register =
+                        RegisterDevice(
+                            api,
+                            unguarded(),
+                            failing,
+                            keys,
+                            random,
+                            lock,
+                            HistoryLeftovers.None,
+                        ) { failing.broken = true },
                     refill = RefillKeyPackages(api, unguarded(), identities, keys, lock),
                     sessions = SessionHolder({ LogIn(api, unguarded(), identities, keys, lock)() }, this) { 0L },
                 )

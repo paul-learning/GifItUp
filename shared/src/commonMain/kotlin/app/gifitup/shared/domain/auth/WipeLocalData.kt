@@ -38,26 +38,36 @@ fun interface HistoryCloser {
  * owner's admin command, ADR-0010); a wiped device registers again with a new invite.
  *
  * The order matters (#16 SEC-3, SEC-8): end the session while it still works, close every client so Rust and wasm drop
- * the key and the MLS state, close the history (its cache and key in memory), destroy the wrapping key so nothing
- * stored can be decrypted any more, then delete the
- * records. The caller then drops the [Session] and, on the web, reloads the page; the web wipe is best effort against
+ * the key and the MLS state, destroy the wrapping key so nothing stored can be decrypted any more, then delete the
+ * records. The history is closed first of all and outside the lock (its cache and the key in memory go, nothing is written
+ * afterwards); see [invoke]. The caller then drops the [Session] and, on the web, reloads the page; the web wipe is best effort against
  * what the browser leaves on disk.
  */
 class WipeLocalData(
     private val data: DeviceData,
     private val logOut: LogOut,
     private val lock: DeviceLock,
-    private val history: HistoryCloser = HistoryCloser.None,
+    private val history: HistoryCloser,
 ) {
     suspend operator fun invoke(
+        session: Session?,
+        openClients: Collection<MlsClient>,
+    ) {
+        // First, and **outside** the device lock: a history that is still being opened takes the device lock itself (the
+        // history key), so waiting for it while holding the lock would deadlock. Closing is terminal and waits only for the
+        // history's own running calls; whatever a running sync does afterwards through it fails with `CLOSED`. A close that
+        // throws stops the wipe before the key is destroyed, and a retry completes (nothing here is half-done).
+        history.close()
+        wipe(session, openClients)
+    }
+
+    private suspend fun wipe(
         session: Session?,
         openClients: Collection<MlsClient>,
     ) = lock.holding {
         // Best effort: a failed logout leaves a token that expires on its own and isn't stored anywhere.
         if (session != null) runCatching { logOut(session) }
         openClients.forEach { runCatching { it.close() } }
-        // Before the key goes: a call that is still running finishes first, and nothing is written or kept after it.
-        history.close()
         data.destroyWrappingKey()
         data.deleteAll()
     }

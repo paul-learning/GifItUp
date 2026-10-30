@@ -10,6 +10,7 @@ import app.gifitup.shared.data.storage.RecordStoreException
 import app.gifitup.shared.data.storage.StoredIdentity
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -25,12 +26,13 @@ class OpenHistoryKeyTest {
     private val keys = InMemoryHistoryKeyStore()
     private val identities = InMemoryIdentityStore(StoredIdentity(ORIGIN, "ann", byteArrayOf(1), "device-1"))
     private val random = CountingRandom()
-    private val lock = DeviceLock()
+    private val mutex = Mutex()
+    private val deviceLock = DeviceLock()
 
     private fun open(
         records: RecordStore = this.records,
         identities: InMemoryIdentityStore = this.identities,
-    ) = OpenHistoryKey(keys, identities, ORIGIN, records, random, lock)
+    ) = OpenHistoryKey(keys, identities, ORIGIN, records, random, mutex)
 
     private suspend fun folderWithARecord() = records.put(NAME_A, NAME_B, byteArrayOf(1))
 
@@ -68,7 +70,7 @@ class OpenHistoryKeyTest {
         runTest {
             for (problem in listOf(KEY_UNAVAILABLE, DAMAGED, STORAGE)) {
                 val k = InMemoryHistoryKeyStore(key = ByteArray(32), problem = problem)
-                val failure = assertFailsWith<LocalStateException> { OpenHistoryKey(k, identities, ORIGIN, records, random, lock)() }
+                val failure = assertFailsWith<LocalStateException> { OpenHistoryKey(k, identities, ORIGIN, records, random, mutex)() }
                 assertEquals(problem, failure.problem)
                 assertEquals(0, k.saves)
             }
@@ -113,7 +115,7 @@ class OpenHistoryKeyTest {
 
                     override suspend fun clear() = Unit
                 }
-            val failure = assertFailsWith<LocalStateException> { OpenHistoryKey(failing, identities, ORIGIN, records, random, lock)() }
+            val failure = assertFailsWith<LocalStateException> { OpenHistoryKey(failing, identities, ORIGIN, records, random, mutex)() }
             assertEquals(KEY_UNAVAILABLE, failure.problem)
         }
 
@@ -139,18 +141,11 @@ class OpenHistoryKeyTest {
         }
 
     @Test
-    fun theCallHoldsTheStoragesLock() =
+    fun theCallNeverTakesTheDeviceLock() =
         runTest {
-            val call =
-                lock.holding {
-                    val call = async { open()() }
-                    testScheduler.runCurrent()
-                    assertEquals(false, call.isCompleted, "blocked while the lock is held")
-                    assertEquals(0, keys.saves)
-                    assertEquals(0, random.sizes.size)
-                    call
-                }
-            assertEquals(32, call.await().size)
+            // The history opens from inside chat calls that hold the device lock (not reentrant): the open must not wait for it.
+            val key = deviceLock.holding { open()() }
+            assertEquals(32, key.size)
         }
 
     private companion object {

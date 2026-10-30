@@ -8,6 +8,7 @@ import app.gifitup.shared.domain.chat.ReadMarkStore
 import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.cancellation.CancellationException
 
 /** How much history is kept (ADR-0017): per group, never across groups, and at most [maxGroups] groups. */
 class HistoryLimits(
@@ -237,6 +238,9 @@ class EncryptedMessageStore(
         try {
             if (closed) throw HistoryStoreException(HistoryStoreException.Kind.CLOSED)
             block()
+        } catch (e: CancellationException) {
+            // A cancellation is an IllegalStateException on some targets; it is not a defect of the codec.
+            throw e
         } catch (_: RecordStoreException) {
             throw HistoryStoreException(HistoryStoreException.Kind.STORAGE)
         } catch (_: MlsException) {

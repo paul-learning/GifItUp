@@ -8,6 +8,8 @@ import app.gifitup.shared.data.storage.LocalStateException.Problem.KEY_UNAVAILAB
 import app.gifitup.shared.data.storage.LocalStateException.Problem.STORAGE
 import app.gifitup.shared.data.storage.RecordStore
 import app.gifitup.shared.data.storage.RecordStoreException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The history key of this device (ADR-0017), made at most once and **never replaced**:
@@ -21,9 +23,12 @@ import app.gifitup.shared.data.storage.RecordStoreException
  *   then clears the key entry, then lets this make a new key; a crash in between leaves records without a key, which is
  *   the same state again, never a key without its records being opened by mistake.
  *
- * Only for a registered identity of the configured [origin], and under the storage's own [lock], on the load path too,
- * so it cannot race a registration, a wipe or a second call. The caller zeroes the returned array after handing it to
- * `HistoryCipherFactory.create`.
+ * Only for a registered identity of the configured [origin]. Calls are serialized by [mutex], a lock of its own: **never the
+ * `DeviceLock`**. The history opens the first time a sink or a screen asks, which can be inside a chat call that already holds
+ * the `DeviceLock` (which is not reentrant), and the wipe closes the history (waiting for an open to finish) before it
+ * takes the `DeviceLock`. A registration cannot race the open (it only runs for an identity that is not registered, and
+ * this refuses one), and a wipe cannot (it closes the history first, terminally). The caller zeroes the returned array
+ * after handing it to `HistoryCipherFactory.create`.
  */
 internal class OpenHistoryKey(
     private val keys: HistoryKeyStore,
@@ -31,10 +36,10 @@ internal class OpenHistoryKey(
     private val origin: String,
     private val records: RecordStore,
     private val random: SecureRandomSource,
-    private val lock: DeviceLock,
+    private val mutex: Mutex,
 ) {
     suspend operator fun invoke(): ByteArray =
-        lock.holding {
+        mutex.withLock {
             val identity = identities.load()
             check(identity?.deviceId != null && identity.origin == origin) { "a history key needs a registered identity of this origin" }
             keys.load() ?: create()

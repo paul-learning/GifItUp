@@ -28,7 +28,15 @@ class LogInTest {
     private suspend fun registered(deviceId: String? = DEVICE_ID) {
         identities.identity = null
         keys.key = null
-        RegisterDevice(server.api(), unguarded(), identities, keys, CountingRandom(), DeviceLock())("ann", "AAAAAAAAAAAAAAAAAAAAAA")
+        RegisterDevice(
+            server.api(),
+            unguarded(),
+            identities,
+            keys,
+            CountingRandom(),
+            DeviceLock(),
+            HistoryLeftovers.None,
+        )("ann", "AAAAAAAAAAAAAAAAAAAAAA")
         identities.identity = identities.identity!!.let { StoredIdentity(it.origin, it.username, it.snapshot, deviceId) }
         server.requests.clear()
     }

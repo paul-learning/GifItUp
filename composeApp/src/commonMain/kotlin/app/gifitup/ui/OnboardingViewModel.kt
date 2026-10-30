@@ -11,6 +11,7 @@ import app.gifitup.shared.data.network.ApiEndpoint
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.domain.auth.DeviceAuth
 import app.gifitup.shared.domain.auth.DeviceStorage
+import app.gifitup.shared.domain.auth.HistoryCloser
 import app.gifitup.shared.domain.chat.ChatService
 import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.groups.GroupInfo
@@ -49,7 +50,9 @@ internal class OnboardingViewModel(
 ) : ViewModel() {
     private val engine = graph.engine()
     private val api = GifItUpApi(engine, checkNotNull(ApiEndpoint.forOrigin(origin)) { "the origin setting only holds canonical origins" })
-    private val auth = DeviceAuth(storage, api, mls, graph.random)
+
+    // The history is wired in #177 PR 4a-2, with its closer; until then there is nothing to close.
+    private val auth = DeviceAuth(storage, api, mls, graph.random, HistoryCloser.None)
 
     private val sessions = SessionHolder({ auth.logIn() }, viewModelScope) { Clock.System.now().epochSeconds }
 

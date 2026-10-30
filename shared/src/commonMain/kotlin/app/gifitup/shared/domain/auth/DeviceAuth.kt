@@ -26,6 +26,7 @@ import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.keypackages.ClaimKeyPackages
 import app.gifitup.shared.domain.keypackages.RefillKeyPackages
 import app.gifitup.shared.domain.origin.ServerOriginSetting
+import kotlinx.coroutines.sync.Mutex
 import kotlin.time.Clock
 
 /**
@@ -48,6 +49,9 @@ class DeviceStorage(
     val identities: IdentityStore = RecordIdentityStore(store)
     val restores = StoredRestoreCounter(store)
     internal val lock = DeviceLock()
+
+    /** Serializes the opening of the history key (see [OpenHistoryKey]: never the [lock]). */
+    private val historyKeyMutex = Mutex()
 
     fun snapshotKeys(origin: String): SnapshotKeyStore = keyStoreFor(origin, identities)
 
@@ -76,7 +80,7 @@ class DeviceStorage(
         origin: String,
         records: RecordStore,
         random: SecureRandomSource,
-    ): ByteArray = OpenHistoryKey(historyKeys(origin), identities, origin, records, random, lock)()
+    ): ByteArray = OpenHistoryKey(historyKeys(origin), identities, origin, records, random, historyKeyMutex)()
 
     /** The server origin setting over this storage and its lock (ADR-0013); [default] is the build's origin. */
     fun originSetting(default: String): ServerOriginSetting = ServerOriginSetting(store, identities, lock, default)
@@ -92,7 +96,7 @@ class DeviceAuth(
     mls: MlsClientFactory,
     random: SecureRandomSource,
     /** Closes the history before the wipe destroys its key (the app's `LazyHistory`); nothing to close by default. */
-    closeHistory: HistoryCloser = HistoryCloser.None,
+    closeHistory: HistoryCloser,
 ) {
     private val lock = storage.lock
     private val guarded = GuardedMlsFactory(mls, storage.restores)

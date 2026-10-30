@@ -1,13 +1,22 @@
 package app.gifitup.shared.domain.auth
 
+import app.gifitup.shared.data.crypto.FakeHistoryCipher
 import app.gifitup.shared.data.crypto.FakeMlsClient
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.network.FakeAuthServer
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.DEVICE_ID
 import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.data.storage.InMemoryRecordStore
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.messages.EncryptedMessageStore
+import app.gifitup.shared.domain.messages.HistoryStoreException
+import app.gifitup.shared.domain.messages.LazyHistory
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -36,7 +45,7 @@ class WipeLocalDataTest {
         runTest {
             val clients = List(2) { FakeMlsClient.Factory.create("ann", ByteArray(32)) }
             val session = Session(DEVICE_ID, "token", 1, FakeAuthServer.ENDPOINT)
-            WipeLocalData(data, LogOut(server.api()), DeviceLock())(session, clients)
+            WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session, clients)
             assertEquals(listOf("/auth/logout"), server.requests.map { it.path })
             assertEquals(listOf("destroy key", "delete records"), steps)
             clients.forEach { client ->
@@ -48,7 +57,12 @@ class WipeLocalDataTest {
     fun aFailedLogoutDoesntStopTheWipe() =
         runTest {
             server.on("/auth/logout", FakeAuthServer.dropped)
-            WipeLocalData(data, LogOut(server.api()), DeviceLock())(Session(DEVICE_ID, "token", 1, FakeAuthServer.ENDPOINT), emptyList())
+            WipeLocalData(
+                data,
+                LogOut(server.api()),
+                DeviceLock(),
+                HistoryCloser.None,
+            )(Session(DEVICE_ID, "token", 1, FakeAuthServer.ENDPOINT), emptyList())
             assertEquals(listOf("destroy key", "delete records"), steps)
         }
 
@@ -71,7 +85,7 @@ class WipeLocalDataTest {
                         steps += "delete records"
                     }
                 }
-            val wipe = WipeLocalData(flaky, LogOut(server.api()), DeviceLock())
+            val wipe = WipeLocalData(flaky, LogOut(server.api()), DeviceLock(), HistoryCloser.None)
             assertFailsWith<IllegalStateException> { wipe(null, emptyList()) }
             wipe(null, emptyList())
             assertEquals(listOf("destroy key", "destroy key", "delete records"), steps)
@@ -95,8 +109,19 @@ class WipeLocalDataTest {
                         keys.clear()
                     }
                 }
-            val register = async { RegisterDevice(server.api(), unguarded(), identities, keys, CountingRandom(), lock)("ann", INVITE) }
-            val wipe = async { WipeLocalData(wipeAll, LogOut(server.api()), lock)(null, emptyList()) }
+            val register =
+                async {
+                    RegisterDevice(
+                        server.api(),
+                        unguarded(),
+                        identities,
+                        keys,
+                        CountingRandom(),
+                        lock,
+                        HistoryLeftovers.None,
+                    )("ann", INVITE)
+                }
+            val wipe = async { WipeLocalData(wipeAll, LogOut(server.api()), lock, HistoryCloser.None)(null, emptyList()) }
             awaitAll(register, wipe)
             assertEquals(listOf("destroy key after 2 saves"), steps)
             assertEquals(null, identities.identity)
@@ -105,22 +130,17 @@ class WipeLocalDataTest {
     @Test
     fun withoutASessionNothingIsSent() =
         runTest {
-            WipeLocalData(data, LogOut(server.api()), DeviceLock())(null, emptyList())
+            WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(null, emptyList())
             assertEquals(emptyList(), server.requests)
             assertEquals(listOf("destroy key", "delete records"), steps)
         }
 
-    /** The history is closed after the clients and before the key is destroyed, so nothing is written or kept afterwards. */
+    /** The history is closed first of all, outside the device lock, and before the key is destroyed (PR 208 CR-1). */
     @Test
-    fun theHistoryIsClosedAfterTheClientsAndBeforeTheKeyIsDestroyed() =
+    fun theHistoryIsClosedFirstAndBeforeTheKeyIsDestroyed() =
         runTest {
             val order = mutableListOf<String>()
-            val client = FakeMlsClient.Factory.create("ann", ByteArray(32))
-            val closing =
-                HistoryCloser {
-                    order +=
-                        "history closed after client poisoned=${runCatching { client.publicIdentity() }.isFailure}"
-                }
+            val closing = HistoryCloser { order += "history closed" }
             val recording =
                 object : DeviceData {
                     override suspend fun destroyWrappingKey() {
@@ -131,7 +151,34 @@ class WipeLocalDataTest {
                         order += "delete records"
                     }
                 }
-            WipeLocalData(recording, LogOut(server.api()), DeviceLock(), closing)(null, listOf(client))
-            assertEquals(listOf("history closed after client poisoned=true", "destroy key", "delete records"), order)
+            WipeLocalData(recording, LogOut(server.api()), DeviceLock(), closing)(null, emptyList())
+            assertEquals(listOf("history closed", "destroy key", "delete records"), order)
+        }
+
+    /**
+     * The wipe closes the history **before** it takes the device lock: a history that is still being opened may need the
+     * device lock itself (here simulated), and waiting for it while holding the lock would hang the wipe (PR 208 CR-1).
+     */
+    @Test
+    fun aWipeRacingTheFirstOpenOfTheHistoryDoesNotDeadlock() =
+        runTest {
+            val lock = DeviceLock()
+            val go = CompletableDeferred<Unit>()
+            val history =
+                LazyHistory({
+                    go.await()
+                    lock.holding { }
+                    EncryptedMessageStore(FakeHistoryCipher(), InMemoryRecordStore())
+                }, { 0L })
+            val first = async { runCatching { history.messages(KeyBytes(ByteArray(16))) } }
+            runCurrent()
+            val wipe = async { WipeLocalData(data, LogOut(server.api()), lock, { history.close() })(null, emptyList()) }
+            runCurrent()
+            go.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(true, wipe.isCompleted, "the wipe finished")
+            assertEquals(listOf("destroy key", "delete records"), steps)
+            assertEquals(emptyList(), first.await().getOrNull(), "the open that was running finished before the close")
+            assertFailsWith<HistoryStoreException> { history.messages(KeyBytes(ByteArray(16))) }
         }
 }
