@@ -16,6 +16,15 @@ import kotlinx.coroutines.delay
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
+/** Removes the history an earlier account or an interrupted wipe left behind (records first, then the key entry). */
+fun interface HistoryLeftovers {
+    suspend fun clear()
+
+    companion object {
+        val None: HistoryLeftovers = HistoryLeftovers { }
+    }
+}
+
 /**
  * Registers this device's account with an invite (ADR-0009, ADR-0010), for the dev CLI now and onboarding (#17) later.
  *
@@ -37,6 +46,7 @@ import kotlin.time.Duration.Companion.seconds
  *   the wrong one, and a discard or a wipe can't clear what a registration is saving. A store shared between processes
  *   (the CLI's state dir) needs its own lock too, which also covers its discard.
  */
+
 @Suppress("LongParameterList") // Constructor injection of the use case's collaborators (ADR-0004).
 class RegisterDevice(
     private val api: GifItUpApi,
@@ -45,6 +55,7 @@ class RegisterDevice(
     private val keys: SnapshotKeyStore,
     private val random: SecureRandomSource,
     private val lock: DeviceLock,
+    private val leftovers: HistoryLeftovers = HistoryLeftovers.None,
     private val wait: suspend (Duration) -> Unit = { delay(it) },
 ) {
     /** The origin this use case sends to (`api.endpoint.origin`): the screens compare it with what the user confirmed. */
@@ -149,6 +160,9 @@ class RegisterDevice(
             }
 
             stored == null -> {
+                // A brand-new registration starts with no history: what an interrupted wipe or another account left would
+                // block the new key. Before anything is created or sent; a failure aborts the registration.
+                leftovers.clear()
                 Start.Ready(create(username), resumed = false)
             }
 

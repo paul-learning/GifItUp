@@ -3,6 +3,8 @@ package app.gifitup.mls.storage
 import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.LocalStateException.Problem.KEY_UNAVAILABLE
 import app.gifitup.shared.data.storage.LocalStateException.Problem.STORAGE
+import app.gifitup.shared.data.storage.RecordStore
+import app.gifitup.shared.data.storage.RecordStoreException
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import javax.crypto.KeyGenerator
@@ -121,10 +123,12 @@ class JcaWrappingAeadTest {
             val dir = Files.createTempDirectory("gifitup-android").toFile()
             try {
                 val origin = "https://e2e.invalid"
-                val storage = fileDeviceStorage(hostStore(dir.resolve("state")), keys)
+                val storage =
+                    fileDeviceStorage(hostStore(dir.resolve("state")), keys, FileRecordStore(dir.resolve("history"), move, hostSync))
                 val snapshotKey = ByteArray(32) { 7 }
                 storage.snapshotKeys(origin).save(snapshotKey)
-                val restarted = fileDeviceStorage(hostStore(dir.resolve("state")), keys)
+                val restarted =
+                    fileDeviceStorage(hostStore(dir.resolve("state")), keys, FileRecordStore(dir.resolve("history"), move, hostSync))
                 assertContentEquals(snapshotKey, restarted.snapshotKeys(origin).load())
                 assertEquals(
                     KEY_UNAVAILABLE,
@@ -144,6 +148,52 @@ class JcaWrappingAeadTest {
                 assertNull(restarted.snapshotKeys(origin).load(), "nothing is left to load")
                 restarted.data.destroyWrappingKey()
                 restarted.data.deleteAll()
+            } finally {
+                dir.deleteRecursively()
+            }
+        }
+
+    @Test
+    fun theWipeDeletesTheHistoryFirstAndAFailingHistoryDeleteLeavesTheIdentityForARetry() =
+        runTest {
+            val dir = Files.createTempDirectory("gifitup-android").toFile()
+            try {
+                val origin = "https://e2e.invalid"
+                val real = FileRecordStore(dir.resolve("history"), move, hostSync)
+                var failing = true
+                val records =
+                    object : RecordStore by real {
+                        override suspend fun deleteAll() {
+                            if (failing) throw RecordStoreException()
+                            real.deleteAll()
+                        }
+                    }
+                val storage = fileDeviceStorage(hostStore(dir.resolve("state")), keys, records)
+                storage.snapshotKeys(origin).save(ByteArray(32) { 7 })
+                real.put("ab".repeat(32), "cd".repeat(32), byteArrayOf(1))
+                storage.data.destroyWrappingKey()
+                // The history cannot be deleted: the wipe fails and the state file stays, so the app offers the wipe again.
+                assertEquals(LocalStateException.Problem.STORAGE, assertFailsWith<LocalStateException> { storage.data.deleteAll() }.problem)
+                assertFalse(
+                    dir
+                        .resolve("state")
+                        .list()
+                        .orEmpty()
+                        .isEmpty(),
+                    "the identity file is still there",
+                )
+                assertFalse(real.isEmpty())
+                failing = false
+                storage.data.deleteAll()
+                assertTrue(real.isEmpty())
+                assertEquals(
+                    emptyList(),
+                    dir
+                        .resolve("state")
+                        .list()
+                        .orEmpty()
+                        .toList(),
+                )
             } finally {
                 dir.deleteRecursively()
             }

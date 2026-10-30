@@ -92,4 +92,16 @@ class IndexedDbRecordStoreContractTest : RecordStoreContractTest() {
             store.deleteAll()
             assertTrue(store.isEmpty())
         }
+
+    @Test
+    fun deletingTheDatabaseEmptiesItAndTheStoreOpensAFreshOneAfterwards() =
+        runTest {
+            val store = createStore()
+            store.put(validFolder, validName, validBytes)
+            rawPut(databaseName, "garbage").await<JsAny?>()
+            store.deleteDatabase()
+            assertTrue(createStore().isEmpty(), "nothing survives the wipe, malformed keys included")
+            store.put(validFolder, validName, validBytes)
+            assertEquals(listOf(validFolder), store.folders(), "the same store works again on a new database")
+        }
 }

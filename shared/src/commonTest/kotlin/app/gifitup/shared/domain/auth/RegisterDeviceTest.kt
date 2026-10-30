@@ -9,6 +9,7 @@ import app.gifitup.shared.data.network.FakeAuthServer.Companion.DEVICE_ID
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.dropped
 import app.gifitup.shared.data.network.FakeAuthServer.Companion.error
 import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.StoredIdentity
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.async
@@ -260,4 +261,44 @@ class RegisterDeviceTest {
         /** 16 bytes, canonical base64url (its last character carries no stray bits). */
         const val INVITE = "AAAAAAAAAAAAAAAAAAAAAA"
     }
+
+    private fun registerWith(leftovers: HistoryLeftovers) =
+        RegisterDevice(server.api(), unguarded(), identities, keys, random, DeviceLock(), leftovers) {
+            waits +=
+                it
+        }
+
+    @Test
+    fun aNewRegistrationClearsTheHistoryLeftoversBeforeAnythingIsCreatedOrSent() =
+        runTest {
+            val seen = mutableListOf<String>()
+            val leftovers =
+                HistoryLeftovers {
+                    seen += "clear with ${keys.saves} keys, ${identities.saved.size} identities and ${server.requests.size} requests so far"
+                }
+            assertIs<AuthResult.Ok<Session>>(registerWith(leftovers)("ann", INVITE))
+            assertEquals(listOf("clear with 0 keys, 0 identities and 0 requests so far"), seen)
+        }
+
+    @Test
+    fun aResumedRegistrationDoesNotClearTheHistory() =
+        runTest {
+            var cleared = 0
+            val leftovers = HistoryLeftovers { cleared++ }
+            server.on("/accounts", dropped)
+            registerWith(leftovers)("ann", INVITE)
+            assertEquals(1, cleared)
+            registerWith(leftovers).resume()
+            assertEquals(1, cleared, "a pending identity has no history; resuming it must not touch the records")
+        }
+
+    @Test
+    fun leftoversThatCannotBeClearedAbortTheRegistrationBeforeAnythingIsStoredOrSent() =
+        runTest {
+            val leftovers = HistoryLeftovers { throw LocalStateException(LocalStateException.Problem.STORAGE) }
+            assertIs<AuthResult.Failed>(registerWith(leftovers)("ann", INVITE))
+            assertEquals(0, keys.saves)
+            assertEquals(emptyList(), identities.saved)
+            assertEquals(emptyList(), server.requests)
+        }
 }
