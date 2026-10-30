@@ -398,7 +398,6 @@ kotlin {
         commonMain.dependencies {
             // MlsClient, MlsClientFactory and their types are part of this module's API.
             api(projects.shared)
-            implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -418,18 +417,12 @@ kotlin {
         jvmMain {
             kotlin.srcDir(uniffiBindgen.map { it.outputDir })
             kotlin.srcDir("src/jniShared/kotlin")
-            dependencies {
-                implementation(libs.jna)
-                implementation(libs.kotlinx.coroutines.core)
-            }
+            dependencies { implementation(libs.jna) }
         }
         androidMain {
             kotlin.srcDir(uniffiBindgen.map { it.outputDir })
             kotlin.srcDir("src/jniShared/kotlin")
-            dependencies {
-                implementation("${libs.jna.get()}@aar")
-                implementation(libs.kotlinx.coroutines.core)
-            }
+            dependencies { implementation("${libs.jna.get()}@aar") }
         }
         wasmJsMain.dependencies {
             implementation(npm("gifitup-crypto", wasmPkgDir.get().asFile))

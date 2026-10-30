@@ -1,96 +1,140 @@
 package app.gifitup.mls.storage
 
-import app.gifitup.shared.data.storage.RecordStoreContractTest
-import java.io.File
+import app.gifitup.shared.data.storage.RecordStoreException
 import kotlinx.coroutines.test.runTest
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * Contract tests for [FileRecordStore].
- */
+/** The contract of [FileRecordStore] on a real directory, and the parts that are specific to files (ADR-0017). */
 class FileRecordStoreContractTest : RecordStoreContractTest() {
-    private lateinit var tempDir: File
+    private lateinit var root: File
 
     @BeforeTest
     fun setup() {
-        tempDir = File.createTempFile("gifitup-test-", "").apply {
-            delete()
-            mkdirs()
-        }
+        root = Files.createTempDirectory("gifitup-records-").toFile()
     }
 
     @AfterTest
     fun teardown() {
-        tempDir.deleteRecursively()
+        root.deleteRecursively()
     }
 
-    override fun createStore(): FileRecordStore = FileRecordStore(tempDir)
+    override fun createStore(): FileRecordStore = FileRecordStore(root, move, hostSync)
+
+    private fun folderDir() = File(root, validFolder)
 
     @Test
-    override fun isEmptyWithMalformedEntryIsNotEmpty() = runTest {
-        val store = createStore()
-        val malformedFile = File(tempDir, "malformed-name")
-        malformedFile.writeBytes(byteArrayOf(1, 2, 3))
-        assertFalse(store.isEmpty())
-    }
+    fun aMalformedEntryMakesTheStoreNotEmpty() =
+        runTest {
+            File(root, "malformed-name").writeBytes(byteArrayOf(1))
+            assertFalse(createStore().isEmpty())
+        }
 
     @Test
-    override fun isEmptyWithTempFileIsNotEmpty() = runTest {
-        val store = createStore()
-        val tempFile = File(tempDir, ".tmp-someuuid")
-        tempFile.writeBytes(byteArrayOf(1, 2, 3))
-        assertFalse(store.isEmpty())
-    }
+    fun aLeftoverTempFileMakesTheStoreNotEmpty() =
+        runTest {
+            File(root, ".tmp-leftover").writeBytes(byteArrayOf(1))
+            assertFalse(createStore().isEmpty())
+        }
 
     @Test
-    fun tempFileInFolderIsIgnoredAndRemovedByList() = runTest {
-        val store = createStore()
-        val folderPath = File(tempDir, validFolder)
-        folderPath.mkdirs()
-        val tempFile = File(folderPath, ".tmp-someuuid")
-        tempFile.writeBytes(byteArrayOf(1, 2, 3))
-        val validFile = File(folderPath, validName)
-        validFile.writeBytes(validBytes)
-
-        val listed = store.list(validFolder)
-        assertTrue(listed.contains(validName))
-        assertFalse(listed.contains(".tmp-someuuid"))
-        assertFalse(tempFile.exists())
-    }
+    fun aStrayFolderMakesTheStoreNotEmpty() =
+        runTest {
+            File(root, "not64hex").mkdirs()
+            assertFalse(createStore().isEmpty())
+            File(root, "not64hex").delete()
+            assertTrue(createStore().isEmpty())
+        }
 
     @Test
-    fun foreignFileInFolderIsNotRemoved() = runTest {
-        val store = createStore()
-        val folderPath = File(tempDir, validFolder)
-        folderPath.mkdirs()
-        val foreignFile = File(folderPath, "foreign.txt")
-        foreignFile.writeBytes(byteArrayOf(1, 2, 3))
-        val validFile = File(folderPath, validName)
-        validFile.writeBytes(validBytes)
-
-        val listed = store.list(validFolder)
-        assertTrue(listed.contains(validName))
-        assertFalse(listed.contains("foreign.txt"))
-        assertTrue(foreignFile.exists())
-    }
+    fun aRootThatIsNotADirectoryIsNotEmpty() =
+        runTest {
+            root.deleteRecursively()
+            root.writeBytes(byteArrayOf(1))
+            assertFalse(createStore().isEmpty())
+            root.delete()
+            root.mkdirs()
+        }
 
     @Test
-    fun isEmptyWithForeignFolderIsNotEmpty() = runTest {
-        val store = createStore()
-        val foreignFolder = File(tempDir, "foreign-folder")
-        foreignFolder.mkdirs()
-        assertFalse(store.isEmpty())
-    }
+    fun aMissingRootIsEmpty() =
+        runTest {
+            root.deleteRecursively()
+            assertTrue(createStore().isEmpty())
+            assertTrue(createStore().folders().isEmpty())
+            assertTrue(createStore().list(validFolder).isEmpty())
+        }
 
     @Test
-    fun isEmptyWithMalformedFolderNameIsNotEmpty() = runTest {
-        val store = createStore()
-        val malformedFolder = File(tempDir, "not64hex")
-        malformedFolder.mkdirs()
-        assertFalse(store.isEmpty())
-    }
+    fun aTempFileInAFolderIsIgnoredAndRemovedByListAndAForeignFileIsKept() =
+        runTest {
+            val store = createStore()
+            store.put(validFolder, validName, validBytes)
+            File(folderDir(), ".tmp-crash").writeBytes(byteArrayOf(1))
+            File(folderDir(), "foreign.txt").writeBytes(byteArrayOf(2))
+            assertEquals(listOf(validName), store.list(validFolder))
+            assertFalse(File(folderDir(), ".tmp-crash").exists())
+            assertTrue(File(folderDir(), "foreign.txt").exists())
+        }
+
+    @Test
+    fun theOrderIsTempWriteThenMoveThenDirectorySyncAndNoTempFileStays() =
+        runTest {
+            val calls = mutableListOf<String>()
+            val store =
+                FileRecordStore(
+                    root,
+                    { from, to ->
+                        calls += "move"
+                        move(from, to)
+                    },
+                    { dir ->
+                        calls += "sync:${dir.fileName}"
+                        hostSync(dir)
+                    },
+                )
+            store.put(validFolder, validName, validBytes)
+            assertEquals(listOf("move", "sync:$validFolder", "sync:${root.name}"), calls)
+            assertEquals(listOf(validName), folderDir().list().orEmpty().toList())
+        }
+
+    @Test
+    fun aFailedMoveLeavesTheOldRecordAndNoTempFile() =
+        runTest {
+            createStore().put(validFolder, validName, validBytes)
+            val failing = FileRecordStore(root, { _: Path, _: Path -> throw java.io.IOException("disk") }, hostSync)
+            assertFailsWith<RecordStoreException> { failing.put(validFolder, validName, byteArrayOf(9)) }
+            assertContentEquals(validBytes, createStore().get(validFolder, validName))
+            assertEquals(listOf(validName), folderDir().list().orEmpty().toList())
+        }
+
+    @Test
+    fun aFailingDirectorySyncIsAClosedFailure() =
+        runTest {
+            val failing = FileRecordStore(root, move) { throw java.io.IOException("sync") }
+            val failure = assertFailsWith<RecordStoreException> { failing.put(validFolder, validName, validBytes) }
+            assertNull(failure.message)
+            assertNull(failure.cause)
+        }
+
+    @Test
+    fun aWipeThatCannotDeleteSomethingFailsInsteadOfReportingSuccess() =
+        runTest {
+            val store = createStore()
+            store.put(validFolder, validName, validBytes)
+            File(folderDir(), "nested").also { it.mkdirs() }
+            File(File(folderDir(), "nested"), "file").writeBytes(byteArrayOf(1))
+            assertFailsWith<RecordStoreException> { store.deleteAll() }
+            assertFailsWith<RecordStoreException> { store.deleteFolder(validFolder) }
+        }
 }
