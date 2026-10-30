@@ -186,9 +186,18 @@ class RestoreGuardTest {
             val keys = InMemoryKeyStore()
             // A pending registration whose reply was lost, so the next register resumes it.
             server.on("/accounts", FakeAuthServer.dropped)
-            RegisterDevice(server.api(), guarded, identities, keys, CountingRandom(), DeviceLock())("ann", INVITE)
+            RegisterDevice(server.api(), guarded, identities, keys, CountingRandom(), DeviceLock(), HistoryLeftovers.None)("ann", INVITE)
             counter.set(GuardedMlsFactory.LIMIT)
-            val resumed = RegisterDevice(server.api(), guarded, identities, keys, CountingRandom(), DeviceLock())("ann", INVITE)
+            val resumed =
+                RegisterDevice(
+                    server.api(),
+                    guarded,
+                    identities,
+                    keys,
+                    CountingRandom(),
+                    DeviceLock(),
+                    HistoryLeftovers.None,
+                )("ann", INVITE)
             assertEquals(AuthError.Local.RESTORE_BLOCKED, assertIs<AuthResult.Failed>(resumed).error)
             identities.identity = identities.identity!!.let { StoredIdentity(it.origin, it.username, it.snapshot, DEVICE_ID) }
             val loggedIn = LogIn(server.api(), guarded, identities, keys, DeviceLock())()

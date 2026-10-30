@@ -31,7 +31,11 @@ class RegisterDeviceTest {
     private val keys = InMemoryKeyStore()
     private val random = CountingRandom()
     private val waits = mutableListOf<Duration>()
-    private val register = RegisterDevice(server.api(), unguarded(), identities, keys, random, DeviceLock()) { waits += it }
+    private val register =
+        RegisterDevice(server.api(), unguarded(), identities, keys, random, DeviceLock(), HistoryLeftovers.None) {
+            waits +=
+                it
+        }
 
     private fun registerRequests() = server.bodiesFor("/accounts").map { ProtocolJson.decodeFromString(RegisterRequest.serializer(), it) }
 

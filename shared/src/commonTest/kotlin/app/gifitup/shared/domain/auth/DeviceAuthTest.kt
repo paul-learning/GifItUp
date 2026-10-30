@@ -43,7 +43,7 @@ class DeviceAuthTest {
         }
     private val storage = DeviceStorage(store, data, InMemoryRecordStore(), { _, _ -> InMemoryKeyStore() }, { InMemoryHistoryKeyStore() })
 
-    private fun auth() = DeviceAuth(storage, server.api(), FakeMlsClient.Factory, CountingRandom())
+    private fun auth() = DeviceAuth(storage, server.api(), FakeMlsClient.Factory, CountingRandom(), HistoryCloser.None)
 
     @Test
     fun noUseCaseRunsWhileTheStoragesLockIsHeld() =

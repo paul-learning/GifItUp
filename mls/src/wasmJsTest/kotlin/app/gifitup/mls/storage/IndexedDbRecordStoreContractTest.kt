@@ -1,5 +1,6 @@
 package app.gifitup.mls.storage
 
+import app.gifitup.shared.data.storage.RecordStoreException
 import kotlinx.coroutines.await
 import kotlinx.coroutines.test.runTest
 import kotlin.js.Promise
@@ -8,6 +9,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -94,14 +96,14 @@ class IndexedDbRecordStoreContractTest : RecordStoreContractTest() {
         }
 
     @Test
-    fun deletingTheDatabaseEmptiesItAndTheStoreOpensAFreshOneAfterwards() =
+    fun deletingTheDatabaseEmptiesItAndFinishesThatStore() =
         runTest {
             val store = createStore()
             store.put(validFolder, validName, validBytes)
             rawPut(databaseName, "garbage").await<JsAny?>()
             store.deleteDatabase()
             assertTrue(createStore().isEmpty(), "nothing survives the wipe, malformed keys included")
-            store.put(validFolder, validName, validBytes)
-            assertEquals(listOf(validFolder), store.folders(), "the same store works again on a new database")
+            assertFailsWith<RecordStoreException> { store.put(validFolder, validName, validBytes) }
+            assertTrue(createStore().isEmpty(), "and a late write did not recreate anything")
         }
 }

@@ -55,7 +55,7 @@ class RegisterDevice(
     private val keys: SnapshotKeyStore,
     private val random: SecureRandomSource,
     private val lock: DeviceLock,
-    private val leftovers: HistoryLeftovers = HistoryLeftovers.None,
+    private val leftovers: HistoryLeftovers,
     private val wait: suspend (Duration) -> Unit = { delay(it) },
 ) {
     /** The origin this use case sends to (`api.endpoint.origin`): the screens compare it with what the user confirmed. */

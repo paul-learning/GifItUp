@@ -12,6 +12,7 @@ import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.auth.CountingRandom
 import app.gifitup.shared.domain.auth.DeviceLock
+import app.gifitup.shared.domain.auth.HistoryLeftovers
 import app.gifitup.shared.domain.auth.InMemoryIdentityStore
 import app.gifitup.shared.domain.auth.InMemoryKeyStore
 import app.gifitup.shared.domain.auth.LogIn
@@ -60,7 +61,15 @@ class ContactUseCasesTest {
 
     private suspend fun registered(): Session {
         val api = server.api()
-        RegisterDevice(api, unguarded(), identities, keys, CountingRandom(), DeviceLock())("ann", "AAAAAAAAAAAAAAAAAAAAAA")
+        RegisterDevice(
+            api,
+            unguarded(),
+            identities,
+            keys,
+            CountingRandom(),
+            DeviceLock(),
+            HistoryLeftovers.None,
+        )("ann", "AAAAAAAAAAAAAAAAAAAAAA")
         val stored = identities.identity!!
         identities.identity = StoredIdentity(stored.origin, stored.username, stored.snapshot, DEVICE_ID)
         val session = assertIs<AuthResult.Ok<Session>>(LogIn(api, unguarded(), identities, keys, DeviceLock())()).value

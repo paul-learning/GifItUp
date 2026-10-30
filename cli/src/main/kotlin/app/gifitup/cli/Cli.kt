@@ -10,6 +10,7 @@ import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.auth.DeviceLock
 import app.gifitup.shared.domain.auth.GuardedMlsFactory
+import app.gifitup.shared.domain.auth.HistoryLeftovers
 import app.gifitup.shared.domain.auth.ListDevices
 import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.LogOut
@@ -231,7 +232,8 @@ class Cli(
         api: GifItUpApi,
         state: StateDir,
     ): Int {
-        val register = RegisterDevice(api, guarded(), state.identities, state.keys, random, lock)
+        // The CLI keeps its own state dir and has no history store yet (#177 PR 4c).
+        val register = RegisterDevice(api, guarded(), state.identities, state.keys, random, lock, HistoryLeftovers.None)
         return when (invocation.command) {
             "register" -> register(invocation, api, register)
             "reset" -> report(register.discardPending()) { out.println("pending registration discarded") }

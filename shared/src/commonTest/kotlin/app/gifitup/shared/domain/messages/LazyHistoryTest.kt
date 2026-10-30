@@ -158,26 +158,25 @@ class LazyHistoryTest {
         }
 
     @Test
-    fun closeWaitsForARunningCallAndNothingRunsAfterIt() =
+    fun closeWaitsForAnOpenInProgressAndNothingRunsAfterIt() =
         runTest {
             val release = CompletableDeferred<Unit>()
             val slow =
                 LazyHistory({
-                    val cipher = FakeHistoryCipher().also { ciphers += it }
-                    EncryptedMessageStore(cipher, records)
+                    release.await()
+                    EncryptedMessageStore(FakeHistoryCipher().also { ciphers += it }, records)
                 }, { clock })
-            // Warm it up, then hold the gate with a call that waits.
-            slow.messages(group)
-            val running = async { slow.runGated { release.await() } }
+            val opening = async { slow.messages(group) }
             runCurrent()
             val closing = async { slow.close() }
             runCurrent()
-            assertFalse(closing.isCompleted, "close waits for the running call")
+            assertFalse(closing.isCompleted, "close waits for the open that is running")
             val late = async { runCatching { slow.messages(group) } }
             release.complete(Unit)
-            running.await()
+            opening.await()
             closing.await()
             assertEquals(HistoryStoreException.Kind.CLOSED, (late.await().exceptionOrNull() as HistoryStoreException).kind)
+            assertTrue(ciphers.single().closed, "the store that was just opened is closed, key and cache with it")
         }
 
     @Test
