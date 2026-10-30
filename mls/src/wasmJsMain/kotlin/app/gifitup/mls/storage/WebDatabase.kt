@@ -38,7 +38,7 @@ private fun settle(promise: Promise<JsAny?>): Promise<Settled> =
 /** Awaits [promise]; a rejection becomes [onError] of the error's name, `STORAGE` by default. */
 internal suspend fun settled(
     promise: Promise<JsAny?>,
-    onError: (String) -> LocalStateException = { LocalStateException(STORAGE) },
+    onError: (String) -> Throwable = { LocalStateException(STORAGE) },
 ): JsAny? {
     val result = settle(promise).await<Settled>()
     if (result.failed) throw onError(result.error ?: "Error")

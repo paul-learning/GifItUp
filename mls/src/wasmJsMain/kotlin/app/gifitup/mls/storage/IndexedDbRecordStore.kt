@@ -1,4 +1,4 @@
-@file:Suppress("TooManyFunctions")
+@file:Suppress("TooManyFunctions") // One small js() helper per IndexedDB call; they belong together.
 
 package app.gifitup.mls.storage
 
@@ -7,23 +7,194 @@ import app.gifitup.mls.toUint8Array
 import app.gifitup.shared.data.storage.RecordStore
 import app.gifitup.shared.data.storage.RecordStoreException
 import app.gifitup.shared.data.storage.isRecordName
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.khronos.webgl.Uint8Array
 import kotlin.js.Promise
 
+// IndexedDB through small JS helpers, in the style of WebDatabase.kt: each helper returns a promise and does all its
+// work inside it, so a synchronous throw is a rejection too; [settled] turns a rejection into a value and here into the
+// closed RecordStoreException, so no JS error and no message reaches Kotlin (security rule 4).
+
+private const val DATABASE_NAME = "gifitup-history"
+private const val RECORDS = "records"
+
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbOpenRecords(
+    name: String,
+    store: String,
+): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const request = indexedDB.open(name, 1);
+            request.onupgradeneeded = () => { request.result.createObjectStore(store); };
+            request.onsuccess = () => {
+                const db = request.result;
+                db.onversionchange = () => { db.gifitupClosed = true; db.close(); };
+                resolve(db);
+            };
+            request.onerror = () => reject(request.error);
+            request.onblocked = () => reject(new Error('blocked'));
+        })""",
+    )
+
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun isClosedRecords(db: JsAny): Boolean = js("db.gifitupClosed === true")
+
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbGetRecord(
+    db: JsAny,
+    store: String,
+    key: String,
+): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readonly');
+            const request = tx.objectStore(store).get(key);
+            tx.oncomplete = () => resolve(request.result === undefined ? null : request.result);
+            tx.onabort = () => reject(tx.error || new Error('aborted'));
+        })""",
+    )
+
+/** One `readwrite` transaction with strict durability; resolves only on `complete`, so the write is durable when it resolves. */
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbPutRecord(
+    db: JsAny,
+    store: String,
+    key: String,
+    value: JsAny,
+): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
+            tx.oncomplete = () => resolve(null);
+            tx.onabort = () => reject(tx.error || new Error('aborted'));
+            try {
+                tx.objectStore(store).put(value, key);
+            } catch (e) {
+                tx.abort();
+                reject(e);
+            }
+        })""",
+    )
+
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbDeleteRecord(
+    db: JsAny,
+    store: String,
+    key: String,
+): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
+            tx.oncomplete = () => resolve(null);
+            tx.onabort = () => reject(tx.error || new Error('aborted'));
+            try {
+                tx.objectStore(store).delete(key);
+            } catch (e) {
+                tx.abort();
+                reject(e);
+            }
+        })""",
+    )
+
+/** Deletes every key of a folder (`"<folder>/"` up to, not including, `"<folder>0"`) in one transaction, foreign keys in that range too. */
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbDeleteFolder(
+    db: JsAny,
+    store: String,
+    folder: String,
+): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
+            tx.oncomplete = () => resolve(null);
+            tx.onabort = () => reject(tx.error || new Error('aborted'));
+            try {
+                tx.objectStore(store).delete(IDBKeyRange.bound(folder + '/', folder + '0', false, true));
+            } catch (e) {
+                tx.abort();
+                reject(e);
+            }
+        })""",
+    )
+
 /**
- * A [RecordStore] in the browser's IndexedDB: its own database `gifitup-history`, one object store,
- * key `"<folder>/<name>"` (both checked with [isRecordName] first), value `Uint8Array`.
- *
- * Does **not** touch the `gifitup` database of ADR-0011 or its versioning.
- *
- * It does not take the Web Lock itself: PR 4 opens it only after `claimWebDeviceStorage()` returned
- * a non-null `DeviceStorage`.
- *
- * Every failure is a [RecordStoreException] with no message and no cause (security rule 4).
+ * The record keys (`<64 hex>/<64 hex>`, anything else is left out) of a folder, or of all folders if [folder] is empty,
+ * as one string separated by line feeds (a record key has none).
  */
-class IndexedDbRecordStore(
-    private val name: String = DATABASE_NAME,
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbRecordKeys(
+    db: JsAny,
+    store: String,
+    folder: String,
+): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readonly');
+            const objects = tx.objectStore(store);
+            const request = folder === ''
+                ? objects.getAllKeys()
+                : objects.getAllKeys(IDBKeyRange.bound(folder + '/', folder + '0', false, true));
+            tx.oncomplete = () => resolve(
+                request.result.filter((k) => typeof k === 'string' && /^[0-9a-f]{64}\/[0-9a-f]{64}$/.test(k)).join('\n'),
+            );
+            tx.onabort = () => reject(tx.error || new Error('aborted'));
+        })""",
+    )
+
+/** How many keys the store holds, whatever they look like, as text. */
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbCountRecords(
+    db: JsAny,
+    store: String,
+): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readonly');
+            const request = tx.objectStore(store).count();
+            tx.oncomplete = () => resolve(String(request.result));
+            tx.onabort = () => reject(tx.error || new Error('aborted'));
+        })""",
+    )
+
+@Suppress("UnusedParameter") // Read by the js() body, which detekt can't see.
+private fun idbClearRecords(
+    db: JsAny,
+    store: String,
+): Promise<JsAny?> =
+    js(
+        """new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
+            tx.oncomplete = () => resolve(null);
+            tx.onabort = () => reject(tx.error || new Error('aborted'));
+            try {
+                tx.objectStore(store).clear();
+            } catch (e) {
+                tx.abort();
+                reject(e);
+            }
+        })""",
+    )
+
+/**
+ * The [RecordStore] in the browser's IndexedDB (ADR-0017): its own database `gifitup-history`, one object store, key
+ * `"<folder>/<name>"` (both checked with [isRecordName] first), value `Uint8Array`. It never touches the `gifitup`
+ * database of ADR-0011 or its versioning.
+ *
+ * A write is one `readwrite` transaction with strict durability that resolves on `complete`: durable when it returns.
+ * [isEmpty] is `true` only if the object store holds **no key at all**, malformed or foreign ones included, and an error
+ * is thrown, never `true`. Every failure is a [RecordStoreException] with no message and no cause.
+ *
+ * It does not take the Web Lock itself: PR 4 opens it only after `claimWebDeviceStorage()` returned a non-null
+ * `DeviceStorage`, so one tab at a time uses it. [databaseName] is a parameter for the tests only.
+ */
+class IndexedDbRecordStore internal constructor(
+    private val databaseName: String,
 ) : RecordStore {
+    constructor() : this(DATABASE_NAME)
+
+    private val opening = Mutex()
     private var db: JsAny? = null
 
     override suspend fun put(
@@ -31,327 +202,71 @@ class IndexedDbRecordStore(
         name: String,
         bytes: ByteArray,
     ) {
-        check(folder, name)
-        val key = "$folder/$name"
-        val value = bytes.toUint8Array()
-        val db = ensureDb()
-        settled(idbPut(db, STORE_NAME, key, value))
+        validate(folder, name)
+        settle(idbPutRecord(connection(), RECORDS, "$folder/$name", bytes.toUint8Array()))
     }
 
     override suspend fun get(
         folder: String,
         name: String,
     ): ByteArray? {
-        check(folder, name)
-        val key = "$folder/$name"
-        val db = ensureDb()
-        val result = settled(idbGet(db, STORE_NAME, key))
-        if (result !is Uint8Array) return null
-        return result.toByteArray()
+        validate(folder, name)
+        val value = settle(idbGetRecord(connection(), RECORDS, "$folder/$name")) ?: return null
+        if (!isUint8Array(value)) throw RecordStoreException()
+        return value.unsafeCast<Uint8Array>().toByteArray()
     }
 
     override suspend fun list(folder: String): List<String> {
-        check(folder)
-        val db = ensureDb()
-        val jsKeys = settled(idbGetAllKeysInRange(db, STORE_NAME, "$folder/", "${folder}0"))
-        return extractNames(jsKeys)
+        validate(folder)
+        return keys(folder).map { it.substringAfter('/') }
     }
 
     override suspend fun delete(
         folder: String,
         name: String,
     ) {
-        check(folder, name)
-        val key = "$folder/$name"
-        val db = ensureDb()
-        settled(idbDelete(db, STORE_NAME, key))
+        validate(folder, name)
+        settle(idbDeleteRecord(connection(), RECORDS, "$folder/$name"))
     }
 
     override suspend fun deleteFolder(folder: String) {
-        check(folder)
-        val db = ensureDb()
-        val jsKeys = settled(idbGetAllKeysInRange(db, STORE_NAME, "$folder/", "${folder}0"))
-        val keys = extractKeys(jsKeys)
-        if (keys.isNotEmpty()) {
-            settled(idbDeleteRange(db, STORE_NAME, keys))
-        }
+        validate(folder)
+        settle(idbDeleteFolder(connection(), RECORDS, folder))
     }
 
-    override suspend fun folders(): List<String> {
-        val db = ensureDb()
-        val jsKeys = settled(idbGetAllKeys(db, STORE_NAME))
-        return extractFolders(jsKeys)
-    }
+    override suspend fun folders(): List<String> = keys("").map { it.substringBefore('/') }.distinct()
 
-    override suspend fun isEmpty(): Boolean {
-        val db = ensureDb()
-        val count = settled(idbCount(db, STORE_NAME))
-        @Suppress("UNCHECKED_CAST")
-        return (count as? Number)?.toLong() == 0L
-    }
+    override suspend fun isEmpty(): Boolean = text(settle(idbCountRecords(connection(), RECORDS))) == "0"
 
     override suspend fun deleteAll() {
-        val db = ensureDb()
-        settled(idbClear(db, STORE_NAME))
+        settle(idbClearRecords(connection(), RECORDS))
     }
 
-    private suspend fun ensureDb(): JsAny {
-        if (db != null) return db!!
-        db = settled(idbOpen(name))
-        return db!!
+    /** The record keys of [folder] (all folders if empty), as text lines turned into keys. */
+    private suspend fun keys(folder: String): List<String> {
+        val joined = text(settle(idbRecordKeys(connection(), RECORDS, folder)))
+        return if (joined.isEmpty()) emptyList() else joined.split('\n')
     }
 
-    private fun check(
+    /** A connection that closed itself on `versionchange` is opened again, like [WebDatabase]'s. */
+    private suspend fun connection(): JsAny =
+        opening.withLock {
+            val open = db
+            if (open != null && !isClosedRecords(open)) {
+                open
+            } else {
+                (settle(idbOpenRecords(databaseName, RECORDS)) ?: throw RecordStoreException()).also { db = it }
+            }
+        }
+
+    private suspend fun settle(promise: Promise<JsAny?>): JsAny? = settled(promise) { RecordStoreException() }
+
+    private fun text(value: JsAny?): String = value?.unsafeCast<JsString>()?.toString() ?: throw RecordStoreException()
+
+    private fun validate(
         folder: String,
         name: String? = null,
     ) {
-        if (!isRecordName(folder) || (name != null && !isRecordName(name))) {
-            throw RecordStoreException()
-        }
-    }
-
-    private fun extractNames(jsKeys: JsAny?): List<String> {
-        @Suppress("UNCHECKED_CAST")
-        val keys = jsKeys as? JsArray<JsString> ?: return emptyList()
-        val result = ArrayList<String>(keys.length)
-        for (i in 0 until keys.length) {
-            val jsKey = keys[i]
-            @Suppress("UNCHECKED_CAST")
-            val key = jsKey as String
-            val slashIndex = key.lastIndexOf('/')
-            if (slashIndex >= 0 && slashIndex < key.length - 1) {
-                result.add(key.substring(slashIndex + 1))
-            }
-        }
-        return result.filter { isRecordName(it) }
-    }
-
-    private fun extractKeys(jsKeys: JsAny?): List<String> {
-        @Suppress("UNCHECKED_CAST")
-        val keys = jsKeys as? JsArray<JsString> ?: return emptyList()
-        val result = ArrayList<String>(keys.length)
-        for (i in 0 until keys.length) {
-            val jsKey = keys[i]
-            @Suppress("UNCHECKED_CAST")
-            result.add(jsKey as String)
-        }
-        return result
-    }
-
-    private fun extractFolders(jsKeys: JsAny?): List<String> {
-        @Suppress("UNCHECKED_CAST")
-        val keys = jsKeys as? JsArray<JsString> ?: return emptyList()
-        val folders = mutableSetOf<String>()
-        for (i in 0 until keys.length) {
-            val jsKey = keys[i]
-            @Suppress("UNCHECKED_CAST")
-            val key = jsKey as String
-            val slashIndex = key.indexOf('/')
-            if (slashIndex >= 0) {
-                folders.add(key.substring(0, slashIndex))
-            }
-        }
-        return folders.filter { isRecordName(it) }.toList()
-    }
-
-    companion object {
-        private const val DATABASE_NAME = "gifitup-history"
-        private const val STORE_NAME = "records"
-
-        @JsFun(
-            """function(dbName) {
-                return new Promise((resolve, reject) => {
-                    const request = indexedDB.open(dbName, 1);
-                    request.onupgradeneeded = () => {
-                        request.result.createObjectStore('records', { keyPath: null });
-                    };
-                    request.onsuccess = () => {
-                        const db = request.result;
-                        db.onversionchange = () => { db.gifitupClosed = true; db.close(); };
-                        resolve(db);
-                    };
-                    request.onerror = () => reject(request.error);
-                    request.onblocked = () => reject(new Error('blocked'));
-                });
-            }""",
-        )
-        private external fun idbOpen(name: String): Promise<JsAny?>
-
-        @JsFun(
-            """function(db, store, key) {
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction(store, 'readonly');
-                    const request = tx.objectStore(store).get(key);
-                    tx.oncomplete = () => resolve(request.result === undefined ? null : request.result);
-                    tx.onabort = () => reject(tx.error || new Error('aborted'));
-                });
-            }""",
-        )
-        private external fun idbGet(
-            db: JsAny,
-            store: String,
-            key: String,
-        ): Promise<JsAny?>
-
-        @JsFun(
-            """function(db, store, key, value) {
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
-                    tx.oncomplete = () => resolve(null);
-                    tx.onabort = () => reject(tx.error || new Error('aborted'));
-                    try {
-                        tx.objectStore(store).put(value, key);
-                    } catch (e) {
-                        tx.abort();
-                        reject(e);
-                    }
-                });
-            }""",
-        )
-        private external fun idbPut(
-            db: JsAny,
-            store: String,
-            key: String,
-            value: JsAny,
-        ): Promise<JsAny?>
-
-        @JsFun(
-            """function(db, store, key) {
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
-                    tx.oncomplete = () => resolve(null);
-                    tx.onabort = () => reject(tx.error || new Error('aborted'));
-                    try {
-                        tx.objectStore(store).delete(key);
-                    } catch (e) {
-                        tx.abort();
-                        reject(e);
-                    }
-                });
-            }""",
-        )
-        private external fun idbDelete(
-            db: JsAny,
-            store: String,
-            key: String,
-        ): Promise<JsAny?>
-
-        @JsFun(
-            """function(db, store, lower, upper) {
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction(store, 'readonly');
-                    const range = IDBKeyRange.bound(lower, upper, false, true);
-                    const request = tx.objectStore(store).getAllKeys(range);
-                    tx.oncomplete = () => resolve(request.result);
-                    tx.onabort = () => reject(tx.error || new Error('aborted'));
-                });
-            }""",
-        )
-        private external fun idbGetAllKeysInRange(
-            db: JsAny,
-            store: String,
-            lower: String,
-            upper: String,
-        ): Promise<JsAny?>
-
-        @JsFun(
-            """function(db, store, keys) {
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
-                    tx.oncomplete = () => resolve(null);
-                    tx.onabort = () => reject(tx.error || new Error('aborted'));
-                    try {
-                        const objectStore = tx.objectStore(store);
-                        for (const key of keys) {
-                            objectStore.delete(key);
-                        }
-                    } catch (e) {
-                        tx.abort();
-                        reject(e);
-                    }
-                });
-            }""",
-        )
-        private external fun idbDeleteRange(
-            db: JsAny,
-            store: String,
-            keys: List<String>,
-        ): Promise<JsAny?>
-
-        @JsFun(
-            """function(db, store) {
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction(store, 'readonly');
-                    const request = tx.objectStore(store).getAllKeys();
-                    tx.oncomplete = () => resolve(request.result);
-                    tx.onabort = () => reject(tx.error || new Error('aborted'));
-                });
-            }""",
-        )
-        private external fun idbGetAllKeys(
-            db: JsAny,
-            store: String,
-        ): Promise<JsAny?>
-
-        @JsFun(
-            """function(db, store) {
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction(store, 'readonly');
-                    const request = tx.objectStore(store).count();
-                    tx.oncomplete = () => resolve(request.result);
-                    tx.onabort = () => reject(tx.error || new Error('aborted'));
-                });
-            }""",
-        )
-        private external fun idbCount(
-            db: JsAny,
-            store: String,
-        ): Promise<JsAny?>
-
-        @JsFun(
-            """function(db, store) {
-                return new Promise((resolve, reject) => {
-                    const tx = db.transaction(store, 'readwrite', { durability: 'strict' });
-                    tx.oncomplete = () => resolve(null);
-                    tx.onabort = () => reject(tx.error || new Error('aborted'));
-                    try {
-                        tx.objectStore(store).clear();
-                    } catch (e) {
-                        tx.abort();
-                        reject(e);
-                    }
-                });
-            }""",
-        )
-        private external fun idbClear(
-            db: JsAny,
-            store: String,
-        ): Promise<JsAny?>
-
-        internal suspend fun settled(promise: Promise<JsAny?>): JsAny? {
-            val result = settle(promise).await<Settled>()
-            if (result.failed) throw RecordStoreException()
-            return result.value
-        }
-
-        internal external interface Settled : JsAny {
-            val failed: Boolean
-            val value: JsAny?
-            val error: String?
-        }
-
-        @JsFun(
-            """function(promise) {
-                return promise.then(
-                    (value) => ({ failed: false, value: value === undefined ? null : value }),
-                    (e) => ({ failed: true, error: (e && typeof e.name === 'string') ? e.name : 'Error' }),
-                );
-            }""",
-        )
-        private external fun settle(promise: Promise<JsAny?>): Promise<Settled>
-
-        @JsFun("function(value) { return value instanceof Uint8Array; }"
-        )
-        private external fun isUint8Array(value: JsAny?): Boolean
+        if (!isRecordName(folder) || (name != null && !isRecordName(name))) throw RecordStoreException()
     }
 }
