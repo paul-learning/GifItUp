@@ -15,6 +15,7 @@ import kotlin.coroutines.cancellation.CancellationException
 internal class SyncStore(
     private val mls: MlsClient,
     private val saver: SnapshotSaver,
+    private val flag: AheadFlag,
 ) {
     var state: SyncState = load()
         private set
@@ -64,6 +65,7 @@ internal class SyncStore(
         val snapshot = snapshotOrHalt()
         try {
             saver.save(snapshot)
+            flag.saved()
         } catch (e: CancellationException) {
             throw e
         } catch (ignored: Exception) {

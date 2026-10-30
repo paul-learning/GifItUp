@@ -34,12 +34,17 @@ class GroupSyncEngine(
     random: SecureRandomSource,
 ) {
     private val mutex = Mutex()
-    private val store = SyncStore(mls, saver)
-    private val messages = MessageReceiver(mls, delivery, pinsSource, sink, store)
-    private val welcomes = WelcomeReceiver(mls, delivery, pinsSource, store)
-    private val poster = Poster(mls, delivery, store)
-    private val sender = SendSide(mls, store, poster, random)
-    private val commits = CommitSide(mls, store, poster, messages, random)
+    private val flag = AheadFlag()
+    private val live = TrackedClient(mls, flag)
+    private val store = SyncStore(live, saver, flag)
+    private val messages = MessageReceiver(live, delivery, pinsSource, sink, store)
+    private val welcomes = WelcomeReceiver(live, delivery, pinsSource, store)
+    private val poster = Poster(live, delivery, store)
+    private val sender = SendSide(live, store, poster, random)
+    private val commits = CommitSide(live, store, poster, messages, random)
+
+    /** Set when a call ended with the live client ahead of the stored snapshot: this engine does nothing more (below). */
+    private var dead: SyncOutcome? = null
 
     /** The groups this engine knows and where each stands. */
     fun statuses(): Map<KeyBytes, GroupStatus> = store.state.groups.mapValues { it.value.status }
@@ -130,10 +135,32 @@ class GroupSyncEngine(
             }
         }
 
-    private suspend fun halting(block: suspend () -> SyncOutcome): SyncOutcome =
-        try {
-            block()
-        } catch (stop: Halt) {
-            stop.outcome
+    /**
+     * Runs one operation. An operation that ends in any way (a [Halt] with any outcome, another exception, a
+     * cancellation, or a normal return) while the live client is ahead of the stored snapshot, or that ends in
+     * [SyncOutcome.StorageFailed] or [SyncOutcome.Poisoned], leaves this engine **dead**: every later call returns that
+     * outcome at once and touches neither the client nor the saver, so nothing is ever exported from a client that has
+     * used up a message's generation without that message being stored (ADR-0017). The caller drops the engine and
+     * restores from storage; what was not stored is fetched again. [statuses] and [recordOf] of a dead engine show state
+     * that was not saved.
+     */
+    @Suppress("TooGenericExceptionCaught") // Any exit, also a cancellation, kills an engine that is ahead; it is rethrown unchanged.
+    private suspend fun halting(block: suspend () -> SyncOutcome): SyncOutcome {
+        dead?.let { return it }
+        val outcome =
+            try {
+                block()
+            } catch (stop: Halt) {
+                stop.outcome
+            } catch (e: Throwable) {
+                if (flag.ahead) dead = SyncOutcome.StorageFailed
+                throw e
+            }
+        if (outcome is SyncOutcome.Poisoned) {
+            dead = outcome
+        } else if (flag.ahead || outcome == SyncOutcome.StorageFailed) {
+            dead = SyncOutcome.StorageFailed
         }
+        return outcome
+    }
 }
