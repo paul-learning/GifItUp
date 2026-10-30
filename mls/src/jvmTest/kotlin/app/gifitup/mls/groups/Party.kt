@@ -40,6 +40,9 @@ class Party(
     var saves = 0
     var pins: ContactPins? = ContactPins { _, _ -> PinCheck.STRANGER }
     var failSave = false
+
+    /** Where decrypted messages go; the default records them in [received]. */
+    var sink: IncomingSink = IncomingSink { received += it }
     var engine = newEngine(mls)
 
     fun newEngine(client: MlsClient) =
@@ -52,7 +55,7 @@ class Party(
                 saved = it.copyOf()
                 saves++
             },
-            IncomingSink { received += it },
+            IncomingSink { sink.deliver(it) },
             SecureRandomSource { randomBytes(it) },
         )
 
@@ -140,8 +143,13 @@ class Party(
     suspend fun say(
         groupId: ByteArray,
         text: String,
+    ): Long = sayBytes(groupId, text.encodeToByteArray())
+
+    suspend fun sayBytes(
+        groupId: ByteArray,
+        content: ByteArray,
     ): Long {
-        val sealed = mls.encrypt(groupId, text.encodeToByteArray())
+        val sealed = mls.encrypt(groupId, content)
         val posted = view.post(groupId, envelope(MessageKind.APPLICATION, null, emptyList(), emptyList(), emptyMap(), sealed.message))
         return (posted as ApiResult.Ok).value.seq
     }
