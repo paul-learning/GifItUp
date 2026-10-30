@@ -10,6 +10,7 @@ import app.gifitup.shared.domain.groups.DeliveredMessage
 import app.gifitup.shared.domain.groups.GroupChat
 import app.gifitup.shared.domain.groups.IncomingSink
 import app.gifitup.shared.domain.groups.SendObserver
+import app.gifitup.shared.domain.groups.SendState
 import app.gifitup.shared.domain.groups.SyncOutcome
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -122,13 +123,31 @@ class MessagesTest {
         }
     }
 
+    /** Plays the engine's part: it keeps the pending and last accepted reference the way the stored state does. */
     private class FakeChat(
         var outcome: SyncOutcome,
         var sealWith: ByteArray? = ByteArray(32) { 7 },
         var earlier: SyncOutcome? = null,
     ) : GroupChat {
         var sent: ByteArray? = null
+        var pending: ByteArray? = null
+        var lastSent: ByteArray? = null
+        var lastSentSeq: Long? = null
 
+        private fun state() = SendState(pending, lastSent, lastSentSeq)
+
+        private fun answered(
+            reference: ByteArray?,
+            answer: SyncOutcome,
+        ) {
+            if (answer is SyncOutcome.Sent && reference != null) {
+                lastSent = reference
+                lastSentSeq = answer.seq
+            }
+            if (answer is SyncOutcome.Sent || answer is SyncOutcome.Rejected) pending = null
+        }
+
+        @Suppress("ReturnCount") // The engine's early exits, in order.
         override suspend fun send(
             session: Session,
             groupId: ByteArray,
@@ -137,10 +156,18 @@ class MessagesTest {
             observer: SendObserver,
         ): AuthResult<SyncOutcome> {
             sent = text
+            observer.reconcile(state())
             val older = earlier
-            older?.let { observer.earlierSettled(it) }
-            if (older != null && older !is SyncOutcome.Sent) return AuthResult.Ok(SyncOutcome.PendingFirst(older))
-            sealWith?.let { observer.sealed(it) }
+            if (older != null) {
+                val ref = pending
+                observer.earlierSettled(ref, older)
+                answered(ref, older)
+                if (older !is SyncOutcome.Sent) return AuthResult.Ok(SyncOutcome.PendingFirst(older))
+            }
+            val ref = sealWith ?: return AuthResult.Ok(outcome)
+            observer.sealed(ref)
+            pending = ref
+            answered(ref, outcome)
             return AuthResult.Ok(outcome)
         }
 
@@ -148,7 +175,12 @@ class MessagesTest {
             session: Session,
             groupId: ByteArray,
             sink: IncomingSink,
-        ): AuthResult<SyncOutcome> = AuthResult.Ok(outcome)
+            observer: SendObserver,
+        ): AuthResult<SyncOutcome> {
+            observer.reconcile(state())
+            answered(pending, outcome)
+            return AuthResult.Ok(outcome)
+        }
     }
 
     private val session =

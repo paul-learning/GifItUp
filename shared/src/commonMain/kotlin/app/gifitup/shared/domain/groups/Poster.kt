@@ -90,7 +90,17 @@ internal class Poster(
     ) {
         val record = store.recordOf(id)
         val own = (record.ownSeqs + listOfNotNull(OwnSend.of(seq, pending.payload))).takeLast(SyncStateCodec.MAX_OWN_SEQS)
-        store.put(id, record.copy(lastMsgId = pending.clientMsgId, pending = null, ownSeqs = own))
+        // A commit has no history record, so it leaves the last accepted application message as it was.
+        store.put(
+            id,
+            record.copy(
+                lastMsgId = pending.clientMsgId,
+                pending = null,
+                ownSeqs = own,
+                lastSentReference = pending.reference ?: record.lastSentReference,
+                lastSentSeq = if (pending.reference != null) seq else record.lastSentSeq,
+            ),
+        )
         store.persist()
     }
 

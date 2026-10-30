@@ -103,7 +103,8 @@ class ChatActions(
         session: Session,
         groupId: ByteArray,
         sink: IncomingSink,
-    ): AuthResult<SyncOutcome> = engine(session, sink) { engine, _ -> engine.resume(groupId) }
+        observer: SendObserver,
+    ): AuthResult<SyncOutcome> = engine(session, sink) { engine, _ -> engine.resume(groupId, observer) }
 
     suspend fun welcomes(
         session: Session,

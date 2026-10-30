@@ -21,5 +21,6 @@ interface GroupChat {
         session: Session,
         groupId: ByteArray,
         sink: IncomingSink,
+        observer: SendObserver = SendObserver.None,
     ): AuthResult<SyncOutcome>
 }

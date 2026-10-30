@@ -60,7 +60,7 @@ class SyncStateCodecTest {
     @Test
     fun unknownVersionsStatusesAndOversizedCountsAreRefused() {
         val bytes = SyncStateCodec.encode(sample())
-        assertFailsWith<SyncStateException> { SyncStateCodec.decode(bytes.copyOf().also { it[0] = 3 }) }
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(bytes.copyOf().also { it[0] = 4 }) }
         val statusAt = 1 + 2 + 1 + 16 + Long.SIZE_BYTES
         assertFailsWith<SyncStateException> {
             SyncStateCodec.decode(
@@ -144,5 +144,54 @@ class SyncStateCodecTest {
     fun anOversizedRecordIsNotWritten() {
         val bloated = record().copy(quarantined = List(SyncStateCodec.MAX_QUARANTINED + 1) { it.toLong() })
         assertFailsWith<SyncStateException> { SyncStateCodec.encode(SyncState(mapOf(id(1) to bloated))) }
+    }
+
+    private fun application(reference: ByteArray?) =
+        PendingSend(ByteArray(16) { 4 }, MessageKind.APPLICATION, null, emptyList(), emptyList(), null, ByteArray(40) { 9 }, reference)
+
+    @Test
+    fun theReferenceOfAPendingSendAndTheLastAcceptedSendRoundTrip() {
+        val ref = ByteArray(32) { 6 }
+        val sent = ByteArray(32) { 8 }
+        val state = SyncState(mapOf(id(1) to record().copy(pending = application(ref), lastSentReference = sent, lastSentSeq = 21)))
+        val first = SyncStateCodec.decode(SyncStateCodec.encode(state)).groups.getValue(id(1))
+        assertContentEquals(ref, first.pending?.reference)
+        assertContentEquals(sent, first.lastSentReference)
+        assertEquals(21L, first.lastSentSeq)
+        val none = SyncStateCodec.decode(SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(pending = application(null))))))
+        assertEquals(
+            null,
+            none.groups
+                .getValue(id(1))
+                .pending
+                ?.reference,
+        )
+        assertEquals(null, none.groups.getValue(id(1)).lastSentReference)
+    }
+
+    @Test
+    fun aVersionTwoStateStillReadsWithoutReferences() {
+        val v3 = SyncStateCodec.encode(SyncState(mapOf(id(1) to record())))
+        // Version 2 lacks the one flag byte the last accepted send adds at the end of the group (none here).
+        val v2 = v3.copyOf(v3.size - 1).also { it[0] = 2 }
+        val read = SyncStateCodec.decode(v2).groups.getValue(id(1))
+        assertEquals(7L, read.cursor)
+        assertEquals(null, read.lastSentReference)
+        assertEquals(null, read.lastSentSeq)
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(v3.copyOf().also { it[0] = 4 }) }
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(v3.copyOf().also { it[0] = 1 }) }
+    }
+
+    @Test
+    fun aReferenceOfTheWrongSizeOrOnACommitIsRefused() {
+        assertFailsWith<SyncStateException> {
+            SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(pending = application(ByteArray(31))))))
+        }
+        val commit =
+            PendingSend(ByteArray(16) { 4 }, MessageKind.COMMIT, 3, emptyList(), emptyList(), null, ByteArray(40) { 9 }, ByteArray(32))
+        assertFailsWith<SyncStateException> { SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(pending = commit)))) }
+        assertFailsWith<SyncStateException> {
+            SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(lastSentReference = ByteArray(32)))))
+        }
     }
 }

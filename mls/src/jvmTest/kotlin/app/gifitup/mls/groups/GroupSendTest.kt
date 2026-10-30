@@ -4,6 +4,7 @@ import app.gifitup.mls.UniffiMlsClientFactory
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.groups.SendObserver
+import app.gifitup.shared.domain.groups.SendState
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomeOutcome
 import kotlinx.coroutines.test.runTest
@@ -74,7 +75,10 @@ class GroupSendTest {
             val heard = mutableListOf<SyncOutcome>()
             val watching =
                 object : SendObserver {
-                    override suspend fun earlierSettled(outcome: SyncOutcome) {
+                    override suspend fun earlierSettled(
+                        reference: ByteArray?,
+                        outcome: SyncOutcome,
+                    ) {
                         heard += outcome
                     }
                 }
@@ -101,10 +105,79 @@ class GroupSendTest {
         }
 
     @Test
-    fun anObserverThatFailsDoesNotStopTheSend() =
+    fun aHistoryThatCannotStoreTheSealedMessageStopsTheSendBeforeAnythingIsPersistedOrPosted() =
         runTest {
             val (alice, _, groupId) = joinedPair()
-            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "one".encodeToByteArray(), observer { error("history is broken") }))
+            val savedBefore = alice.saved.copyOf()
+            val savesBefore = alice.saves
+            var posted = false
+            ds.onPost = { device, _ -> if (device == alice.deviceId) posted = true }
+            assertEquals(
+                SyncOutcome.StorageFailed,
+                alice.engine.send(groupId, "one".encodeToByteArray(), observer { error("history is broken") }),
+            )
+            assertEquals(false, posted)
+            assertEquals(savesBefore, alice.saves)
+            assertContentEquals(savedBefore, alice.saved)
+            // The engine used up a generation and is dead; a fresh client from the stored snapshot sends fine.
+            assertEquals(SyncOutcome.StorageFailed, alice.engine.send(groupId, "two".encodeToByteArray()))
+            alice.restart()
+            assertEquals(null, alice.engine.recordOf(groupId)?.pending)
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "three".encodeToByteArray()))
+        }
+
+    @Test
+    fun bookkeepingThatFailsDoesNotStopTheSend() =
+        runTest {
+            val (alice, _, groupId) = joinedPair()
+            val broken =
+                object : SendObserver {
+                    override suspend fun reconcile(state: SendState) = error("history is broken")
+                }
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "one".encodeToByteArray(), broken))
+        }
+
+    @Test
+    fun thePendingReferenceAndTheLastAcceptedSendAreStoredWithTheSnapshot() =
+        runTest {
+            val (alice, _, groupId) = joinedPair()
+            var announced: ByteArray? = null
+            ds.failing = setOf("post")
+            assertEquals(
+                SyncOutcome.InFlight(ApiError.NETWORK),
+                alice.engine.send(groupId, "one".encodeToByteArray(), observer { announced = it }),
+            )
+            assertContentEquals(
+                announced,
+                alice.engine
+                    .recordOf(groupId)
+                    ?.pending
+                    ?.reference,
+            )
+            // A restart: the reference is in the stored snapshot, and resume settles exactly that message.
+            alice.restart()
+            assertContentEquals(
+                announced,
+                alice.engine
+                    .recordOf(groupId)
+                    ?.pending
+                    ?.reference,
+            )
+            ds.failing = emptySet()
+            var seen: SendState? = null
+            val watching =
+                object : SendObserver {
+                    override suspend fun reconcile(state: SendState) {
+                        seen = state
+                    }
+                }
+            val sent = assertIs<SyncOutcome.Sent>(alice.engine.resume(groupId, watching))
+            assertContentEquals(announced, seen?.pending)
+            assertContentEquals(announced, alice.engine.recordOf(groupId)?.lastSentReference)
+            assertEquals(sent.seq, alice.engine.recordOf(groupId)?.lastSentSeq)
+            assertEquals(null, alice.engine.recordOf(groupId)?.pending)
+            alice.restart()
+            assertContentEquals(announced, alice.engine.recordOf(groupId)?.lastSentReference)
         }
 
     @Test

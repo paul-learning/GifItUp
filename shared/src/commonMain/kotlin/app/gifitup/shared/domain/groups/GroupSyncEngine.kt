@@ -73,11 +73,14 @@ class GroupSyncEngine(
     ): SyncOutcome = mutex.withLock { halting { sender.send(KeyBytes(groupId), plaintext, observer) } }
 
     /** Posts the pending message or commit of a group again, unchanged. */
-    suspend fun resume(groupId: ByteArray): SyncOutcome =
+    suspend fun resume(
+        groupId: ByteArray,
+        observer: SendObserver = SendObserver.None,
+    ): SyncOutcome =
         mutex.withLock {
             halting {
                 val id = KeyBytes(groupId)
-                if (store.find(id)?.pending?.kind == MessageKind.COMMIT) commits.resume(id) else sender.resume(id)
+                if (store.find(id)?.pending?.kind == MessageKind.COMMIT) commits.resume(id) else sender.resume(id, observer)
             }
         }
 
