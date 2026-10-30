@@ -137,4 +137,31 @@ class FileRecordStoreContractTest : RecordStoreContractTest() {
             assertFailsWith<RecordStoreException> { store.deleteAll() }
             assertFailsWith<RecordStoreException> { store.deleteFolder(validFolder) }
         }
+
+    @Test
+    fun aRootThatCannotBeExaminedIsAnErrorNeverEmptyAndNeverDeleted() =
+        runTest {
+            val file = File(root, "plain-file").also { it.writeBytes(byteArrayOf(1)) }
+            val store = FileRecordStore(File(file, "under-a-file"), move, hostSync)
+            assertFailsWith<RecordStoreException> { store.isEmpty() }
+            assertFailsWith<RecordStoreException> { store.deleteAll() }
+            assertFailsWith<RecordStoreException> { store.deleteFolder(validFolder) }
+            assertFailsWith<RecordStoreException> { store.folders() }
+            assertFailsWith<RecordStoreException> { store.list(validFolder) }
+        }
+
+    @Test
+    fun aSymbolicLinkIsDeletedAsALinkAndNeverFollowed() =
+        runTest {
+            val outside = Files.createTempDirectory("gifitup-outside-").toFile()
+            try {
+                File(outside, "keep").writeBytes(byteArrayOf(1))
+                Files.createSymbolicLink(File(root, validFolder).toPath(), outside.toPath())
+                createStore().deleteAll()
+                assertTrue(File(outside, "keep").exists(), "the target of a link is never touched")
+                assertTrue(createStore().isEmpty())
+            } finally {
+                outside.deleteRecursively()
+            }
+        }
 }
