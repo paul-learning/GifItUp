@@ -68,7 +68,14 @@ class FakeHistoryCipher(
 
     var closed = false
 
+    /** Makes the next [close] fail once, before it closes anything. */
+    var failCloseOnce = false
+
     override fun close() {
+        if (failCloseOnce) {
+            failCloseOnce = false
+            error("close failed")
+        }
         closed = true
     }
 

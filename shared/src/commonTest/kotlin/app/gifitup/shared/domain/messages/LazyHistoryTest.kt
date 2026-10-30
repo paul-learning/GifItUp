@@ -224,4 +224,17 @@ class LazyHistoryTest {
             assertEquals(HistoryStoreException.Kind.CLOSED, kindOf { history.reset { ran = true } })
             assertFalse(ran)
         }
+
+    @Test
+    fun aCloseThatFailsLeavesTheStoreForTheRetryAndTheKeyIsNeverLeftBehind() =
+        runTest {
+            history.insert(message(1))
+            val cipher = ciphers.single()
+            cipher.failCloseOnce = true
+            assertFailsWith<IllegalStateException> { history.close() }
+            assertFalse(cipher.closed)
+            history.close()
+            assertTrue(cipher.closed, "the retry closes the same cipher")
+            assertEquals(HistoryStoreException.Kind.CLOSED, kindOf { history.messages(group) })
+        }
 }

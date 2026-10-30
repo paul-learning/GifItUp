@@ -31,6 +31,9 @@ fun interface HistoryOpener {
  *   [coolDownMillis] or on [retry]; calls in between fail with `STORAGE` without touching the disk.
  * - **Closed** after [close], for good: every call fails with [HistoryStoreException.Kind.CLOSED]; the store, its cache and
  *   the history key in memory are gone.
+ *
+ * One instance per `DeviceStorage`: the wipe closes this instance, and an open that another instance had begun before the wipe
+ * could still save an empty wrapped history key after it (no data; the next new registration clears it).
  */
 @Suppress("TooManyFunctions") // The two ports of the history plus its lifecycle; each is a one-line delegation.
 class LazyHistory(
@@ -91,7 +94,8 @@ class LazyHistory(
      * "Reset history" (ADR-0017): under the gate, the open store is closed first (its cache and key in memory go), then
      * [delete] removes the records and the key entry, in that order, and the next call opens a fresh history. A failing
      * [delete] throws and leaves the history closed-but-reopenable: the next call finds what is left (a missing key with
-     * records is the sticky `KEY` again). A closed history cannot be reset.
+     * records is the sticky `KEY` again). A closed history cannot be reset. [delete] runs under the gate, so it must never take
+     * the `DeviceLock`: the lock order is device lock, then gate, and the reverse would close a cycle.
      */
     suspend fun reset(delete: suspend () -> Unit) {
         mutex.withLock {
@@ -143,9 +147,10 @@ class LazyHistory(
     }
 
     private suspend fun closeStore() {
-        val open = store
+        // Dropped only after the close went through: a close that throws leaves the store to be closed by the retry, so the
+        // history key never stays in memory behind a "closed" history.
+        store?.close()
         store = null
-        open?.close()
     }
 
     private companion object {
