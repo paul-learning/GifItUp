@@ -72,7 +72,8 @@ class SendGif(
                     reference: ByteArray?,
                     outcome: SyncOutcome,
                 ) {
-                    reference?.let { settle(group, KeyBytes(it), outcome) }
+                    // Not swallowed: an accepted older message whose SENT cannot be written stops the new send.
+                    reference?.let { settleOrThrow(group, KeyBytes(it), outcome) }
                 }
             }
         val result = chat.send(session, groupId, content, sink, observer)
@@ -109,18 +110,18 @@ class SendGif(
         group: KeyBytes,
         state: SendState,
     ) {
+        // A pending message from before references existed: nothing can be told apart, so nothing is touched.
+        if (state.pendingUnknown) return
         val pending = state.pending?.let(::KeyBytes)
         val lastSent = state.lastSent?.let(::KeyBytes)
-        try {
-            store.messages(group).filter { it.state == DeliveryState.SENDING && it.reference != pending }.forEach { message ->
-                if (message.reference == lastSent && state.lastSentSeq != null) {
-                    store.setState(group, message.reference, DeliveryState.SENT, state.lastSentSeq)
-                } else {
-                    store.setState(group, message.reference, DeliveryState.FAILED)
-                }
+        // A store that fails here throws: the engine then sends nothing new, so a record left SENDING is never outlived by a
+        // newer "last accepted" send (it would be FAILED though it was delivered).
+        store.messages(group).filter { it.state == DeliveryState.SENDING && it.reference != pending }.forEach { message ->
+            if (message.reference == lastSent && state.lastSentSeq != null) {
+                store.setState(group, message.reference, DeliveryState.SENT, state.lastSentSeq)
+            } else {
+                store.setState(group, message.reference, DeliveryState.FAILED)
             }
-        } catch (_: HistoryStoreException) {
-            // Left as it is; the next send or resume reconciles again.
         }
     }
 
@@ -131,13 +132,21 @@ class SendGif(
         outcome: SyncOutcome,
     ) {
         try {
-            when (outcome) {
-                is SyncOutcome.Sent -> store.setState(group, reference, DeliveryState.SENT, outcome.seq)
-                is SyncOutcome.Rejected -> store.setState(group, reference, DeliveryState.FAILED)
-                else -> Unit
-            }
+            settleOrThrow(group, reference, outcome)
         } catch (_: HistoryStoreException) {
             // The message was answered; its record is settled by the next reconcile (SENT through the last accepted send).
+        }
+    }
+
+    private suspend fun settleOrThrow(
+        group: KeyBytes,
+        reference: KeyBytes,
+        outcome: SyncOutcome,
+    ) {
+        when (outcome) {
+            is SyncOutcome.Sent -> store.setState(group, reference, DeliveryState.SENT, outcome.seq)
+            is SyncOutcome.Rejected -> store.setState(group, reference, DeliveryState.FAILED)
+            else -> Unit
         }
     }
 }

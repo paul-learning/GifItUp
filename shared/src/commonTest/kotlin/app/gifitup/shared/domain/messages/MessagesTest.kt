@@ -133,8 +133,9 @@ class MessagesTest {
         var pending: ByteArray? = null
         var lastSent: ByteArray? = null
         var lastSentSeq: Long? = null
+        var pendingUnknown = false
 
-        private fun state() = SendState(pending, lastSent, lastSentSeq)
+        private fun state() = SendState(pending, lastSent, lastSentSeq, pendingUnknown)
 
         private fun answered(
             reference: ByteArray?,
@@ -289,5 +290,17 @@ class MessagesTest {
             assertEquals(SyncOutcome.InvalidRequest, assertIs<AuthResult.Ok<SyncOutcome>>(result).value)
             assertNull(chat.sent)
             assertTrue(states().isEmpty())
+        }
+
+    @Test
+    fun aPendingMessageWithoutAReferenceLeavesTheSendingRecordsAlone() =
+        runTest {
+            val chat = FakeChat(SyncOutcome.InFlight(ApiError.NETWORK))
+            val send = SendGif(chat, store) { NOW }
+            send(session, group, reference, "first", sink)
+            chat.pendingUnknown = true
+            chat.pending = null
+            send.resume(session, group, sink)
+            assertEquals(listOf(DeliveryState.SENDING), states(), "nothing could be told apart, so nothing was failed")
         }
 }

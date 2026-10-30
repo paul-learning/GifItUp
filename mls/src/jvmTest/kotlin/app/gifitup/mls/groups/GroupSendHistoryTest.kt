@@ -166,4 +166,29 @@ class GroupSendHistoryTest {
             assertEquals(listOf(DeliveryState.SENT), states(restored, group))
             assertTrue(restored.messages(KeyBytes(group)).single().seq != null)
         }
+
+    @Test
+    fun aDeliveredMessageIsNeverFailedBecauseALaterSendReplacedTheLastAcceptedOne() =
+        runTest {
+            val (alice, group, _) = pair()
+            val store = newStore()
+            val send = sender(alice, store)
+            // N is accepted; its SENT write fails.
+            ds.onPost = { device, _ -> if (device == alice.deviceId) records.failNextWrite = true }
+            assertIs<SyncOutcome.Sent>(assertIs<AuthResult.Ok<SyncOutcome>>(send(session, group, gif, "n", sink)).value)
+            ds.onPost = null
+            assertEquals(listOf(DeliveryState.SENDING), states(store, group))
+            // The history cannot write when N+1 starts: nothing new is sealed or posted.
+            records.failNextWrite = true
+            val blocked = send(session, group, gif, "n+1", sink)
+            assertEquals(SyncOutcome.StorageFailed, assertIs<AuthResult.Ok<SyncOutcome>>(blocked).value)
+            assertEquals(1, store.messages(KeyBytes(group)).size, "N+1 was not sealed")
+            // The history works again: N is settled first, N+1 follows; both are SENT.
+            alice.restart()
+            val restored = newStore()
+            assertIs<SyncOutcome.Sent>(
+                assertIs<AuthResult.Ok<SyncOutcome>>(sender(alice, restored)(session, group, gif, "n+1", sink)).value,
+            )
+            assertEquals(listOf(DeliveryState.SENT, DeliveryState.SENT), states(restored, group))
+        }
 }
