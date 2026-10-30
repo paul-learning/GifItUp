@@ -182,7 +182,10 @@ private fun idbClearRecords(
  * `"<folder>/<name>"` (both checked with [isRecordName] first), value `Uint8Array`. It never touches the `gifitup`
  * database of ADR-0011 or its versioning.
  *
- * A write is one `readwrite` transaction with strict durability that resolves on `complete`: durable when it returns.
+ * A write is one `readwrite` transaction with strict durability that resolves on `complete`: as durable as the browser
+ * makes it when it returns (`durability: 'strict'` is a request the browser may weaken, and the browser may evict the
+ * whole origin's storage under pressure, as ADR-0011 says for the identity; the store loses its history together with it).
+ * The adversary is a reader of the browser profile, never the server.
  * [isEmpty] is `true` only if the object store holds **no key at all**, malformed or foreign ones included, and an error
  * is thrown, never `true`. Every failure is a [RecordStoreException] with no message and no cause.
  *

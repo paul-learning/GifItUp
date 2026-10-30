@@ -6,12 +6,13 @@ import app.gifitup.shared.data.storage.isRecordName
 import java.io.File
 import java.io.IOException
 import java.nio.channels.FileChannel
-import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 
 /**
@@ -25,8 +26,12 @@ import java.util.UUID
  * explicit [deleteFolder] and [deleteAll].
  *
  * [isEmpty] is `true` only if `root` holds **no entry at all** (a malformed name, a foreign file, a temp file or a
- * stray folder all count); every listing goes through calls that throw on an I/O error, so an unreadable directory is
- * never "empty". Every failure is a [RecordStoreException] with no message and no cause (security rule 4).
+ * stray folder all count). "Does it exist" and "is it a directory" are asked through [Files.readAttributes], which
+ * throws when the answer cannot be had (a parent that cannot be read, a parent that is a file); `Files.exists` and
+ * `Files.isDirectory` answer `false` in those cases and would read as "empty" or "deleted". Symbolic links are never
+ * followed: a link is deleted as a link, never through. The adversary is another app or a damaged disk, never the
+ * server; the store does not defend against someone who can already write the app-private directory. Every failure is a
+ * [RecordStoreException] with no message and no cause (security rule 4).
  *
  * One instance per directory; the calls are serialized here and block, so callers keep them off the main thread (as
  * with `FileLocalStore`).
@@ -50,7 +55,7 @@ class FileRecordStore internal constructor(
         validate(folder, name)
         io {
             val folderPath = rootPath.resolve(folder)
-            val newFolder = !Files.isDirectory(folderPath)
+            val newFolder = !isDirectory(folderPath)
             Files.createDirectories(folderPath)
             val temp = folderPath.resolve("$TEMP_PREFIX${UUID.randomUUID()}")
             try {
@@ -89,7 +94,7 @@ class FileRecordStore internal constructor(
                     val file = entry.fileName.toString()
                     when {
                         file.startsWith(TEMP_PREFIX) -> runCatching { Files.deleteIfExists(entry) }
-                        isRecordName(file) && Files.isRegularFile(entry) -> names += file
+                        isRecordName(file) && attributes(entry).isRegularFile -> names += file
                     }
                 }
                 names
@@ -112,7 +117,7 @@ class FileRecordStore internal constructor(
             validate(folder)
             io {
                 val folderPath = rootPath.resolve(folder)
-                if (Files.exists(folderPath)) {
+                if (exists(folderPath)) {
                     entries(folderPath).forEach { Files.delete(it) }
                     Files.delete(folderPath)
                     syncDirectory(rootPath)
@@ -122,25 +127,44 @@ class FileRecordStore internal constructor(
 
     override suspend fun folders(): List<String> =
         synchronized(lock) {
-            io { entries(rootPath).filter { isRecordName(it.fileName.toString()) && Files.isDirectory(it) }.map { it.fileName.toString() } }
+            io { entries(rootPath).filter { isRecordName(it.fileName.toString()) && isDirectory(it) }.map { it.fileName.toString() } }
         }
 
     override suspend fun isEmpty(): Boolean =
         synchronized(lock) {
-            io { !Files.exists(rootPath) || (Files.isDirectory(rootPath) && entries(rootPath).isEmpty()) }
+            io { !exists(rootPath) || (isDirectory(rootPath) && entries(rootPath).isEmpty()) }
         }
 
     override suspend fun deleteAll() =
         synchronized(lock) {
             io {
-                if (Files.exists(rootPath)) {
+                if (exists(rootPath)) {
                     for (entry in entries(rootPath)) {
-                        if (Files.isDirectory(entry)) entries(entry).forEach { Files.delete(it) }
+                        if (isDirectory(entry)) entries(entry).forEach { Files.delete(it) }
                         Files.delete(entry)
                     }
                     syncDirectory(rootPath)
                 }
             }
+        }
+
+    /** The attributes of [path] without following a link; a missing path throws [NoSuchFileException], other trouble an [IOException]. */
+    private fun attributes(path: Path): BasicFileAttributes =
+        Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+
+    private fun exists(path: Path): Boolean =
+        try {
+            attributes(path)
+            true
+        } catch (_: NoSuchFileException) {
+            false
+        }
+
+    private fun isDirectory(path: Path): Boolean =
+        try {
+            attributes(path).isDirectory
+        } catch (_: NoSuchFileException) {
+            false
         }
 
     /** The entries of [dir] (none if it does not exist); an I/O error is thrown, never read as "empty". */
@@ -158,15 +182,17 @@ class FileRecordStore internal constructor(
         if (!isRecordName(folder) || (name != null && !isRecordName(name))) throw RecordStoreException()
     }
 
-    /** Runs a disk operation; whatever the disk or the platform throws becomes the closed [RecordStoreException]. */
+    /**
+     * Runs a disk operation; whatever the disk or the platform throws becomes the closed [RecordStoreException]: no message
+     * and no cause, because platform messages can contain paths.
+     */
+    @Suppress("TooGenericExceptionCaught") // Fail closed on anything the platform throws; the message is dropped on purpose.
     private inline fun <T> io(block: () -> T): T =
         try {
             block()
         } catch (_: IOException) {
             throw RecordStoreException()
-        } catch (_: SecurityException) {
-            throw RecordStoreException()
-        } catch (_: DirectoryIteratorException) {
+        } catch (_: RuntimeException) {
             throw RecordStoreException()
         }
 
