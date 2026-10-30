@@ -4,9 +4,11 @@ package app.gifitup.shared.domain.groups
  * What a caller of [GroupSyncEngine.send] and [GroupSyncEngine.resume] learns while the engine works, and the place the
  * caller's history hooks in (ADR-0017). All calls come from inside the call, under the engine's lock.
  *
- * Only [sealed] is part of the send: if it throws, nothing is stored or posted and the engine is dead for the rest of
- * the call. [reconcile] and [earlierSettled] are bookkeeping: a failing one never stops the send (only a cancellation
- * does), and what it could not write is retried by the next [reconcile].
+ * [sealed], [reconcile] and (for an older message the server accepted) [earlierSettled] are part of the send: if one throws,
+ * nothing new is sealed, stored or posted and the engine is dead for the rest of the call. The history must be in line
+ * with the stored state before a new message is accepted, because the next accepted send replaces "the last accepted
+ * one" the reconcile relies on. [earlierSettled] for a message that did not go through is bookkeeping: a failure there is
+ * left for the next [reconcile].
  */
 interface SendObserver {
     /**
@@ -45,6 +47,8 @@ class SendState(
     /** The reference and seq of the last message the server accepted, or `null`. */
     val lastSent: ByteArray?,
     val lastSentSeq: Long?,
+    /** An application message is pending but has no reference (stored before references existed): which record it is is unknown. */
+    val pendingUnknown: Boolean = false,
 ) {
     override fun toString(): String = "SendState(pending=${pending != null}, lastSent=${lastSent != null})"
 }

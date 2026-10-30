@@ -127,14 +127,20 @@ class GroupSendTest {
         }
 
     @Test
-    fun bookkeepingThatFailsDoesNotStopTheSend() =
+    fun aReconcileThatFailsStopsTheSendBeforeAnythingIsSealedOrPosted() =
         runTest {
             val (alice, _, groupId) = joinedPair()
             val broken =
                 object : SendObserver {
                     override suspend fun reconcile(state: SendState) = error("history is broken")
                 }
-            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "one".encodeToByteArray(), broken))
+            var posted = false
+            ds.onPost = { device, _ -> if (device == alice.deviceId) posted = true }
+            assertEquals(SyncOutcome.StorageFailed, alice.engine.send(groupId, "one".encodeToByteArray(), broken))
+            assertEquals(false, posted)
+            alice.restart()
+            assertEquals(null, alice.engine.recordOf(groupId)?.pending)
+            assertIs<SyncOutcome.Sent>(alice.engine.send(groupId, "two".encodeToByteArray()))
         }
 
     @Test

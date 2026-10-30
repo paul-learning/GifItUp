@@ -29,7 +29,9 @@ internal class SendSide(
         // Fresh first, then settle: re-posting an old pending message into a log that already dropped it would be
         // accepted as new and make a stale state look fresh (SEC-1).
         poster.checkFresh(id, record.pending)
-        observed { observer.reconcile(stateOf(store.recordOf(id))) }
+        // The history must be in line with the stored state before anything new is sealed or accepted: the next accepted
+        // send overwrites "the last accepted one", and a record not settled by then would be FAILED though it was delivered.
+        stored { observer.reconcile(stateOf(store.recordOf(id))) }
         record.pending?.let { settle(id, it, observer) }
         if (store.recordOf(id).ownSeqs.size >= SyncStateCodec.MAX_OWN_SEQS) halt(SyncOutcome.Busy)
         if (!fitsAnother(id)) halt(SyncOutcome.Busy)
@@ -84,7 +86,7 @@ internal class SendSide(
     ): SyncOutcome {
         val pending = activeRecord(store, id).pending
         if (pending != null) poster.checkFresh(id, pending)
-        observed { observer.reconcile(stateOf(store.recordOf(id))) }
+        stored { observer.reconcile(stateOf(store.recordOf(id))) }
         return if (pending == null) SyncOutcome.CaughtUp(0) else post(id, pending)
     }
 
@@ -99,9 +101,15 @@ internal class SendSide(
                 emptyList(),
                 null,
                 ByteArray(MAX_PAYLOAD),
+                ByteArray(SyncStateCodec.KEY_BYTES),
             )
         return try {
-            SyncStateCodec.encode(store.state.with(id, store.recordOf(id).copy(pending = probe)))
+            val record =
+                store
+                    .recordOf(
+                        id,
+                    ).copy(pending = probe, lastSentReference = ByteArray(SyncStateCodec.KEY_BYTES), lastSentSeq = Long.MAX_VALUE)
+            SyncStateCodec.encode(store.state.with(id, record))
             true
         } catch (ignored: SyncStateException) {
             false
@@ -115,7 +123,14 @@ internal class SendSide(
         observer: SendObserver,
     ) {
         val outcome = post(id, pending)
-        observed { observer.earlierSettled(pending.reference, outcome) }
+        // An accepted older message must be settled in the history before the new one is sealed (see the reconcile above).
+        if (outcome is SyncOutcome.Sent) {
+            stored {
+                observer.earlierSettled(pending.reference, outcome)
+            }
+        } else {
+            observed { observer.earlierSettled(pending.reference, outcome) }
+        }
         if (outcome !is SyncOutcome.Sent) halt(SyncOutcome.PendingFirst(outcome))
     }
 
@@ -154,7 +169,13 @@ internal class SendSide(
     }
 }
 
-private fun stateOf(record: GroupRecord) = SendState(record.pending?.reference, record.lastSentReference, record.lastSentSeq)
+private fun stateOf(record: GroupRecord) =
+    SendState(
+        record.pending?.reference,
+        record.lastSentReference,
+        record.lastSentSeq,
+        pendingUnknown = record.pending != null && record.pending.reference == null,
+    )
 
 /** The record of a group that is syncing; otherwise the call ends here. */
 internal fun activeRecord(
