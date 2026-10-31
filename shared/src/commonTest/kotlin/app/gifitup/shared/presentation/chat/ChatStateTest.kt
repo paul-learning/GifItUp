@@ -606,4 +606,24 @@ class ChatStateTest {
             assertNull(holder.state.value.problem)
             assertEquals(1, history.retries)
         }
+
+    @Test
+    fun leavingClearsAPendingRetryRefreshSoNoSecondRefreshStartsAfterwards() =
+        runTest {
+            val info = group(1, "bob")
+            store.insert(gif(1, 1, "bob", at = 5))
+            val history = FlakyHistory()
+            val gate = CompletableDeferred<Unit>()
+            chat.onSync = { gate.await() }
+            val holder = ConversationStateHolder(this, sessions(), chat, history, marks, info, CaptionInput(CodePointCounter))
+            holder.open()
+            advanceUntilIdle()
+            holder.retryHistory()
+            advanceUntilIdle()
+            val before = chat.synced.size
+            holder.leave()
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(before, chat.synced.size, "no refresh follows a visit that was left")
+        }
 }

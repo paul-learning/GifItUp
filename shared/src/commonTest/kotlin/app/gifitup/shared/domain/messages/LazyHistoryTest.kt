@@ -237,4 +237,25 @@ class LazyHistoryTest {
             assertTrue(cipher.closed, "the retry closes the same cipher")
             assertEquals(HistoryStoreException.Kind.CLOSED, kindOf { history.messages(group) })
         }
+
+    @Test
+    fun anUnknownThrowableFromTheOpenerIsStickyCipherUntilRetry() =
+        runTest {
+            failure = Error("module could not be loaded")
+            assertEquals(HistoryStoreException.Kind.CIPHER, kindOf { history.messages(group) })
+            failure = null
+            clock += 1_000_000
+            assertEquals(HistoryStoreException.Kind.CIPHER, kindOf { history.messages(group) }, "not retried by time")
+            history.retry()
+            assertEquals(emptyList(), history.messages(group))
+        }
+
+    @Test
+    fun usablePassesCancellationOn() =
+        runTest {
+            failure = kotlin.coroutines.cancellation.CancellationException("screen left")
+            assertFailsWith<kotlin.coroutines.cancellation.CancellationException> { history.usable() }
+            failure = null
+            assertTrue(history.usable())
+        }
 }
