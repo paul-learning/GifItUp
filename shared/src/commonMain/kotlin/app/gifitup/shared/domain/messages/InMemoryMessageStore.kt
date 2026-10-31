@@ -9,9 +9,13 @@ import kotlinx.coroutines.sync.withLock
  * [MAX_PER_GROUP] messages of each of at most [MAX_GROUPS] groups. A message that was pushed out and arrives again
  * counts as new.
  */
-class InMemoryMessageStore : MessageStore {
+class InMemoryMessageStore : HistoryAccess {
     private val mutex = Mutex()
     private val groups = LinkedHashMap<KeyBytes, LinkedHashMap<KeyBytes, ChatMessage>>()
+
+    override suspend fun retry() = Unit
+
+    override suspend fun unreadable(groupId: KeyBytes): Int = 0
 
     override suspend fun insert(message: ChatMessage): Boolean =
         mutex.withLock {

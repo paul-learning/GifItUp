@@ -3,10 +3,12 @@ package app.gifitup
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.ComposeViewport
 import app.gifitup.mls.WebSecureRandom
+import app.gifitup.mls.loadWasmHistoryCipherFactory
 import app.gifitup.mls.loadWasmMlsClientFactory
 import app.gifitup.mls.storage.claimWebDeviceStorage
 import app.gifitup.shared.data.device.BrowserGraphemeCounter
 import app.gifitup.shared.data.network.BrowserMediaFetcher
+import app.gifitup.shared.domain.messages.HistoryLimits
 import app.gifitup.ui.App
 import app.gifitup.ui.InviteInbox
 import app.gifitup.ui.OpenInAnotherTab
@@ -55,6 +57,9 @@ fun main() {
                     clipboard = WebClipboard,
                     glyphs = WebGlyphs,
                     conversations = ConversationPlatform({ BrowserMediaFetcher() }, null, BrowserGraphemeCounter()),
+                    historyCiphers = { loadWasmHistoryCipherFactory() },
+                    // The browser keeps less history than the phone (owner decision 2026-10-29, ADR-0017).
+                    historyLimits = HistoryLimits(maxPerGroup = WEB_HISTORY_PER_GROUP),
                 )
             }
         ComposeViewport {
@@ -62,3 +67,6 @@ fun main() {
         }
     }
 }
+
+/** The browser keeps 200 messages per group (owner decision 2026-10-29, ADR-0017); the phone keeps 1000. */
+private const val WEB_HISTORY_PER_GROUP = 200

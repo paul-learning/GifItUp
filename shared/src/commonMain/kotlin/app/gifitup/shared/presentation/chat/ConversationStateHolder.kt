@@ -11,8 +11,9 @@ import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.domain.messages.CaptionVerdict
 import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.DeliveryState
+import app.gifitup.shared.domain.messages.HistoryAccess
+import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.MessageBody
-import app.gifitup.shared.domain.messages.MessageStore
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +53,9 @@ enum class SendProblem {
     /** The server refused the message; it is shown as failed. */
     REFUSED,
 
+    /** The history on this device is not available (or the device's storage failed): nothing was sent or shown from memory. */
+    HISTORY,
+
     FAILED,
 }
 
@@ -66,10 +70,12 @@ data class ConversationState(
     val conversationProblem: ConversationProblem? = null,
     val sendProblem: SendProblem? = null,
     val sending: Boolean = false,
+    /** How many stored records of this conversation could not be read (kept, never shown). */
+    val unreadable: Int = 0,
 ) {
     /** A message of ours was stored but not answered: [ConversationStateHolder.resend] posts it again. */
     val hasUnsettled: Boolean get() = messages.any { it.state == DeliveryState.SENDING }
-    val canSend: Boolean get() = conversationProblem == null && !sending
+    val canSend: Boolean get() = conversationProblem == null && problem != ChatProblem.HISTORY && !sending
 }
 
 /**
@@ -78,12 +84,12 @@ data class ConversationState(
  * [GifReference], the caption is checked by the codec and a bad one sends nothing. An answer for an older visit is
  * dropped after [leave].
  */
-@Suppress("LongParameterList") // Constructor injection of the collaborators (CLAUDE.md), none of them optional.
+@Suppress("LongParameterList", "TooManyFunctions") // Constructor injection of the collaborators; one small function per user action.
 class ConversationStateHolder(
     private val scope: CoroutineScope,
     private val sessions: SessionHolder,
     private val chat: ChatPort,
-    private val store: MessageStore,
+    private val store: HistoryAccess,
     private val marks: ReadMarks,
     private val group: GroupInfo,
     /** The caption field's rules: the live counter and whether the text may be sent; [send] applies the same check. */
@@ -101,8 +107,19 @@ class ConversationStateHolder(
     private var running = false
     private var sendRunning = false
 
-    /** Shows what is stored at once, then reads the log. */
-    fun open() = act { }
+    /**
+     * Shows what is stored at once, settles what a crash left unsettled, then reads the log. The unsettled message is
+     * posted again (`resume`) only when the conversation is usable and the history is readable (ADR-0017).
+     */
+    fun open() = act { forVisit -> resumeUnsettled(forVisit) }
+
+    /** The user's "try again" for a history that could not be opened: opens it again and shows the conversation. */
+    fun retryHistory() {
+        scope.launch {
+            store.retry()
+            refresh()
+        }
+    }
 
     fun refresh() = act { }
 
@@ -130,6 +147,7 @@ class ConversationStateHolder(
         val blocked =
             when {
                 flow.value.conversationProblem != null -> SendProblem.STOPPED
+                flow.value.problem == ChatProblem.HISTORY -> SendProblem.HISTORY
                 sendRunning -> SendProblem.IN_PROGRESS
                 else -> null
             }
@@ -169,7 +187,8 @@ class ConversationStateHolder(
             try {
                 show(forVisit)
                 block(forVisit)
-                if (flow.value.conversationProblem == null) readLog(forVisit)
+                // A broken history is not fed: receiving into it would only fail and stall the log (ADR-0017).
+                if (flow.value.conversationProblem == null && flow.value.problem != ChatProblem.HISTORY) readLog(forVisit)
             } finally {
                 if (forVisit == visit) {
                     running = false
@@ -195,13 +214,41 @@ class ConversationStateHolder(
         }
     }
 
+    private suspend fun resumeUnsettled(forVisit: Int) {
+        val state = flow.value
+        if (!state.hasUnsettled || state.conversationProblem != null || state.problem == ChatProblem.HISTORY) return
+        sessions.withSessionResult { chat.resume(it, group.id) }
+        show(forVisit)
+    }
+
     /** Rebuilds the message list from the store and marks the conversation read. */
     private suspend fun show(forVisit: Int) {
-        val messages = store.messages(group.id)
+        val messages =
+            try {
+                store.messages(group.id)
+            } catch (_: HistoryStoreException) {
+                // Never an empty conversation shown as normal: the problem is named and nothing can be sent.
+                change(forVisit) { it.copy(problem = ChatProblem.HISTORY, messages = emptyList(), unreadable = 0) }
+                return
+            }
+        val unreadable =
+            try {
+                store.unreadable(group.id)
+            } catch (_: HistoryStoreException) {
+                0
+            }
         // Nothing is marked read for a screen that is gone.
         if (forVisit != visit) return
         marks.markRead(group.id, messages)
-        change(forVisit) { it.copy(title = titleOf(group, messages), messages = messages.map(ChatMessage::toView)) }
+        change(forVisit) {
+            val cleared = if (it.problem == ChatProblem.HISTORY) null else it.problem
+            it.copy(
+                title = titleOf(group, messages),
+                messages = messages.map(ChatMessage::toView),
+                problem = cleared,
+                unreadable = unreadable,
+            )
+        }
     }
 
     private fun change(
@@ -228,6 +275,7 @@ private fun outcomeProblem(outcome: SyncOutcome): SendProblem? =
         SyncOutcome.Busy, SyncOutcome.CommitPending, is SyncOutcome.Retry, SyncOutcome.RekeyNeeded -> SendProblem.SYNC_FIRST
         is SyncOutcome.Stopped, SyncOutcome.NotJoined -> SendProblem.STOPPED
         is SyncOutcome.Unavailable -> SendProblem.OFFLINE
+        SyncOutcome.StorageFailed -> SendProblem.HISTORY
         is SyncOutcome.Rejected -> SendProblem.REFUSED
         else -> SendProblem.FAILED
     }

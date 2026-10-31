@@ -13,14 +13,15 @@ class DeviceHistoryOpener(
     private val storage: DeviceStorage,
     private val origin: String,
     private val random: SecureRandomSource,
-    private val ciphers: HistoryCipherFactory,
+    /** The platform cipher; the web loads its wasm module here, on first use. */
+    private val ciphers: suspend () -> HistoryCipherFactory,
     private val limits: HistoryLimits,
 ) : HistoryOpener {
     override suspend fun open(): EncryptedMessageStore {
         val key = storage.openHistoryKey(origin, storage.records, random)
         val cipher =
             try {
-                ciphers.create(key, origin)
+                ciphers().create(key, origin)
             } finally {
                 key.fill(0)
             }

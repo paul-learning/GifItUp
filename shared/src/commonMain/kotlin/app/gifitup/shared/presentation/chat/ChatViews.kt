@@ -72,7 +72,14 @@ enum class ConversationProblem {
 }
 
 /** Why a refresh or an action did not work. */
-enum class ChatProblem { OFFLINE, NOT_SIGNED_IN, FAILED }
+enum class ChatProblem {
+    OFFLINE,
+    NOT_SIGNED_IN,
+    FAILED,
+
+    /** The history on this device can't be opened or read right now (ADR-0017); what is on the server is untouched. */
+    HISTORY,
+}
 
 internal fun AuthError.toChatProblem(): ChatProblem =
     when (this) {

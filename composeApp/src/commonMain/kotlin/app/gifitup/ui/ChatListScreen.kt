@@ -20,6 +20,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +41,7 @@ import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
+import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.ConversationSummary
 import app.gifitup.shared.presentation.chat.avatarName
 import app.gifitup.shared.presentation.chat.listKey
@@ -95,6 +97,7 @@ internal fun ChatListScreen(
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.polite(),
             )
+            if (it == ChatProblem.HISTORY) TextButton(onClick = holder::retryHistory) { Text(ChatTexts.HISTORY_RETRY) }
         }
         if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS, color = MaterialTheme.colorScheme.onSurfaceVariant)
         LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -114,7 +117,7 @@ private fun ConversationRow(
 ) {
     val colors = MaterialTheme.colorScheme
     val title = ChatTexts.title(row.title)
-    val preview = row.problem?.let(ChatTexts::problem) ?: ChatTexts.preview(row.preview)
+    val preview = if (row.historyProblem) ChatTexts.HISTORY_ROW else row.problem?.let(ChatTexts::problem) ?: ChatTexts.preview(row.preview)
     val ago = row.lastAt?.let { ChatTexts.ago(Ago.of(Clock.System.now().epochSeconds, it)) }
     val clickable = if (onOpen != null) Modifier.clickable(role = Role.Button) { onOpen(row.info) } else Modifier
     Surface(
@@ -149,7 +152,7 @@ private fun ConversationRow(
                 Text(
                     preview,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (row.problem != null) colors.error else colors.onSurfaceVariant,
+                    color = if (row.problem != null || row.historyProblem) colors.error else colors.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

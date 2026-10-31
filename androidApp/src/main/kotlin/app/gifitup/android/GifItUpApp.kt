@@ -3,12 +3,14 @@ package app.gifitup.android
 import android.app.Application
 import app.gifitup.AppGraph
 import app.gifitup.ConversationPlatform
+import app.gifitup.mls.UniffiHistoryCipherFactory
 import app.gifitup.mls.UniffiMlsClientFactory
 import app.gifitup.mls.storage.KeystoreKeySupplier
 import app.gifitup.mls.storage.fileDeviceStorage
 import app.gifitup.shared.data.device.AndroidGraphemeCounter
 import app.gifitup.shared.data.device.AndroidSecurityPatch
 import app.gifitup.shared.data.network.KtorMediaFetcher
+import app.gifitup.shared.domain.messages.HistoryLimits
 import io.ktor.client.engine.android.Android
 import java.security.SecureRandom
 
@@ -29,6 +31,8 @@ class GifItUpApp : Application() {
             clipboard = AndroidClipboard(this),
             glyphs = AndroidGlyphs,
             conversations = ConversationPlatform({ KtorMediaFetcher(Android.create()) }, AndroidSecurityPatch(), AndroidGraphemeCounter()),
+            historyCiphers = { UniffiHistoryCipherFactory },
+            historyLimits = HistoryLimits(),
         )
     }
 

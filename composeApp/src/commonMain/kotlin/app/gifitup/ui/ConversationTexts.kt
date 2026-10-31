@@ -18,6 +18,19 @@ internal object ConversationTexts {
     const val ENCRYPTED = "end-to-end encrypted"
     const val SENDING = "Sending…"
     const val NOT_SENT = "Not sent"
+
+    /** A message that was stored but never confirmed, in a chat that can't be used: it is not sent again from here. */
+    const val NOT_CONFIRMED = "A message was not confirmed by the server. It can't be sent again while this chat can't be used."
+
+    fun unreadable(count: Int): String =
+        if (count ==
+            1
+        ) {
+            "1 stored message could not be read."
+        } else {
+            "$count stored messages could not be read."
+        }
+
     const val LOAD_GIF = "Load the GIF"
     const val RETRY_GIF = "Try loading the GIF again"
     const val PICK_CHAT = "Choose a chat to read it."
@@ -65,6 +78,7 @@ internal object ConversationTexts {
             SendProblem.STOPPED -> "This chat can't be used right now."
             SendProblem.OFFLINE -> "No answer from the server. Nothing was sent."
             SendProblem.REFUSED -> "The server refused the message."
+            SendProblem.HISTORY -> "The history on this device isn't available right now. Nothing was sent."
             SendProblem.FAILED -> "That did not work."
         }
 

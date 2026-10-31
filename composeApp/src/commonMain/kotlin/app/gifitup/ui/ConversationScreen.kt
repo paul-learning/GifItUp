@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.domain.messages.CaptionInput
+import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.ConversationState
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
@@ -95,7 +96,7 @@ internal fun ConversationScreen(
                 modifier = Modifier.polite(),
             )
         }
-        state.problem?.let { Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
+        HistoryNotices(state, holder)
         if (state.loaded && state.messages.isEmpty()) Text(ChatTexts.NO_MESSAGES)
         val tileStates by tiles.tiles.collectAsState()
         LazyColumn(
@@ -109,6 +110,20 @@ internal fun ConversationScreen(
             }
         }
         SendArea(holder, state.sendProblem, state.hasUnsettled, state.canSend)
+    }
+}
+
+/** What the history has to say: a refresh problem, a broken history with its retry, unreadable records, an unconfirmed message. */
+@Composable
+private fun HistoryNotices(
+    state: ConversationState,
+    holder: ConversationStateHolder,
+) {
+    state.problem?.let { Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
+    if (state.problem == ChatProblem.HISTORY) TextButton(onClick = holder::retryHistory) { Text(ChatTexts.HISTORY_RETRY) }
+    if (state.unreadable > 0) Text(ConversationTexts.unreadable(state.unreadable), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (state.hasUnsettled && state.conversationProblem != null) {
+        Text(ConversationTexts.NOT_CONFIRMED, color = MaterialTheme.colorScheme.error)
     }
 }
 

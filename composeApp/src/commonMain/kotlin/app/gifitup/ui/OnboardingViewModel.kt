@@ -22,7 +22,8 @@ import app.gifitup.shared.domain.media.CivilDate
 import app.gifitup.shared.domain.media.LoadGifMedia
 import app.gifitup.shared.domain.media.MediaPolicy
 import app.gifitup.shared.domain.messages.CaptionInput
-import app.gifitup.shared.domain.messages.InMemoryMessageStore
+import app.gifitup.shared.domain.messages.DeviceHistoryOpener
+import app.gifitup.shared.domain.messages.LazyHistory
 import app.gifitup.shared.domain.origin.ServerOriginSetting
 import app.gifitup.shared.domain.session.SessionHolder
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
@@ -32,6 +33,8 @@ import app.gifitup.shared.presentation.chat.NewChatStateHolder
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
 import app.gifitup.shared.presentation.invite.CreateInviteStateHolder
 import app.gifitup.shared.presentation.onboarding.OnboardingStateHolder
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
 /**
@@ -48,11 +51,19 @@ internal class OnboardingViewModel(
     origin: String,
     setting: ServerOriginSetting,
 ) : ViewModel() {
+    // The durable history (ADR-0017): sealed records on this device, opened on first use. One instance per view model; the
+    // wipe closes it (and its key in memory) before anything else, and so does the end of this view model.
+    private val history =
+        LazyHistory(
+            DeviceHistoryOpener(storage, origin, graph.random, graph.historyCiphers, graph.historyLimits),
+            { Clock.System.now().toEpochMilliseconds() },
+        )
+    private val marks = ReadMarks(history)
+
     private val engine = graph.engine()
     private val api = GifItUpApi(engine, checkNotNull(ApiEndpoint.forOrigin(origin)) { "the origin setting only holds canonical origins" })
 
-    // The history is wired in #177 PR 4a-2, with its closer; until then there is nothing to close.
-    private val auth = DeviceAuth(storage, api, mls, graph.random, HistoryCloser.None)
+    private val auth = DeviceAuth(storage, api, mls, graph.random, HistoryCloser { history.close() })
 
     private val sessions = SessionHolder({ auth.logIn() }, viewModelScope) { Clock.System.now().epochSeconds }
 
@@ -73,9 +84,6 @@ internal class OnboardingViewModel(
     /** The Friends screen's logic, over the same session, API and engine (ADR-0014). */
     val contacts = ContactsStateHolder(viewModelScope, sessions, auth.contacts)
 
-    // The history is in memory (#177 makes it durable): it lives as long as this view model, and goes with it.
-    private val history = InMemoryMessageStore()
-    private val marks = ReadMarks()
     private val chatService = ChatService(auth.chat, history) { Clock.System.now().epochSeconds }
 
     /** The chat list's logic (#25), over the same session, API and engine. */
@@ -119,6 +127,8 @@ internal class OnboardingViewModel(
         conversation?.leave()
         tiles.leave()
         (mediaFetcher as? AutoCloseable)?.close()
+        // The history key and the decrypted cache leave memory with the view model (the wipe has closed it already).
+        MainScope().launch { history.close() }
         api.close()
         engine.close()
     }
