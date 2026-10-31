@@ -17,6 +17,7 @@ class DeviceHistoryOpener(
     private val ciphers: suspend () -> HistoryCipherFactory,
     private val limits: HistoryLimits,
 ) : HistoryOpener {
+    @Suppress("TooGenericExceptionCaught") // Whatever the store's construction throws, the cipher (and its key) is closed first.
     override suspend fun open(): EncryptedMessageStore {
         val key = storage.openHistoryKey(origin, storage.records, random)
         val cipher =
@@ -25,6 +26,11 @@ class DeviceHistoryOpener(
             } finally {
                 key.fill(0)
             }
-        return EncryptedMessageStore(cipher, storage.records, limits)
+        return try {
+            EncryptedMessageStore(cipher, storage.records, limits)
+        } catch (e: Throwable) {
+            cipher.close()
+            throw e
+        }
     }
 }

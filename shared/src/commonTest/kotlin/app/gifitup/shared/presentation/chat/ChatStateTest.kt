@@ -406,7 +406,7 @@ class ChatStateTest {
                     SyncOutcome.NotJoined to SendProblem.STOPPED,
                     SyncOutcome.Unavailable(ApiError.NETWORK) to SendProblem.OFFLINE,
                     SyncOutcome.Rejected(ApiError.BAD_REQUEST) to SendProblem.REFUSED,
-                    SyncOutcome.StorageFailed to SendProblem.HISTORY,
+                    SyncOutcome.StorageFailed to SendProblem.FAILED,
                 )
             for ((outcome, problem) in cases) {
                 chat.sendOutcome = outcome
@@ -445,6 +445,8 @@ class ChatStateTest {
         var broken: HistoryStoreException.Kind? = null
         var unreadableRecords = 0
         var retries = 0
+
+        override suspend fun usable(): Boolean = broken == null
 
         override suspend fun messages(groupId: KeyBytes): List<ChatMessage> =
             broken?.let { throw HistoryStoreException(it) } ?: store.messages(groupId)
@@ -545,5 +547,63 @@ class ChatStateTest {
             advanceUntilIdle()
             assertEquals(3, holder.state.value.unreadable)
             assertEquals(1, holder.state.value.messages.size)
+        }
+
+    @Test
+    fun aListOverABrokenHistoryDoesNotFetchAndTheHistoryBannerWinsOverASyncProblem() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"), group(2, "cy"))
+            val history = FlakyHistory().also { it.broken = HistoryStoreException.Kind.KEY }
+            val holder = ChatListStateHolder(this, sessions(), chat, history, marks)
+            repeat(3) {
+                holder.refresh()
+                advanceUntilIdle()
+            }
+            assertTrue(chat.synced.isEmpty(), "no client restore and fetch per group and tick")
+            assertEquals(0, chat.welcomed)
+            assertEquals(2, holder.state.value.conversations.size)
+            assertEquals(ChatProblem.HISTORY, holder.state.value.problem)
+            chat.failWith = AuthError.Api(ApiError.NETWORK)
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(2, holder.state.value.conversations.size, "what is known stays")
+        }
+
+    @Test
+    fun aHistoryThatClosesBetweenTheReadsIsTheNamedStateNotAnException() =
+        runTest {
+            val info = group(1, "bob")
+            store.insert(gif(1, 1, "bob", at = 5))
+            val closing =
+                object : HistoryAccess by store {
+                    override suspend fun unreadable(groupId: KeyBytes): Int = throw HistoryStoreException(HistoryStoreException.Kind.CLOSED)
+                }
+            val holder = ConversationStateHolder(this, sessions(), chat, closing, marks, info, CaptionInput(CodePointCounter))
+            holder.open()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.HISTORY, holder.state.value.problem)
+        }
+
+    @Test
+    fun aRetryDuringARunningRefreshIsNotDropped() =
+        runTest {
+            val info = group(1, "bob")
+            store.insert(gif(1, 1, "bob", at = 5))
+            val history = FlakyHistory().also { it.broken = HistoryStoreException.Kind.STORAGE }
+            val gate = CompletableDeferred<Unit>()
+            chat.onSync = { gate.await() }
+            val holder = ConversationStateHolder(this, sessions(), chat, history, marks, info, CaptionInput(CodePointCounter))
+            holder.open()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.HISTORY, holder.state.value.problem)
+            history.broken = null
+            holder.refresh()
+            advanceUntilIdle()
+            holder.retryHistory()
+            advanceUntilIdle()
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertNull(holder.state.value.problem)
+            assertEquals(1, history.retries)
         }
 }

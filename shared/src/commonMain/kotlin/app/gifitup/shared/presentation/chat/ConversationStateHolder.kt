@@ -105,6 +105,9 @@ class ConversationStateHolder(
     val state: StateFlow<ConversationState> = flow.asStateFlow()
     private var visit = 0
     private var running = false
+
+    /** A retry came while a refresh was running: one more refresh follows it, so the tap is never dropped. */
+    private var refreshAgain = false
     private var sendRunning = false
 
     /**
@@ -117,7 +120,7 @@ class ConversationStateHolder(
     fun retryHistory() {
         scope.launch {
             store.retry()
-            refresh()
+            if (running) refreshAgain = true else refresh()
         }
     }
 
@@ -194,6 +197,10 @@ class ConversationStateHolder(
                     running = false
                     show(forVisit)
                     change(forVisit) { it.copy(refreshing = false, loaded = true) }
+                    if (refreshAgain) {
+                        refreshAgain = false
+                        refresh()
+                    }
                 }
             }
         }
@@ -217,29 +224,29 @@ class ConversationStateHolder(
     private suspend fun resumeUnsettled(forVisit: Int) {
         val state = flow.value
         if (!state.hasUnsettled || state.conversationProblem != null || state.problem == ChatProblem.HISTORY) return
-        sessions.withSessionResult { chat.resume(it, group.id) }
+        // A refused or unavailable automatic resume says why, like a send does.
+        problemOf(sessions.withSessionResult { chat.resume(it, group.id) })?.let { problem ->
+            change(forVisit) { it.copy(sendProblem = problem) }
+        }
         show(forVisit)
     }
 
     /** Rebuilds the message list from the store and marks the conversation read. */
     private suspend fun show(forVisit: Int) {
-        val messages =
-            try {
-                store.messages(group.id)
-            } catch (_: HistoryStoreException) {
-                // Never an empty conversation shown as normal: the problem is named and nothing can be sent.
-                change(forVisit) { it.copy(problem = ChatProblem.HISTORY, messages = emptyList(), unreadable = 0) }
-                return
-            }
-        val unreadable =
-            try {
-                store.unreadable(group.id)
-            } catch (_: HistoryStoreException) {
-                0
-            }
-        // Nothing is marked read for a screen that is gone.
-        if (forVisit != visit) return
-        marks.markRead(group.id, messages)
+        val messages: List<ChatMessage>
+        val unreadable: Int
+        try {
+            messages = store.messages(group.id)
+            unreadable = store.unreadable(group.id)
+            // Nothing is marked read for a screen that is gone.
+            if (forVisit != visit) return
+            marks.markRead(group.id, messages)
+        } catch (_: HistoryStoreException) {
+            // Never an empty conversation shown as normal: the problem is named and nothing can be sent. Also a history
+            // that closed in between (a wipe) or a read mark that can't be read.
+            change(forVisit) { it.copy(problem = ChatProblem.HISTORY, messages = emptyList(), unreadable = 0) }
+            return
+        }
         change(forVisit) {
             val cleared = if (it.problem == ChatProblem.HISTORY) null else it.problem
             it.copy(
@@ -275,7 +282,6 @@ private fun outcomeProblem(outcome: SyncOutcome): SendProblem? =
         SyncOutcome.Busy, SyncOutcome.CommitPending, is SyncOutcome.Retry, SyncOutcome.RekeyNeeded -> SendProblem.SYNC_FIRST
         is SyncOutcome.Stopped, SyncOutcome.NotJoined -> SendProblem.STOPPED
         is SyncOutcome.Unavailable -> SendProblem.OFFLINE
-        SyncOutcome.StorageFailed -> SendProblem.HISTORY
         is SyncOutcome.Rejected -> SendProblem.REFUSED
         else -> SendProblem.FAILED
     }
