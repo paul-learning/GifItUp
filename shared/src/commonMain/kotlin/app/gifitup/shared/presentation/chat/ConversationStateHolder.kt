@@ -177,6 +177,7 @@ class ConversationStateHolder(
     fun leave() {
         visit++
         running = false
+        refreshAgain = false
         sendRunning = false
         flow.value =
             ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.status.toProblem())
