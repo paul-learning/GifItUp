@@ -683,7 +683,8 @@ class ChatStateTest {
             assertTrue(holder.state.value.canResetHistory)
             holder.resetHistory()
             advanceUntilIdle()
-            assertEquals(ChatProblem.RESET_FAILED, holder.state.value.problem)
+            assertTrue(holder.state.value.resetFailed)
+            assertEquals(ChatProblem.HISTORY, holder.state.value.problem, "still a broken history: no log read, no send")
             assertTrue(
                 holder.state.value.messages
                     .isEmpty(),
@@ -691,7 +692,29 @@ class ChatStateTest {
             history.resetResult = ResetResult.DONE
             holder.resetHistory()
             advanceUntilIdle()
+            assertFalse(holder.state.value.resetFailed)
             assertNull(holder.state.value.problem)
             assertEquals(1, holder.state.value.messages.size)
+        }
+
+    @Test
+    fun theResetOfferDoesNotSurviveAHealthyHistoryEvenWhenTheNextRefreshFails() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            val history =
+                FlakyHistory().also {
+                    it.broken = HistoryStoreException.Kind.KEY
+                    it.resettable = true
+                }
+            val holder = ChatListStateHolder(this, sessions(), chat, history, marks)
+            holder.refresh()
+            advanceUntilIdle()
+            assertTrue(holder.state.value.canResetHistory)
+            holder.resetHistory()
+            advanceUntilIdle()
+            chat.failWith = AuthError.Api(ApiError.NETWORK)
+            holder.refresh()
+            advanceUntilIdle()
+            assertFalse(holder.state.value.canResetHistory, "the history is healthy again; the offer is gone though the groups call failed")
         }
 }

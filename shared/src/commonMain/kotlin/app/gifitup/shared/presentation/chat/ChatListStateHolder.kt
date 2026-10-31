@@ -39,6 +39,8 @@ data class ChatListState(
     val problem: ChatProblem? = null,
     /** "Reset history" is offered: the history key is missing or broken, and only a reset helps (behind a confirmation). */
     val canResetHistory: Boolean = false,
+    /** The last "reset history" did not finish: the history is as it was and the reset can be tried again. */
+    val resetFailed: Boolean = false,
 )
 
 /**
@@ -63,6 +65,7 @@ class ChatListStateHolder(
 
     /** A retry came while a refresh was running: one more refresh follows it, so the tap is never dropped. */
     private var refreshAgain = false
+    private var resetting = false
 
     /** The user's "try again" for a history that could not be opened: opens it again and rebuilds the list. */
     fun retryHistory() {
@@ -77,11 +80,21 @@ class ChatListStateHolder(
      * confirmation is the screen's; a reset that does not finish names the problem and can be tried again.
      */
     fun resetHistory() {
+        // One reset at a time, and the offer is gone at once: a second tap must not delete what was saved since the first.
+        if (resetting) return
+        resetting = true
+        flow.value = flow.value.copy(canResetHistory = false, resetFailed = false)
         scope.launch {
-            if (store.reset() == ResetResult.FAILED) {
-                flow.value = flow.value.copy(problem = ChatProblem.RESET_FAILED)
-            } else {
-                refresh()
+            try {
+                if (store.reset() == ResetResult.FAILED) {
+                    flow.value = flow.value.copy(resetFailed = true)
+                } else if (running) {
+                    refreshAgain = true
+                } else {
+                    refresh()
+                }
+            } finally {
+                resetting = false
             }
         }
     }
@@ -128,7 +141,7 @@ class ChatListStateHolder(
             is AuthResult.Failed -> {
                 // What is known stays on screen; only the problem is new.
                 problem = problem ?: groups.error.toChatProblem()
-                if (forVisit == visit) flow.value = flow.value.copy(loaded = true, problem = problem)
+                if (forVisit == visit) flow.value = flow.value.copy(loaded = true, problem = problem, canResetHistory = store.canReset())
             }
 
             is AuthResult.Ok -> {

@@ -75,6 +75,8 @@ data class ConversationState(
     val unreadable: Int = 0,
     /** "Reset history" is offered (the history key is missing or broken); behind a confirmation. */
     val canResetHistory: Boolean = false,
+    /** The last "reset history" did not finish: the history is as it was and the reset can be tried again. */
+    val resetFailed: Boolean = false,
 ) {
     /** A message of ours was stored but not answered: [ConversationStateHolder.resend] posts it again. */
     val hasUnsettled: Boolean get() = messages.any { it.state == DeliveryState.SENDING }
@@ -111,6 +113,7 @@ class ConversationStateHolder(
 
     /** A retry came while a refresh was running: one more refresh follows it, so the tap is never dropped. */
     private var refreshAgain = false
+    private var resetting = false
     private var sendRunning = false
 
     /**
@@ -121,13 +124,21 @@ class ConversationStateHolder(
 
     /** The user's confirmed "reset history": the stored history of this device is deleted; the conversation is rebuilt. */
     fun resetHistory() {
+        // One reset at a time, and the offer is gone at once: a second tap must not delete what was saved since the first.
+        if (resetting) return
+        resetting = true
+        flow.value = flow.value.copy(canResetHistory = false, resetFailed = false)
         scope.launch {
-            if (store.reset() == ResetResult.FAILED) {
-                flow.value = flow.value.copy(problem = ChatProblem.RESET_FAILED)
-            } else if (running) {
-                refreshAgain = true
-            } else {
-                refresh()
+            try {
+                if (store.reset() == ResetResult.FAILED) {
+                    flow.value = flow.value.copy(resetFailed = true)
+                } else if (running) {
+                    refreshAgain = true
+                } else {
+                    refresh()
+                }
+            } finally {
+                resetting = false
             }
         }
     }

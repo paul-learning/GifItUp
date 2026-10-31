@@ -20,8 +20,8 @@ import kotlinx.coroutines.sync.withLock
  *   new identity and the identity that existed before history did.
  * - No key but history records (or anything in the record store, or a store that can't say): `KEY_UNAVAILABLE` or
  *   `STORAGE`, and no key is made. History without its key goes to "reset history", which deletes the records first,
- *   then clears the key entry, then lets this make a new key; a crash in between leaves records without a key, which is
- *   the same state again, never a key without its records being opened by mistake.
+ *   then clears the key entry, then lets this make a new key; a crash in between leaves a key without records, which is
+ *   harmless: the next open uses it, or, if it is the broken one, the reset is offered again; a key never opens leftover records.
  *
  * Only for a registered identity of the configured [origin]. Calls are serialized by [mutex], a lock of its own: **never the
  * `DeviceLock`**. The history opens the first time a sink or a screen asks, which can be inside a chat call that already holds

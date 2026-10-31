@@ -122,6 +122,7 @@ private fun HistoryNotices(
     state.problem?.let { Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
     if (state.problem == ChatProblem.HISTORY) TextButton(onClick = holder::retryHistory) { Text(ChatTexts.HISTORY_RETRY) }
     if (state.canResetHistory) ResetHistoryButton(holder::resetHistory)
+    if (state.resetFailed) Text(ChatTexts.RESET_FAILED, color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
     if (state.unreadable > 0) Text(ConversationTexts.unreadable(state.unreadable), color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (state.hasUnsettled && state.conversationProblem != null) {
         Text(ConversationTexts.NOT_CONFIRMED, color = MaterialTheme.colorScheme.error)
