@@ -6,7 +6,8 @@ import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.SyncOutcome
-import app.gifitup.shared.domain.messages.MessageStore
+import app.gifitup.shared.domain.messages.HistoryAccess
+import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /** One row of the chat list. [lastAt] is when this device saw the last message (seconds, its own clock), `null` if none. */
+@Suppress("LongParameterList") // One property per field of a list row.
 class ConversationSummary(
     val info: GroupInfo,
     val title: ConversationTitle,
@@ -22,6 +24,8 @@ class ConversationSummary(
     val lastAt: Long?,
     val unread: Int,
     val problem: ConversationProblem?,
+    /** The history of this conversation can't be read: [preview] and [unread] mean nothing, a marker is shown instead. */
+    val historyProblem: Boolean = false,
 ) {
     val id: KeyBytes get() = info.id
 }
@@ -45,13 +49,21 @@ class ChatListStateHolder(
     private val scope: CoroutineScope,
     private val sessions: SessionHolder,
     private val chat: ChatPort,
-    private val store: MessageStore,
+    private val store: HistoryAccess,
     private val marks: ReadMarks,
 ) {
     private val flow = MutableStateFlow(ChatListState())
     val state: StateFlow<ChatListState> = flow.asStateFlow()
     private var visit = 0
     private var running = false
+
+    /** The user's "try again" for a history that could not be opened: opens it again and rebuilds the list. */
+    fun retryHistory() {
+        scope.launch {
+            store.retry()
+            refresh()
+        }
+    }
 
     /** Joins new groups, reads every active group's log, and rebuilds the list. */
     fun refresh() {
@@ -110,11 +122,26 @@ class ChatListStateHolder(
         problem: ChatProblem?,
     ) {
         val rows = groups.map { summary(it) }.sortedWith(compareByDescending<ConversationSummary> { it.lastAt ?: Long.MIN_VALUE })
-        if (forVisit == visit) flow.value = flow.value.copy(loaded = true, conversations = rows, problem = problem)
+        val shown = problem ?: ChatProblem.HISTORY.takeIf { rows.any { it.historyProblem } }
+        if (forVisit == visit) flow.value = flow.value.copy(loaded = true, conversations = rows, problem = shown)
     }
 
     private suspend fun summary(info: GroupInfo): ConversationSummary {
-        val messages = store.messages(info.id)
+        val messages =
+            try {
+                store.messages(info.id)
+            } catch (_: HistoryStoreException) {
+                // Never an empty history shown as normal: the row says so, and "unread 0" would hide new messages.
+                return ConversationSummary(
+                    info,
+                    titleOf(info, emptyList()),
+                    Preview.Nothing,
+                    null,
+                    0,
+                    info.status.toProblem(),
+                    historyProblem = true,
+                )
+            }
         val last = messages.lastOrNull()
         return ConversationSummary(
             info = info,

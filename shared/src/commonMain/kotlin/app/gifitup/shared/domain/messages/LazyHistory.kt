@@ -40,7 +40,7 @@ class LazyHistory(
     private val opener: HistoryOpener,
     private val nowMillis: () -> Long,
     private val coolDownMillis: Long = DEFAULT_COOL_DOWN_MILLIS,
-) : MessageStore,
+) : HistoryAccess,
     ReadMarkStore {
     private val mutex = Mutex()
     private var store: EncryptedMessageStore? = null
@@ -69,10 +69,10 @@ class LazyHistory(
     ) = gated { it.markSeen(group, reference) }
 
     /** How many records of the group could not be read (0 for a history that cannot be opened). */
-    suspend fun unreadable(groupId: KeyBytes): Int = gated { it.unreadable(groupId) }
+    override suspend fun unreadable(groupId: KeyBytes): Int = gated { it.unreadable(groupId) }
 
     /** The user's "try again": forgets a sticky failure and the cool-down; the next call opens again. */
-    suspend fun retry() {
+    override suspend fun retry() {
         mutex.withLock {
             sticky = null
             retryAt = 0L

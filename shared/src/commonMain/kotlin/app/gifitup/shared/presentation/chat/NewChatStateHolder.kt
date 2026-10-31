@@ -222,5 +222,5 @@ private fun app.gifitup.shared.domain.auth.AuthError.toNewChatProblem(): NewChat
     when (toChatProblem()) {
         ChatProblem.OFFLINE -> NewChatProblem.OFFLINE
         ChatProblem.NOT_SIGNED_IN -> NewChatProblem.NOT_SIGNED_IN
-        ChatProblem.FAILED -> NewChatProblem.FAILED
+        ChatProblem.FAILED, ChatProblem.HISTORY -> NewChatProblem.FAILED
     }

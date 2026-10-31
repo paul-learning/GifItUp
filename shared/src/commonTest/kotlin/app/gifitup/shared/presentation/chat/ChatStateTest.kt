@@ -19,6 +19,8 @@ import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.CodePointCounter
 import app.gifitup.shared.domain.messages.DeliveryState
+import app.gifitup.shared.domain.messages.HistoryAccess
+import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.InMemoryMessageStore
 import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.domain.session.SessionHolder
@@ -70,6 +72,7 @@ class ChatStateTest {
         val synced = mutableListOf<KeyBytes>()
         val sent = mutableListOf<Pair<GifReference, String?>>()
         var welcomed = 0
+        var resumed = 0
 
         private fun <T> answer(value: T): AuthResult<T> = failWith?.let { AuthResult.Failed(it) } ?: AuthResult.Ok(value)
 
@@ -117,7 +120,10 @@ class ChatStateTest {
         override suspend fun resume(
             session: Session,
             groupId: KeyBytes,
-        ) = answer(sendOutcome)
+        ): AuthResult<SyncOutcome> {
+            resumed++
+            return answer(sendOutcome)
+        }
     }
 
     private val chat = FakeChat()
@@ -400,7 +406,7 @@ class ChatStateTest {
                     SyncOutcome.NotJoined to SendProblem.STOPPED,
                     SyncOutcome.Unavailable(ApiError.NETWORK) to SendProblem.OFFLINE,
                     SyncOutcome.Rejected(ApiError.BAD_REQUEST) to SendProblem.REFUSED,
-                    SyncOutcome.StorageFailed to SendProblem.FAILED,
+                    SyncOutcome.StorageFailed to SendProblem.HISTORY,
                 )
             for ((outcome, problem) in cases) {
                 chat.sendOutcome = outcome
@@ -432,5 +438,112 @@ class ChatStateTest {
             holder.resend()
             advanceUntilIdle()
             assertNull(holder.state.value.sendProblem)
+        }
+
+    /** The real in-memory store behind a history that can be made to fail like the durable one (ADR-0017). */
+    private inner class FlakyHistory : HistoryAccess by store {
+        var broken: HistoryStoreException.Kind? = null
+        var unreadableRecords = 0
+        var retries = 0
+
+        override suspend fun messages(groupId: KeyBytes): List<ChatMessage> =
+            broken?.let { throw HistoryStoreException(it) } ?: store.messages(groupId)
+
+        override suspend fun unreadable(groupId: KeyBytes): Int = unreadableRecords
+
+        override suspend fun retry() {
+            retries++
+            broken = null
+        }
+    }
+
+    @Test
+    fun aBrokenHistoryMarksTheRowsAndNamesTheProblemInsteadOfShowingNothingOrUnreadZero() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            store.insert(gif(1, 1, "bob", at = 5))
+            val history = FlakyHistory().also { it.broken = HistoryStoreException.Kind.KEY }
+            val holder = ChatListStateHolder(this, sessions(), chat, history, marks)
+            holder.refresh()
+            advanceUntilIdle()
+            val row =
+                holder.state.value.conversations
+                    .single()
+            assertTrue(row.historyProblem)
+            assertEquals(0, row.unread)
+            assertEquals(ChatProblem.HISTORY, holder.state.value.problem)
+            holder.retryHistory()
+            advanceUntilIdle()
+            assertEquals(1, history.retries)
+            assertFalse(
+                holder.state.value.conversations
+                    .single()
+                    .historyProblem,
+            )
+            assertNull(holder.state.value.problem)
+            assertEquals(
+                1,
+                holder.state.value.conversations
+                    .single()
+                    .unread,
+            )
+        }
+
+    @Test
+    fun aConversationWithABrokenHistoryShowsNothingFromMemoryDoesNotReadTheLogAndSendsNothing() =
+        runTest {
+            val info = group(1, "bob")
+            store.insert(gif(1, 1, "bob", at = 5))
+            val history = FlakyHistory().also { it.broken = HistoryStoreException.Kind.STORAGE }
+            val holder = ConversationStateHolder(this, sessions(), chat, history, marks, info, CaptionInput(CodePointCounter))
+            holder.open()
+            advanceUntilIdle()
+            val state = holder.state.value
+            assertEquals(ChatProblem.HISTORY, state.problem)
+            assertTrue(state.messages.isEmpty(), "nothing is shown from memory")
+            assertFalse(state.canSend)
+            assertTrue(chat.synced.isEmpty(), "the log is not read into a broken history")
+            holder.send(reference, null)
+            advanceUntilIdle()
+            assertEquals(SendProblem.HISTORY, holder.state.value.sendProblem)
+            assertTrue(chat.sent.isEmpty())
+            holder.retryHistory()
+            advanceUntilIdle()
+            assertNull(holder.state.value.problem)
+            assertEquals(1, holder.state.value.messages.size)
+            assertTrue(chat.synced.isNotEmpty())
+        }
+
+    @Test
+    fun openingPostsAnUnsettledMessageAgainOnceAndNeverWhileTheHistoryIsBroken() =
+        runTest {
+            val info = group(1, "bob")
+            store.insert(gif(1, 1, null, at = 5, state = DeliveryState.SENDING))
+            val history = FlakyHistory()
+            val holder = ConversationStateHolder(this, sessions(), chat, history, marks, info, CaptionInput(CodePointCounter))
+            holder.open()
+            advanceUntilIdle()
+            assertEquals(1, chat.resumed)
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(1, chat.resumed, "only when the conversation is opened")
+            val broken = FlakyHistory().also { it.broken = HistoryStoreException.Kind.CIPHER }
+            val other = ConversationStateHolder(this, sessions(), chat, broken, marks, info, CaptionInput(CodePointCounter))
+            other.open()
+            advanceUntilIdle()
+            assertEquals(1, chat.resumed, "a broken history is not resumed into")
+        }
+
+    @Test
+    fun unreadableRecordsAreCountedForTheScreen() =
+        runTest {
+            val info = group(1, "bob")
+            store.insert(gif(1, 1, "bob", at = 5))
+            val history = FlakyHistory().also { it.unreadableRecords = 3 }
+            val holder = ConversationStateHolder(this, sessions(), chat, history, marks, info, CaptionInput(CodePointCounter))
+            holder.open()
+            advanceUntilIdle()
+            assertEquals(3, holder.state.value.unreadable)
+            assertEquals(1, holder.state.value.messages.size)
         }
 }

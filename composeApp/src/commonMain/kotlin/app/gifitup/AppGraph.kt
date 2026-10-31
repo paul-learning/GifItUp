@@ -1,11 +1,13 @@
 package app.gifitup
 
+import app.gifitup.shared.data.crypto.HistoryCipherFactory
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.domain.auth.DeviceStorage
 import app.gifitup.shared.domain.media.DeviceSecurityPatch
 import app.gifitup.shared.domain.media.MediaFetcher
 import app.gifitup.shared.domain.messages.GraphemeCounter
+import app.gifitup.shared.domain.messages.HistoryLimits
 import app.gifitup.shared.presentation.invite.SensitiveClipboard
 import io.ktor.client.engine.HttpClientEngine
 
@@ -19,7 +21,9 @@ import io.ktor.client.engine.HttpClientEngine
  * CSPRNG for the snapshot key. [clipboard] is where an invite link the user copies goes (the platform marks it
  * sensitive where it can); it must not hold an Activity, since the ViewModels that use it outlive one. [glyphs] tells the
  * Friends screen whether the device draws an emoji (ADR-0014). [conversations] is what the conversation screen (#25)
- * needs from the platform.
+ * needs from the platform. [historyCiphers] is the platform's message-history cipher (the web loads its wasm module on the
+ * first call, like [mlsClientFactory]) and [historyLimits] how much history it keeps (Android 1000 messages per group, the
+ * web 200; ADR-0017).
  */
 @Suppress("LongParameterList") // One record of what a platform hands over; grouping the fields would only rename them.
 class AppGraph(
@@ -30,6 +34,8 @@ class AppGraph(
     val clipboard: SensitiveClipboard,
     val glyphs: GlyphSupport,
     val conversations: ConversationPlatform,
+    val historyCiphers: suspend () -> HistoryCipherFactory,
+    val historyLimits: HistoryLimits,
 )
 
 /**

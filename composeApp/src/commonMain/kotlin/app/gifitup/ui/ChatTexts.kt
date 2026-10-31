@@ -25,6 +25,11 @@ internal object ChatTexts {
     const val NO_FRIENDS = "You have no saved friends yet. Invite someone, or open the Friends screen."
     const val CREATED = "Chat started."
 
+    /** The history is unreadable right now; what the server holds is not touched. No record name, no content (ADR-0017). */
+    const val HISTORY_PROBLEM = "The chat history on this device can't be opened right now. Nothing was lost on the server."
+    const val HISTORY_ROW = "History not available"
+    const val HISTORY_RETRY = "Try again"
+
     /** The user's text or a name from the other side, isolated from the words around it. */
     fun isolated(text: String): String = "⁨$text⁩"
 
@@ -63,6 +68,7 @@ internal object ChatTexts {
             ChatProblem.OFFLINE -> "No answer from the server. This is what the app has."
             ChatProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
             ChatProblem.FAILED -> "Some messages could not be read. Trying again later may help."
+            ChatProblem.HISTORY -> HISTORY_PROBLEM
         }
 
     fun newChatProblem(problem: NewChatProblem): String =
