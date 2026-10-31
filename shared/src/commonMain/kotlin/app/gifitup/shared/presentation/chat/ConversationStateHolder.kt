@@ -131,7 +131,7 @@ class ConversationStateHolder(
         scope.launch {
             try {
                 if (store.reset() == ResetResult.FAILED) {
-                    flow.value = flow.value.copy(resetFailed = true)
+                    flow.value = flow.value.copy(resetFailed = true, canResetHistory = store.canReset())
                 } else if (running) {
                     refreshAgain = true
                 } else {

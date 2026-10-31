@@ -129,6 +129,7 @@ class LazyHistory(
         mutex.withLock {
             if (closed) throw HistoryStoreException(HistoryStoreException.Kind.CLOSED)
             if (requireBrokenKey && !brokenKey()) return@withLock false
+            if (requireBrokenKey && reopens()) return@withLock false
             val before = sticky
             closeStore()
             sticky = null
@@ -142,6 +143,27 @@ class LazyHistory(
             }
             true
         }
+
+    /**
+     * One more try to open the history, under the gate, right before a reset deletes it. A transient fault that hit only the
+     * history key's entry leaves the sticky `KEY` state although the key is fine; deleting readable history for that would be
+     * permanent. If it opens now, the history is healthy again and stays (and nothing is deleted).
+     */
+    @Suppress("TooGenericExceptionCaught") // Any failure here means the key really is broken: the reset goes on.
+    private suspend fun reopens(): Boolean {
+        val reopened =
+            try {
+                opener.open()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                return false
+            }
+        store = reopened
+        sticky = null
+        retryAt = 0L
+        return true
+    }
 
     private suspend fun <T> gated(block: suspend (EncryptedMessageStore) -> T): T = mutex.withLock { block(storeLocked()) }
 

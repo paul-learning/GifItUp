@@ -1,6 +1,5 @@
 package app.gifitup.shared.domain.messages
 
-import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.domain.auth.DeviceStorage
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -47,12 +46,14 @@ class DeviceHistoryResetter(
     private val storage: DeviceStorage,
     private val origin: String,
 ) : HistoryResetter {
+    @Suppress("TooGenericExceptionCaught") // An unanswerable probe means no offer; a cancellation passes.
     override suspend fun available(): Boolean =
         try {
             registered() && probeSnapshotKey()
         } catch (e: CancellationException) {
             throw e
-        } catch (_: LocalStateException) {
+        } catch (_: Throwable) {
+            // Not asked when it cannot be answered: the offer is simply not made.
             false
         }
 
