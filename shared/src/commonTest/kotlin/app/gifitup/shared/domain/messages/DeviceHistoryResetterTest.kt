@@ -35,7 +35,8 @@ class DeviceHistoryResetterTest {
 
             override suspend fun deleteAll() = Unit
         }
-    private val storage = DeviceStorage(InMemoryLocalStore(), data, records, { _, _ -> InMemoryKeyStore() }, { historyKeys })
+    private val snapshotKeys = InMemoryKeyStore(ByteArray(32) { 3 })
+    private val storage = DeviceStorage(InMemoryLocalStore(), data, records, { _, _ -> snapshotKeys }, { historyKeys })
     private val ciphers = mutableListOf<FakeHistoryCipher>()
     private val factory =
         HistoryCipherFactory { _, _ ->
@@ -57,42 +58,66 @@ class DeviceHistoryResetterTest {
 
     private suspend fun register() = storage.identities.save(StoredIdentity(origin, "ann", byteArrayOf(1), "device-1"))
 
+    /** The history is in the state a reset is for: a key entry that does not open, records behind it. */
+    private suspend fun brokenKeyWithRecords(history: LazyHistory) {
+        historyKeys.key = ByteArray(32)
+        historyKeys.problem = LocalStateException.Problem.KEY_UNAVAILABLE
+        records.put("ab".repeat(32), "cd".repeat(32), byteArrayOf(1))
+        val failure = runCatching { history.messages(group) }.exceptionOrNull() as HistoryStoreException
+        assertEquals(HistoryStoreException.Kind.KEY, failure.kind)
+        historyKeys.problem = null
+    }
+
     @Test
     fun aResetDeletesTheRecordsAndTheKeyAndTheNextUseStartsOverWithANewKey() =
         runTest {
             register()
             val history = history()
-            history.insert(message)
-            val first = ciphers.single()
+            brokenKeyWithRecords(history)
+            assertTrue(history.canReset())
             assertEquals(ResetResult.DONE, history.reset())
-            assertTrue(first.closed, "the old key in memory is gone")
             assertNull(historyKeys.key, "the wrapped key entry is gone")
             assertTrue(records.isEmpty())
             assertEquals(emptyList(), history.messages(group))
-            assertEquals(2, historyKeys.saves, "a new key was made over the empty store")
+            assertEquals(1, historyKeys.saves, "a new key was made over the empty store")
+            assertFalse(history.canReset())
         }
 
     @Test
-    fun aBrokenKeyIsTheCaseAResetIsOfferedForAndItWorks() =
+    fun aHealthyHistoryIsNeverResetEvenIfAScreenStillOffersIt() =
         runTest {
             register()
-            historyKeys.key = ByteArray(32)
-            historyKeys.problem = LocalStateException.Problem.KEY_UNAVAILABLE
-            records.put("ab".repeat(32), "cd".repeat(32), byteArrayOf(1))
             val history = history()
-            assertFalse(history.canReset(), "nothing has failed yet")
-            assertFailsOpen(history)
-            assertTrue(history.canReset())
-            historyKeys.problem = null
-            assertEquals(ResetResult.DONE, history.reset())
+            history.insert(message)
             assertFalse(history.canReset())
-            assertEquals(emptyList(), history.messages(group))
+            assertEquals(ResetResult.UNAVAILABLE, history.reset())
+            assertEquals(1, history.messages(group).size, "what was saved stays")
         }
 
-    private suspend fun assertFailsOpen(history: LazyHistory) {
-        val failure = runCatching { history.messages(group) }.exceptionOrNull() as HistoryStoreException
-        assertEquals(HistoryStoreException.Kind.KEY, failure.kind)
-    }
+    @Test
+    fun aSecondResetAfterTheFirstDeletesNothingMore() =
+        runTest {
+            register()
+            val history = history()
+            brokenKeyWithRecords(history)
+            assertEquals(ResetResult.DONE, history.reset())
+            history.insert(message)
+            assertEquals(ResetResult.UNAVAILABLE, history.reset(), "a second tap or a stale flag")
+            assertEquals(1, history.messages(group).size, "the message saved since the first reset survives")
+        }
+
+    @Test
+    fun whenTheSnapshotKeyFailsTooThereIsNoResetAndNothingIsDeleted() =
+        runTest {
+            register()
+            val history = history()
+            brokenKeyWithRecords(history)
+            snapshotKeys.key = null
+            assertFalse(history.canReset())
+            assertEquals(ResetResult.UNAVAILABLE, history.reset())
+            assertFalse(records.isEmpty())
+            assertNotNull(historyKeys.key)
+        }
 
     @Test
     fun anUnregisteredDeviceHasNothingToReset() =
@@ -125,7 +150,7 @@ class DeviceHistoryResetterTest {
         runTest {
             register()
             val history = history()
-            history.insert(message)
+            brokenKeyWithRecords(history)
             val reset =
                 storage.lock.holding {
                     val r = async { history.reset() }
@@ -139,14 +164,15 @@ class DeviceHistoryResetterTest {
         }
 
     @Test
-    fun aDeletionThatFailsIsReportedAndAnotherResetCanFinishIt() =
+    fun aDeletionThatFailsIsReportedKeepsTheOfferAndAnotherResetFinishesIt() =
         runTest {
             register()
             val history = history()
-            history.insert(message)
+            brokenKeyWithRecords(history)
             historyKeys.clearFails = true
             assertEquals(ResetResult.FAILED, history.reset())
             assertTrue(records.isEmpty(), "the records went first")
+            assertTrue(history.canReset(), "the retry the screen promises is still allowed")
             historyKeys.clearFails = false
             assertEquals(ResetResult.DONE, history.reset())
             assertNull(historyKeys.key)

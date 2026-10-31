@@ -37,7 +37,7 @@ internal object ChatTexts {
 
     /** What is lost and what is not, in the user's terms (ADR-0017). */
     const val RESET_BODY =
-        "This deletes the saved messages of all your chats on this device. Your account, your friends and the chats themselves " +
+        "This deletes the saved messages of all your chats on this device, for good. Your account, your friends and the chats themselves " +
             "stay, and your friends keep their own copies. Messages that arrive later are saved again."
 
     /** The user's text or a name from the other side, isolated from the words around it. */
@@ -79,7 +79,6 @@ internal object ChatTexts {
             ChatProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
             ChatProblem.FAILED -> "Some messages could not be read. Trying again later may help."
             ChatProblem.HISTORY -> HISTORY_PROBLEM
-            ChatProblem.RESET_FAILED -> RESET_FAILED
         }
 
     fun newChatProblem(problem: NewChatProblem): String =

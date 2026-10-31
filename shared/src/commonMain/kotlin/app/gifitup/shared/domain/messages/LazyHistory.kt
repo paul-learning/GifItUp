@@ -83,8 +83,13 @@ class LazyHistory(
             }
         }
 
-    override suspend fun canReset(): Boolean =
-        resetter != null && mutex.withLock { !closed && store == null && sticky == HistoryStoreException.Kind.KEY }
+    override suspend fun canReset(): Boolean {
+        val resetter = resetter ?: return false
+        return mutex.withLock { brokenKey() } && resetter.available()
+    }
+
+    /** The one state a reset is for: not closed, not open, and failed with a missing, unopenable or damaged key. */
+    private fun brokenKey() = !closed && store == null && sticky == HistoryStoreException.Kind.KEY
 
     override suspend fun reset(): ResetResult = resetter?.reset(this) ?: ResetResult.UNAVAILABLE
 
@@ -109,20 +114,34 @@ class LazyHistory(
 
     /**
      * "Reset history" (ADR-0017): under the gate, the open store is closed first (its cache and key in memory go), then
-     * [delete] removes the records and the key entry, in that order, and the next call opens a fresh history. A failing
-     * [delete] throws and leaves the history closed-but-reopenable: the next call finds what is left (a missing key with
-     * records is the sticky `KEY` again). A closed history cannot be reset. [delete] runs under the gate, so it must never take
-     * the `DeviceLock`: the lock order is device lock, then gate, and the reverse would close a cycle.
+     * [delete] removes the records and the key entry, in that order, and the next call opens a fresh history. If [delete]
+     * throws, the sticky failure the history had stays, so the reset can be tried again. With [requireBrokenKey] the reset
+     * runs only if the history is in the state it is for (see [brokenKey]) and answers `false` otherwise: checked here under
+     * the gate, because a stale flag on a screen, a second tap or a reset that already ran must not delete a history that is
+     * healthy again. A closed history cannot be reset. [delete] runs under the gate, so it must never take the `DeviceLock`:
+     * the lock order is device lock, then gate, and the reverse would close a cycle.
      */
-    suspend fun resetWith(delete: suspend () -> Unit) {
+    @Suppress("TooGenericExceptionCaught") // Whatever the deletion throws, the sticky failure is put back first; it is rethrown unchanged.
+    suspend fun resetWith(
+        requireBrokenKey: Boolean = false,
+        delete: suspend () -> Unit,
+    ): Boolean =
         mutex.withLock {
             if (closed) throw HistoryStoreException(HistoryStoreException.Kind.CLOSED)
+            if (requireBrokenKey && !brokenKey()) return@withLock false
+            val before = sticky
             closeStore()
             sticky = null
             retryAt = 0L
-            delete()
+            try {
+                delete()
+            } catch (e: Throwable) {
+                // Still as broken as it was, so the retry the screen promises is still allowed.
+                if (sticky == null) sticky = before
+                throw e
+            }
+            true
         }
-    }
 
     private suspend fun <T> gated(block: suspend (EncryptedMessageStore) -> T): T = mutex.withLock { block(storeLocked()) }
 

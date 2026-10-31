@@ -55,13 +55,13 @@ class DeviceStorage(
 
     fun snapshotKeys(origin: String): SnapshotKeyStore = keyStoreFor(origin, identities)
 
-    /** Private on purpose: the only way to a history key is [openHistoryKey], with its checks (reset history comes with PR 4). */
+    /** Private on purpose: the only way to a history key is [openHistoryKey], with its checks (the reset has its own). */
     private fun historyKeys(origin: String): HistoryKeyStore = historyKeyStoreFor(origin)
 
     /**
      * Removes what an earlier account or an interrupted wipe left of the history: the records first, then the wrapped history
-     * key, so a crash in between leaves records without a key (the state "reset history" starts from), never a key that opens
-     * leftover records. Any failure is `STORAGE`.
+     * key, so a crash in between leaves a key without records (harmless: the next open uses it, or, if it is the broken
+     * one, the reset is offered again), never a key that opens leftover records. Any failure is `STORAGE`.
      */
     internal suspend fun clearHistoryLeftovers(origin: String) {
         try {
