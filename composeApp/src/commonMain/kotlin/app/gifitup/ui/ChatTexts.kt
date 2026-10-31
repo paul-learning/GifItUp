@@ -29,6 +29,16 @@ internal object ChatTexts {
     const val HISTORY_PROBLEM = "The chat history on this device can't be opened right now. Nothing was lost on the server."
     const val HISTORY_ROW = "History not available"
     const val HISTORY_RETRY = "Try again"
+    const val RESET_HISTORY = "Reset chat history…"
+    const val RESET_TITLE = "Reset the chat history on this device?"
+    const val RESET_CONFIRM = "Reset history"
+    const val RESET_CANCEL = "Cancel"
+    const val RESET_FAILED = "The history could not be reset. Nothing else was changed. You can try again."
+
+    /** What is lost and what is not, in the user's terms (ADR-0017). */
+    const val RESET_BODY =
+        "This deletes the saved messages of all your chats on this device. Your account, your friends and the chats themselves " +
+            "stay, and your friends keep their own copies. Messages that arrive later are saved again."
 
     /** The user's text or a name from the other side, isolated from the words around it. */
     fun isolated(text: String): String = "⁨$text⁩"
@@ -69,6 +79,7 @@ internal object ChatTexts {
             ChatProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
             ChatProblem.FAILED -> "Some messages could not be read. Trying again later may help."
             ChatProblem.HISTORY -> HISTORY_PROBLEM
+            ChatProblem.RESET_FAILED -> RESET_FAILED
         }
 
     fun newChatProblem(problem: NewChatProblem): String =

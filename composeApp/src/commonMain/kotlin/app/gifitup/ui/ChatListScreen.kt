@@ -98,6 +98,7 @@ internal fun ChatListScreen(
                 modifier = Modifier.polite(),
             )
             if (it == ChatProblem.HISTORY) TextButton(onClick = holder::retryHistory) { Text(ChatTexts.HISTORY_RETRY) }
+            if (state.canResetHistory) ResetHistoryButton(holder::resetHistory)
         }
         if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS, color = MaterialTheme.colorScheme.onSurfaceVariant)
         LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -40,6 +40,8 @@ class LazyHistory(
     private val opener: HistoryOpener,
     private val nowMillis: () -> Long,
     private val coolDownMillis: Long = DEFAULT_COOL_DOWN_MILLIS,
+    /** What "reset history" does for this history; `null` where it is not offered. */
+    private val resetter: HistoryResetter? = null,
 ) : HistoryAccess,
     ReadMarkStore {
     private val mutex = Mutex()
@@ -81,6 +83,11 @@ class LazyHistory(
             }
         }
 
+    override suspend fun canReset(): Boolean =
+        resetter != null && mutex.withLock { !closed && store == null && sticky == HistoryStoreException.Kind.KEY }
+
+    override suspend fun reset(): ResetResult = resetter?.reset(this) ?: ResetResult.UNAVAILABLE
+
     /** The user's "try again": forgets a sticky failure and the cool-down; the next call opens again. */
     override suspend fun retry() {
         mutex.withLock {
@@ -107,7 +114,7 @@ class LazyHistory(
      * records is the sticky `KEY` again). A closed history cannot be reset. [delete] runs under the gate, so it must never take
      * the `DeviceLock`: the lock order is device lock, then gate, and the reverse would close a cycle.
      */
-    suspend fun reset(delete: suspend () -> Unit) {
+    suspend fun resetWith(delete: suspend () -> Unit) {
         mutex.withLock {
             if (closed) throw HistoryStoreException(HistoryStoreException.Kind.CLOSED)
             closeStore()

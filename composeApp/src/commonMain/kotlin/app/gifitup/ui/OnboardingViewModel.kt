@@ -23,6 +23,7 @@ import app.gifitup.shared.domain.media.LoadGifMedia
 import app.gifitup.shared.domain.media.MediaPolicy
 import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.domain.messages.DeviceHistoryOpener
+import app.gifitup.shared.domain.messages.DeviceHistoryResetter
 import app.gifitup.shared.domain.messages.LazyHistory
 import app.gifitup.shared.domain.origin.ServerOriginSetting
 import app.gifitup.shared.domain.session.SessionHolder
@@ -57,6 +58,7 @@ internal class OnboardingViewModel(
         LazyHistory(
             DeviceHistoryOpener(storage, origin, graph.random, graph.historyCiphers, graph.historyLimits),
             { Clock.System.now().toEpochMilliseconds() },
+            resetter = DeviceHistoryResetter(storage, origin),
         )
     private val marks = ReadMarks(history)
 

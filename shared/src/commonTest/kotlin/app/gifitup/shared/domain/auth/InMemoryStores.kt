@@ -73,7 +73,11 @@ class InMemoryHistoryKeyStore(
         this.key = key.copyOf()
     }
 
+    /** Makes [clear] fail with a storage error, like a disk that refuses. */
+    var clearFails = false
+
     override suspend fun clear() {
+        if (clearFails) throw LocalStateException(LocalStateException.Problem.STORAGE)
         key = null
     }
 }

@@ -191,4 +191,27 @@ class GroupSendHistoryTest {
             )
             assertEquals(listOf(DeliveryState.SENT, DeliveryState.SENT), states(restored, group))
         }
+
+    @Test
+    fun aResetWithAPendingSendAndALastAcceptedSendInTheSnapshotDoesNotBreakSendOrResume() =
+        runTest {
+            val (alice, group, _) = pair()
+            val store = newStore()
+            val send = sender(alice, store)
+            // One message accepted (lastSent in the snapshot), one unanswered (pending in the snapshot).
+            assertIs<SyncOutcome.Sent>(assertIs<AuthResult.Ok<SyncOutcome>>(send(session, group, gif, "first", sink)).value)
+            ds.failing = setOf("post")
+            assertIs<SyncOutcome.InFlight>(assertIs<AuthResult.Ok<SyncOutcome>>(send(session, group, gif, "second", sink)).value)
+            // "Reset history": the records are gone; the engine's snapshot is untouched.
+            store.close()
+            records.deleteAll()
+            ds.failing = emptySet()
+            val fresh = newStore()
+            val resumed = sender(alice, fresh).resume(session, group, sink)
+            assertIs<SyncOutcome.Sent>(assertIs<AuthResult.Ok<SyncOutcome>>(resumed).value)
+            assertEquals(emptyList(), states(fresh, group), "no record to settle, and nothing broke")
+            val next = sender(alice, fresh)(session, group, gif, "third", sink)
+            assertIs<SyncOutcome.Sent>(assertIs<AuthResult.Ok<SyncOutcome>>(next).value)
+            assertEquals(listOf(DeliveryState.SENT), states(fresh, group))
+        }
 }

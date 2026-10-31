@@ -23,6 +23,7 @@ import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.InMemoryMessageStore
 import app.gifitup.shared.domain.messages.MessageBody
+import app.gifitup.shared.domain.messages.ResetResult
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
@@ -448,6 +449,18 @@ class ChatStateTest {
 
         override suspend fun usable(): Boolean = broken == null
 
+        var resettable = false
+        var resetResult = ResetResult.DONE
+        var resets = 0
+
+        override suspend fun canReset(): Boolean = resettable && broken == HistoryStoreException.Kind.KEY
+
+        override suspend fun reset(): ResetResult {
+            resets++
+            if (resetResult == ResetResult.DONE) broken = null
+            return resetResult
+        }
+
         override suspend fun messages(groupId: KeyBytes): List<ChatMessage> =
             broken?.let { throw HistoryStoreException(it) } ?: store.messages(groupId)
 
@@ -625,5 +638,60 @@ class ChatStateTest {
             gate.complete(Unit)
             advanceUntilIdle()
             assertEquals(before, chat.synced.size, "no refresh follows a visit that was left")
+        }
+
+    @Test
+    fun resetIsOfferedOnlyForABrokenKeyAndClearsTheProblemWhenItWorks() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            store.insert(gif(1, 1, "bob", at = 5))
+            val history =
+                FlakyHistory().also {
+                    it.broken = HistoryStoreException.Kind.KEY
+                    it.resettable = true
+                }
+            val holder = ChatListStateHolder(this, sessions(), chat, history, marks)
+            holder.refresh()
+            advanceUntilIdle()
+            assertTrue(holder.state.value.canResetHistory)
+            holder.resetHistory()
+            advanceUntilIdle()
+            assertEquals(1, history.resets)
+            assertFalse(holder.state.value.canResetHistory)
+            assertNull(holder.state.value.problem)
+            // A failing storage is not a reason to offer a destructive action.
+            history.broken = HistoryStoreException.Kind.STORAGE
+            holder.refresh()
+            advanceUntilIdle()
+            assertFalse(holder.state.value.canResetHistory)
+        }
+
+    @Test
+    fun aResetThatFailsIsNamedAndTheConversationStaysAsItWas() =
+        runTest {
+            val info = group(1, "bob")
+            store.insert(gif(1, 1, "bob", at = 5))
+            val history =
+                FlakyHistory().also {
+                    it.broken = HistoryStoreException.Kind.KEY
+                    it.resettable = true
+                    it.resetResult = ResetResult.FAILED
+                }
+            val holder = ConversationStateHolder(this, sessions(), chat, history, marks, info, CaptionInput(CodePointCounter))
+            holder.open()
+            advanceUntilIdle()
+            assertTrue(holder.state.value.canResetHistory)
+            holder.resetHistory()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.RESET_FAILED, holder.state.value.problem)
+            assertTrue(
+                holder.state.value.messages
+                    .isEmpty(),
+            )
+            history.resetResult = ResetResult.DONE
+            holder.resetHistory()
+            advanceUntilIdle()
+            assertNull(holder.state.value.problem)
+            assertEquals(1, holder.state.value.messages.size)
         }
 }

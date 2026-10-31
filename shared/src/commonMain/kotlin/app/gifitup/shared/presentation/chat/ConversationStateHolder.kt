@@ -14,6 +14,7 @@ import app.gifitup.shared.domain.messages.DeliveryState
 import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.MessageBody
+import app.gifitup.shared.domain.messages.ResetResult
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +73,8 @@ data class ConversationState(
     val sending: Boolean = false,
     /** How many stored records of this conversation could not be read (kept, never shown). */
     val unreadable: Int = 0,
+    /** "Reset history" is offered (the history key is missing or broken); behind a confirmation. */
+    val canResetHistory: Boolean = false,
 ) {
     /** A message of ours was stored but not answered: [ConversationStateHolder.resend] posts it again. */
     val hasUnsettled: Boolean get() = messages.any { it.state == DeliveryState.SENDING }
@@ -115,6 +118,19 @@ class ConversationStateHolder(
      * posted again (`resume`) only when the conversation is usable and the history is readable (ADR-0017).
      */
     fun open() = act { forVisit -> resumeUnsettled(forVisit) }
+
+    /** The user's confirmed "reset history": the stored history of this device is deleted; the conversation is rebuilt. */
+    fun resetHistory() {
+        scope.launch {
+            if (store.reset() == ResetResult.FAILED) {
+                flow.value = flow.value.copy(problem = ChatProblem.RESET_FAILED)
+            } else if (running) {
+                refreshAgain = true
+            } else {
+                refresh()
+            }
+        }
+    }
 
     /** The user's "try again" for a history that could not be opened: opens it again and shows the conversation. */
     fun retryHistory() {
@@ -245,7 +261,10 @@ class ConversationStateHolder(
         } catch (_: HistoryStoreException) {
             // Never an empty conversation shown as normal: the problem is named and nothing can be sent. Also a history
             // that closed in between (a wipe) or a read mark that can't be read.
-            change(forVisit) { it.copy(problem = ChatProblem.HISTORY, messages = emptyList(), unreadable = 0) }
+            val resettable = store.canReset()
+            change(
+                forVisit,
+            ) { it.copy(problem = ChatProblem.HISTORY, messages = emptyList(), unreadable = 0, canResetHistory = resettable) }
             return
         }
         change(forVisit) {
@@ -255,6 +274,7 @@ class ConversationStateHolder(
                 messages = messages.map(ChatMessage::toView),
                 problem = cleared,
                 unreadable = unreadable,
+                canResetHistory = false,
             )
         }
     }
