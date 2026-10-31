@@ -185,7 +185,7 @@ class LazyHistoryTest {
             history.insert(message(1))
             val first = ciphers.single()
             var deleted = 0
-            history.reset {
+            history.resetWith {
                 assertTrue(first.closed, "the old key is gone before anything is deleted")
                 records.deleteAll()
                 deleted++
@@ -202,7 +202,7 @@ class LazyHistoryTest {
             failure = LocalStateException(LocalStateException.Problem.KEY_UNAVAILABLE)
             assertEquals(HistoryStoreException.Kind.KEY, kindOf { history.messages(group) })
             failure = null
-            history.reset { }
+            history.resetWith { }
             assertEquals(emptyList(), history.messages(group))
         }
 
@@ -210,7 +210,7 @@ class LazyHistoryTest {
     fun aFailedDeletionIsReportedAndTheHistoryStaysUsableOnlyByOpeningAgain() =
         runTest {
             history.insert(message(1))
-            assertFailsWith<IllegalStateException> { history.reset { error("disk") } }
+            assertFailsWith<IllegalStateException> { history.resetWith { error("disk") } }
             // Nothing is open any more; the next call opens again over whatever is left.
             assertEquals(1, history.messages(group).size)
             assertEquals(2, opens)
@@ -221,7 +221,7 @@ class LazyHistoryTest {
         runTest {
             history.close()
             var ran = false
-            assertEquals(HistoryStoreException.Kind.CLOSED, kindOf { history.reset { ran = true } })
+            assertEquals(HistoryStoreException.Kind.CLOSED, kindOf { history.resetWith { ran = true } })
             assertFalse(ran)
         }
 

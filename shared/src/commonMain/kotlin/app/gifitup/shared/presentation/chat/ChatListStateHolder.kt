@@ -9,6 +9,7 @@ import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.HistoryStoreException
+import app.gifitup.shared.domain.messages.ResetResult
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,8 @@ data class ChatListState(
     val refreshing: Boolean = false,
     val conversations: List<ConversationSummary> = emptyList(),
     val problem: ChatProblem? = null,
+    /** "Reset history" is offered: the history key is missing or broken, and only a reset helps (behind a confirmation). */
+    val canResetHistory: Boolean = false,
 )
 
 /**
@@ -66,6 +69,20 @@ class ChatListStateHolder(
         scope.launch {
             store.retry()
             if (running) refreshAgain = true else refresh()
+        }
+    }
+
+    /**
+     * The user's confirmed "reset history": the stored history of this device is deleted and the list is rebuilt. The
+     * confirmation is the screen's; a reset that does not finish names the problem and can be tried again.
+     */
+    fun resetHistory() {
+        scope.launch {
+            if (store.reset() == ResetResult.FAILED) {
+                flow.value = flow.value.copy(problem = ChatProblem.RESET_FAILED)
+            } else {
+                refresh()
+            }
         }
     }
 
@@ -139,7 +156,12 @@ class ChatListStateHolder(
         val rows = groups.map { summary(it) }.sortedWith(compareByDescending<ConversationSummary> { it.lastAt ?: Long.MIN_VALUE })
         // A broken history is the one problem the user can act on ("Try again"), so it wins over a sync problem.
         val shown = if (rows.any { it.historyProblem }) ChatProblem.HISTORY else problem
-        if (forVisit == visit) flow.value = flow.value.copy(loaded = true, conversations = rows, problem = shown)
+        val resettable = shown == ChatProblem.HISTORY && store.canReset()
+        if (forVisit ==
+            visit
+        ) {
+            flow.value = flow.value.copy(loaded = true, conversations = rows, problem = shown, canResetHistory = resettable)
+        }
     }
 
     private suspend fun summary(info: GroupInfo): ConversationSummary {

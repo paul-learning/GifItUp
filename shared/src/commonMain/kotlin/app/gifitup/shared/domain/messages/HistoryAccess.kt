@@ -17,6 +17,12 @@ interface HistoryAccess : MessageStore {
      */
     suspend fun usable(): Boolean
 
+    /** Whether "reset history" would help and is possible here: the history key is missing, unopenable or damaged (`KEY`). */
+    suspend fun canReset(): Boolean
+
+    /** "Reset history" (ADR-0017): deletes the stored history of this device and starts over; see [HistoryResetter]. */
+    suspend fun reset(): ResetResult
+
     /** How many records of the group exist but could not be opened or read (they are kept, never shown). */
     suspend fun unreadable(groupId: KeyBytes): Int
 }

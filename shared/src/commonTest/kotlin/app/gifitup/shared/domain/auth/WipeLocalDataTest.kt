@@ -10,6 +10,7 @@ import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.InMemoryRecordStore
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.messages.EncryptedMessageStore
+import app.gifitup.shared.domain.messages.HistoryOpener
 import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.LazyHistory
 import kotlinx.coroutines.CompletableDeferred
@@ -21,6 +22,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 
 private const val INVITE = "AAAAAAAAAAAAAAAAAAAAAA"
 
@@ -180,5 +182,33 @@ class WipeLocalDataTest {
             assertEquals(listOf("destroy key", "delete records"), steps)
             assertEquals(emptyList(), first.await().getOrNull(), "the open that was running finished before the close")
             assertFailsWith<HistoryStoreException> { history.messages(KeyBytes(ByteArray(16))) }
+        }
+
+    /**
+     * A wiped history is closed for good: the same `LazyHistory` stays closed after a new registration, so whoever wipes must
+     * end the view model or build a new history before the next registration (ADR-0017). A new one works.
+     */
+    @Test
+    fun aWipedHistoryStaysClosedAfterANewRegistrationAndANewOneWorks() =
+        runTest {
+            val records = InMemoryRecordStore()
+            val opener = HistoryOpener { EncryptedMessageStore(FakeHistoryCipher(), records) }
+            val old = LazyHistory(opener, { 0L })
+            val group = KeyBytes(ByteArray(16))
+            old.messages(group)
+            WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser { old.close() })(null, emptyList())
+            val registered =
+                RegisterDevice(
+                    server.api(),
+                    unguarded(),
+                    InMemoryIdentityStore(),
+                    InMemoryKeyStore(),
+                    CountingRandom(),
+                    DeviceLock(),
+                    HistoryLeftovers.None,
+                )
+            assertIs<AuthResult.Ok<*>>(registered("ann", INVITE))
+            assertEquals(HistoryStoreException.Kind.CLOSED, assertFailsWith<HistoryStoreException> { old.messages(group) }.kind)
+            assertEquals(emptyList(), LazyHistory(opener, { 0L }).messages(group))
         }
 }

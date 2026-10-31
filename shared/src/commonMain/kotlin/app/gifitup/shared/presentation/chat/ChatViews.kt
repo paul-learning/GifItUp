@@ -79,6 +79,9 @@ enum class ChatProblem {
 
     /** The history on this device can't be opened or read right now (ADR-0017); what is on the server is untouched. */
     HISTORY,
+
+    /** "Reset history" did not finish; the history stays as it is (or part of it is deleted) and the reset can be tried again. */
+    RESET_FAILED,
 }
 
 internal fun AuthError.toChatProblem(): ChatProblem =
