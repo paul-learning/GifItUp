@@ -71,7 +71,15 @@ class LazyHistory(
     /** How many records of the group could not be read (0 for a history that cannot be opened). */
     override suspend fun unreadable(groupId: KeyBytes): Int = gated { it.unreadable(groupId) }
 
-    override suspend fun usable(): Boolean = mutex.withLock { runCatching { storeLocked() }.exceptionOrNull() !is HistoryStoreException }
+    override suspend fun usable(): Boolean =
+        mutex.withLock {
+            try {
+                storeLocked()
+                true
+            } catch (_: HistoryStoreException) {
+                false
+            }
+        }
 
     /** The user's "try again": forgets a sticky failure and the cool-down; the next call opens again. */
     override suspend fun retry() {
@@ -143,8 +151,9 @@ class LazyHistory(
                 // Not a registered identity of this origin: a defect of the caller. Sticky like a dead cipher; only a
                 // user's retry asks again.
                 HistoryStoreException.Kind.CIPHER
-            } catch (_: Exception) {
-                // Anything else the pieces throw (a failed module load on the web): sorted as the cipher's, sticky until a retry.
+            } catch (_: Throwable) {
+                // Anything else the pieces throw, a failed module load on the web included (a JsException is a Throwable, not
+                // an Exception): sorted as the cipher's, sticky until a retry. A cancellation has been rethrown above.
                 HistoryStoreException.Kind.CIPHER
             }
         if (kind == HistoryStoreException.Kind.STORAGE) retryAt = nowMillis() + coolDownMillis else sticky = kind

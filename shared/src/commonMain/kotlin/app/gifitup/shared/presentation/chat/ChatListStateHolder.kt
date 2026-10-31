@@ -95,6 +95,7 @@ class ChatListStateHolder(
     fun leave() {
         visit++
         running = false
+        refreshAgain = false
         flow.value = ChatListState()
     }
 
