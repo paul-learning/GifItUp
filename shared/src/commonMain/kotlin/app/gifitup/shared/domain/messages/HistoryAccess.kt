@@ -11,6 +11,12 @@ interface HistoryAccess : MessageStore {
     /** The user's "try again": forgets a sticky failure and the cool-down; the next call opens the history again. */
     suspend fun retry()
 
+    /**
+     * Whether the history is open or can be opened now (without touching the disk if it is known to be broken or cooling
+     * down). A screen that is not usable does not fetch the log into it: every message would fail and stall (ADR-0017).
+     */
+    suspend fun usable(): Boolean
+
     /** How many records of the group exist but could not be opened or read (they are kept, never shown). */
     suspend fun unreadable(groupId: KeyBytes): Int
 }

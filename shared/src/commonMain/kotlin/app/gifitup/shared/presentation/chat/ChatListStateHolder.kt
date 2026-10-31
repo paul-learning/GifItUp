@@ -6,6 +6,7 @@ import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.session.SessionHolder
@@ -57,11 +58,14 @@ class ChatListStateHolder(
     private var visit = 0
     private var running = false
 
+    /** A retry came while a refresh was running: one more refresh follows it, so the tap is never dropped. */
+    private var refreshAgain = false
+
     /** The user's "try again" for a history that could not be opened: opens it again and rebuilds the list. */
     fun retryHistory() {
         scope.launch {
             store.retry()
-            refresh()
+            if (running) refreshAgain = true else refresh()
         }
     }
 
@@ -79,6 +83,10 @@ class ChatListStateHolder(
                 if (forVisit == visit) {
                     running = false
                     flow.value = flow.value.copy(refreshing = false)
+                    if (refreshAgain) {
+                        refreshAgain = false
+                        refresh()
+                    }
                 }
             }
         }
@@ -92,8 +100,12 @@ class ChatListStateHolder(
 
     private suspend fun run(forVisit: Int) {
         var problem: ChatProblem? = null
-        val joined = sessions.withSessionResult { chat.welcomes(it) }
-        if (joined is AuthResult.Failed) problem = joined.error.toChatProblem()
+        // A history that can't be used is not fed: every message would fail and stall, once per group and tick (ADR-0017).
+        val usable = store.usable()
+        if (usable) {
+            val joined = sessions.withSessionResult { chat.welcomes(it) }
+            if (joined is AuthResult.Failed) problem = joined.error.toChatProblem()
+        }
         when (val groups = sessions.withSessionResult { chat.groups(it) }) {
             is AuthResult.Failed -> {
                 // What is known stays on screen; only the problem is new.
@@ -102,8 +114,10 @@ class ChatListStateHolder(
             }
 
             is AuthResult.Ok -> {
-                for (info in groups.value.groups.filter { it.status.toProblem() == null }) {
-                    problem = problem ?: syncProblem(info)
+                if (usable) {
+                    for (info in groups.value.groups.filter { it.status.toProblem() == null }) {
+                        problem = problem ?: syncProblem(info)
+                    }
                 }
                 publish(forVisit, groups.value.groups, problem)
             }
@@ -122,33 +136,37 @@ class ChatListStateHolder(
         problem: ChatProblem?,
     ) {
         val rows = groups.map { summary(it) }.sortedWith(compareByDescending<ConversationSummary> { it.lastAt ?: Long.MIN_VALUE })
-        val shown = problem ?: ChatProblem.HISTORY.takeIf { rows.any { it.historyProblem } }
+        // A broken history is the one problem the user can act on ("Try again"), so it wins over a sync problem.
+        val shown = if (rows.any { it.historyProblem }) ChatProblem.HISTORY else problem
         if (forVisit == visit) flow.value = flow.value.copy(loaded = true, conversations = rows, problem = shown)
     }
 
     private suspend fun summary(info: GroupInfo): ConversationSummary {
-        val messages =
-            try {
-                store.messages(info.id)
-            } catch (_: HistoryStoreException) {
-                // Never an empty history shown as normal: the row says so, and "unread 0" would hide new messages.
-                return ConversationSummary(
-                    info,
-                    titleOf(info, emptyList()),
-                    Preview.Nothing,
-                    null,
-                    0,
-                    info.status.toProblem(),
-                    historyProblem = true,
-                )
-            }
+        val messages: List<ChatMessage>
+        val unread: Int
+        try {
+            messages = store.messages(info.id)
+            unread = marks.unread(info.id, messages)
+        } catch (_: HistoryStoreException) {
+            // Never an empty history shown as normal: the row says so, and "unread 0" would hide new messages. Also a history
+            // that closed between the two reads (a wipe) or a read mark that can't be read.
+            return ConversationSummary(
+                info,
+                titleOf(info, emptyList()),
+                Preview.Nothing,
+                null,
+                0,
+                info.status.toProblem(),
+                historyProblem = true,
+            )
+        }
         val last = messages.lastOrNull()
         return ConversationSummary(
             info = info,
             title = titleOf(info, messages),
             preview = previewOf(last),
             lastAt = last?.at,
-            unread = marks.unread(info.id, messages),
+            unread = unread,
             problem = info.status.toProblem(),
         )
     }

@@ -128,7 +128,7 @@ internal class OnboardingViewModel(
         tiles.leave()
         (mediaFetcher as? AutoCloseable)?.close()
         // The history key and the decrypted cache leave memory with the view model (the wipe has closed it already).
-        MainScope().launch { history.close() }
+        MainScope().launch { runCatching { history.close() } }
         api.close()
         engine.close()
     }

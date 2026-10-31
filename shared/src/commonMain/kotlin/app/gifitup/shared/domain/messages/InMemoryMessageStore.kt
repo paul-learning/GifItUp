@@ -15,6 +15,8 @@ class InMemoryMessageStore : HistoryAccess {
 
     override suspend fun retry() = Unit
 
+    override suspend fun usable(): Boolean = true
+
     override suspend fun unreadable(groupId: KeyBytes): Int = 0
 
     override suspend fun insert(message: ChatMessage): Boolean =
