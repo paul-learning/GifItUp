@@ -65,7 +65,6 @@ class DeviceHistoryResetterTest {
         records.put("ab".repeat(32), "cd".repeat(32), byteArrayOf(1))
         val failure = runCatching { history.messages(group) }.exceptionOrNull() as HistoryStoreException
         assertEquals(HistoryStoreException.Kind.KEY, failure.kind)
-        historyKeys.problem = null
     }
 
     @Test
@@ -78,6 +77,7 @@ class DeviceHistoryResetterTest {
             assertEquals(ResetResult.DONE, history.reset())
             assertNull(historyKeys.key, "the wrapped key entry is gone")
             assertTrue(records.isEmpty())
+            historyKeys.problem = null
             assertEquals(emptyList(), history.messages(group))
             assertEquals(1, historyKeys.saves, "a new key was made over the empty store")
             assertFalse(history.canReset())
@@ -101,6 +101,7 @@ class DeviceHistoryResetterTest {
             val history = history()
             brokenKeyWithRecords(history)
             assertEquals(ResetResult.DONE, history.reset())
+            historyKeys.problem = null
             history.insert(message)
             assertEquals(ResetResult.UNAVAILABLE, history.reset(), "a second tap or a stale flag")
             assertEquals(1, history.messages(group).size, "the message saved since the first reset survives")
@@ -176,5 +177,20 @@ class DeviceHistoryResetterTest {
             historyKeys.clearFails = false
             assertEquals(ResetResult.DONE, history.reset())
             assertNull(historyKeys.key)
+        }
+
+    @Test
+    fun aTransientFaultOnTheKeyEntryAloneNeverBecomesADeletion() =
+        runTest {
+            register()
+            val history = history()
+            brokenKeyWithRecords(history)
+            // The fault was transient: the key opens again by the time the user confirms.
+            historyKeys.problem = null
+            assertEquals(ResetResult.UNAVAILABLE, history.reset())
+            assertFalse(records.isEmpty(), "nothing was deleted")
+            assertNotNull(historyKeys.key)
+            assertFalse(history.canReset(), "and the history is open and healthy again")
+            history.insert(message)
         }
 }
