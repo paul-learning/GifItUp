@@ -11,7 +11,7 @@ internal object GifPickerTexts {
     const val SEARCH_PLACEHOLDER = "Search KLIPY"
     const val SEARCH_LABEL = "Search GIFs"
 
-    /** Said before anything is sent to the provider: who learns what (ADR-0003). */
+    /** Shown with the picker, which sends its first (trending) request when it opens: who learns what (ADR-0003). */
     const val PRIVACY =
         "Your searches go to Klipy, and so does loading a GIF: Klipy sees your connection and what you search for. " +
             "Your chat itself stays end-to-end encrypted."
@@ -19,7 +19,6 @@ internal object GifPickerTexts {
     const val RESULTS = "Results"
     const val NOTHING_FOUND = "No GIFs found."
     const val LOADING = "Loading GIFs…"
-    const val MORE = "Show more"
     const val TRY_AGAIN = "Try again"
     const val PLACEHOLDER = "This GIF can't be shown"
     const val CHOOSE = "Send this GIF"

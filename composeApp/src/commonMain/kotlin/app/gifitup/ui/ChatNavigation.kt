@@ -76,9 +76,7 @@ internal fun NavGraphBuilder.chatRoutes(
         val holder = model.conversation
         val leave = { if (nav.currentDestination?.route == ROUTE_CONVERSATION) nav.popBackStack() }
         // A process that was recreated has no open conversation: back to the list.
-        if (holder ==
-            null
-        ) {
+        if (holder == null) {
             LaunchedEffect(Unit) { leave() }
         } else {
             ConversationScreen(holder, model.tiles, PickerParts(model.picker, model.previews), onBack = { leave() })

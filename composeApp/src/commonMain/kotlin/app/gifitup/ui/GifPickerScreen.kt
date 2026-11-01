@@ -144,7 +144,8 @@ private fun PreviewCell(
     previews: Map<KeyBytes, LoadedTile>,
     onPick: (GifReference) -> Unit,
 ) {
-    val key = remember(tile) { KeyBytes(tile.preview.url.encodeToByteArray()) }
+    // The position is part of the key: two results with the same preview link must not share one loaded-bytes slot.
+    val key = remember(index, tile) { KeyBytes("$index:${tile.preview.url}".encodeToByteArray()) }
     DisposableEffect(key) {
         parts.previews.show(key, tile.preview)
         onDispose { parts.previews.hide(key) }
