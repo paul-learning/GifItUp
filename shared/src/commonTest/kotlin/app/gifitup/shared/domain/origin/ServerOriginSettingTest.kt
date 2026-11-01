@@ -170,4 +170,16 @@ class ServerOriginSettingTest {
     fun theDefaultMustBeCanonical() {
         assertTrue(runCatching { ServerOriginSetting(store, identities, lock, "http://x.example") }.isFailure)
     }
+
+    @Test
+    fun whereTheServerCannotBeChosenAStoredRecordIsIgnoredAndNothingIsWritten() =
+        runTest {
+            store.putAll(mapOf("server-origin" to "https://custom.example".encodeToByteArray()))
+            val web = ServerOriginSetting(store, identities, lock, default, storedAllowed = false)
+            val current = assertIs<ServerOriginSetting.Current.Origin>(web.current())
+            assertEquals(default, current.origin)
+            assertFalse(current.custom)
+            assertEquals(ServerOriginSetting.SetResult.Invalid, web.set("https://other.example"))
+            assertEquals("https://custom.example", store.get("server-origin")?.decodeToString(), "left as it was, never used")
+        }
 }

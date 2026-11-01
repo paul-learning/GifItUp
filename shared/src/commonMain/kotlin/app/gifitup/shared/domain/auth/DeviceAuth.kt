@@ -83,7 +83,10 @@ class DeviceStorage(
     ): ByteArray = OpenHistoryKey(historyKeys(origin), identities, origin, records, random, historyKeyMutex)()
 
     /** The server origin setting over this storage and its lock (ADR-0013); [default] is the build's origin. */
-    fun originSetting(default: String): ServerOriginSetting = ServerOriginSetting(store, identities, lock, default)
+    fun originSetting(
+        default: String,
+        storedAllowed: Boolean = true,
+    ): ServerOriginSetting = ServerOriginSetting(store, identities, lock, default, storedAllowed)
 }
 
 /**
