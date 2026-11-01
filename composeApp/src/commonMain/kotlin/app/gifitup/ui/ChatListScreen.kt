@@ -1,8 +1,9 @@
 package app.gifitup.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,8 +45,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gifitup.shared.domain.chat.ChatKind
 import app.gifitup.shared.domain.contacts.KeyBytes
-import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatFilter
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
@@ -109,7 +110,7 @@ internal fun ChatListScreen(
             }
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(state.visible, key = { it.id.listKey() }) { row ->
-                    ConversationRow(row, actions.onOpen, isSelected = row.id == selected)
+                    ConversationRow(row, actions, isSelected = row.id == selected)
                 }
                 // Room under the last row for the round "+" that floats over the list.
                 item { Spacer(Modifier.height(FAB_ROOM)) }
@@ -163,14 +164,14 @@ private fun FilterRow(
 @Composable
 private fun ConversationRow(
     row: ConversationSummary,
-    onOpen: ((GroupInfo) -> Unit)?,
+    actions: ChatListActions,
     isSelected: Boolean,
 ) {
     val colors = MaterialTheme.colorScheme
     val title = ChatTexts.title(row.title)
     val preview = if (row.historyProblem) ChatTexts.HISTORY_ROW else row.problem?.let(ChatTexts::problem) ?: ChatTexts.preview(row.preview)
     val ago = row.lastAt?.let { ChatTexts.ago(Ago.of(Clock.System.now().epochSeconds, it)) }
-    val clickable = if (onOpen != null) Modifier.clickable(role = Role.Button) { onOpen(row.info) } else Modifier
+    val clickable = rowClick(row, actions)
     Surface(
         color = if (isSelected) colors.secondaryContainer else colors.surfaceContainer,
         shape = MaterialTheme.shapes.large,
@@ -214,6 +215,22 @@ private fun ConversationRow(
             }
         }
     }
+}
+
+/** A tap opens the chat; a long tap on a direct chat opens the friend's profile (#217), a group has no single profile. */
+@OptIn(ExperimentalFoundationApi::class)
+private fun rowClick(
+    row: ConversationSummary,
+    actions: ChatListActions,
+): Modifier {
+    val onOpen = actions.onOpen ?: return Modifier
+    val friend = if (row.kind == ChatKind.DIRECT) row.info.others.singleOrNull() else null
+    return Modifier.combinedClickable(
+        role = Role.Button,
+        onLongClickLabel = friend?.let { ProfileTexts.OPEN_PROFILE },
+        onLongClick = friend?.let { name -> { actions.onProfile(name) } },
+        onClick = { onOpen(row.info) },
+    )
 }
 
 @Composable
