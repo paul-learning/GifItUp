@@ -414,7 +414,7 @@ class EndToEndTest {
             stdin: String = "",
         ): List<String> {
             val finished = cli.run(command, state, *args, stdin = stdin)
-            assertEquals(0, finished.exit, "$command exit code")
+            assertEquals(0, finished.exit, "$command exit code: ${finished.stderr}")
             return finished.stdout.lines().filter { it.isNotBlank() }
         }
 
@@ -515,14 +515,6 @@ class EndToEndTest {
         )
         refused(kim, "chat-sync", EXIT_REFUSED, "this group is no longer available", "--group", group)
         assertTrue(ok(kim, "chat-groups").single().startsWith("group $group removed"), "a removed member still lists the group, as removed")
-
-        // A group name is a message too (#217): it is sent after the members are in, and the others read it.
-        assertEquals(listOf("renamed at seq 8"), ok(iris, "chat-rename", "--group", group, stdin = say("Weekend")))
-        assertEquals(
-            listOf("message 8 from e2e_iris: group name \"Weekend\"", "synced, 1 log entries"),
-            ok(jack, "chat-sync", "--group", group),
-            "jack reads the name",
-        )
     }
 
     /**
@@ -571,7 +563,7 @@ class EndToEndTest {
             stdin: String = "",
         ): List<String> {
             val finished = cli.run(command, state, *args, stdin = stdin)
-            assertEquals(0, finished.exit, "$command exit code")
+            assertEquals(0, finished.exit, "$command exit code: ${finished.stderr}")
             return finished.stdout.lines().filter { it.isNotBlank() }
         }
 
@@ -584,21 +576,26 @@ class EndToEndTest {
         assertEquals(listOf("joined group $group"), ok(milo, "chat-welcomes"))
         assertEquals(listOf("sent at seq 2"), ok(lena, "chat-send", "--group", group, stdin = "history one"))
         val gif = "gif e2e-test-gif \"history one\""
+        // A group name is a message too (#217), sent after the members are in; this pair of accounts has login budget to spare.
+        plaintexts += "Duo"
+        assertEquals(listOf("renamed at seq 3"), ok(lena, "chat-rename", "--group", group, stdin = "Duo"))
+        val named = "group name \"Duo\""
         assertEquals(
-            listOf("stored 2 - sent: $gif"),
+            listOf("stored 2 - sent: $gif", "stored 3 - sent: $named"),
             ok(lena, "chat-history", "--group", group),
-            "the sender keeps its own message as sent",
+            "the sender keeps its own messages as sent",
         )
         assertEquals(
-            listOf("message 2 from e2e_lena: $gif", "synced, 1 log entries"),
+            listOf("message 2 from e2e_lena: $gif", "message 3 from e2e_lena: $named", "synced, 2 log entries"),
             ok(milo, "chat-sync", "--group", group),
+            "the other member reads the message and the name",
         )
         assertEquals(
             listOf("synced, 0 log entries"),
             ok(milo, "chat-sync", "--group", group),
             "nothing is read twice",
         )
-        val shown = listOf("stored 2 e2e_lena -: $gif")
+        val shown = listOf("stored 2 e2e_lena -: $gif", "stored 3 e2e_lena -: $named")
         assertEquals(shown, ok(milo, "chat-history", "--group", group), "a later process shows the message once")
 
         // On disk: records with keyed names and no plaintext; the history key is a secret like the others.
@@ -617,7 +614,7 @@ class EndToEndTest {
         records.forEach { record ->
             assertTrue(Regex("^[0-9a-f]{64}$").matches(record.name), "a record name is 64 hex digits")
             val bytes = Files.readAllBytes(record).toString(Charsets.ISO_8859_1)
-            listOf("history one", "e2e-test-gif", "e2e_lena").forEach { assertFalse(it in bytes, "a record holds plaintext") }
+            listOf("history one", "e2e-test-gif", "e2e_lena", "Duo").forEach { assertFalse(it in bytes, "a record holds plaintext") }
         }
 
         // A key that is damaged or gone is refused, never replaced; a valid key of another history opens an empty one.
