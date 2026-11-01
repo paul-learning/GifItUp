@@ -17,6 +17,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -31,6 +33,7 @@ import app.gifitup.shared.presentation.onboarding.BlockReason
 import app.gifitup.shared.presentation.onboarding.OnboardingState
 import app.gifitup.shared.presentation.onboarding.OriginView
 import app.gifitup.shared.presentation.settings.ServerSettingsStateHolder
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * Root composable shared by Android and Web (ADR-0013). [inbox] holds an invite link the platform took from its entry
@@ -174,18 +177,29 @@ private fun Navigation(
                 if (nav.currentDestination?.route == ROUTE_FRIENDS) nav.popBackStack()
             }
         }
-        // Not registered where the server can't be chosen (the web, #159): there is no route to reach.
-        if (services.graph.serverSettingsEditable) {
-            composable(ROUTE_SETTINGS) {
-                val holder =
-                    remember {
-                        ServerSettingsStateHolder(scope, services.setting, onOriginChanged)
-                    }
-                SettingsScreen(holder, current.origin, services.setting.default) {
-                    // Only from Settings: a second tap must not pop the start destination and leave an empty back stack.
-                    if (nav.currentDestination?.route == ROUTE_SETTINGS) nav.popBackStack()
-                }
-            }
+        settingsRoute(nav, services, current, SettingsWiring(scope, onOriginChanged))
+    }
+}
+
+/** What the Settings route needs from [Navigation] besides the graph. */
+private class SettingsWiring(
+    val scope: CoroutineScope,
+    val onOriginChanged: () -> Unit,
+)
+
+/** Not registered where the server can't be chosen (the web, #159): there is no route to reach. */
+private fun NavGraphBuilder.settingsRoute(
+    nav: NavHostController,
+    services: Services,
+    current: OriginView,
+    wiring: SettingsWiring,
+) {
+    if (!services.graph.serverSettingsEditable) return
+    composable(ROUTE_SETTINGS) {
+        val holder = remember { ServerSettingsStateHolder(wiring.scope, services.setting, wiring.onOriginChanged) }
+        SettingsScreen(holder, current.origin, services.setting.default) {
+            // Only from Settings: a second tap must not pop the start destination and leave an empty back stack.
+            if (nav.currentDestination?.route == ROUTE_SETTINGS) nav.popBackStack()
         }
     }
 }
