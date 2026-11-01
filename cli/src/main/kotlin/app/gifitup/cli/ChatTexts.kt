@@ -62,7 +62,7 @@ internal fun failureLine(outcome: SyncOutcome): String =
         is SyncOutcome.Retry -> "message ${outcome.seq} could not be decrypted yet; run chat-sync again"
         SyncOutcome.LookupIncomplete -> "the contact book is unavailable right now; nothing was applied"
         SyncOutcome.RekeyNeeded -> "this state dir's snapshot key reached its export limit"
-        SyncOutcome.StorageFailed -> "the state dir couldn't be written; run the command again"
+        SyncOutcome.StorageFailed -> "the state dir or its history couldn't be written; run the command again"
         is SyncOutcome.Poisoned -> "the MLS client failed"
     }
 

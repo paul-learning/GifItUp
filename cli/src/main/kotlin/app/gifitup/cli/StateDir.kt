@@ -12,6 +12,7 @@ import app.gifitup.shared.domain.contacts.ContactBook
 import app.gifitup.shared.domain.contacts.ContactLoad
 import app.gifitup.shared.domain.contacts.ContactStore
 import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
@@ -131,20 +132,27 @@ class StateDir(
     val historyKeys: HistoryKeyStore =
         object : HistoryKeyStore {
             override suspend fun load(): ByteArray? =
-                readOrNull(historyKeyFile)?.also {
+                storage { readOrNull(historyKeyFile) }?.also {
                     if (it.size != KEY_BYTES) throw LocalStateException(LocalStateException.Problem.DAMAGED)
                 }
 
             override suspend fun save(key: ByteArray) {
                 require(key.size == KEY_BYTES) { "a history key is 32 bytes" }
-                try {
-                    writeNew(historyKeyFile, key)
-                } catch (_: FileAlreadyExistsException) {
-                    throw LocalStateException(LocalStateException.Problem.STORAGE)
-                }
+                // An existing file is a storage refusal too; no filesystem fallback ever replaces or renames over a key.
+                storage { writeNew(historyKeyFile, key) }
             }
 
-            override suspend fun clear() = delete(historyKeyFile)
+            override suspend fun clear() = storage { delete(historyKeyFile) }
+        }
+
+    /** Any file system failure of the history key is `STORAGE` (a fixed line), never an unmapped exception. */
+    private inline fun <T> storage(block: () -> T): T =
+        try {
+            block()
+        } catch (_: IOException) {
+            throw LocalStateException(LocalStateException.Problem.STORAGE)
+        } catch (_: UnsupportedOperationException) {
+            throw LocalStateException(LocalStateException.Problem.STORAGE)
         }
 
     /** The sealed history records: `<state dir>/history`, and nothing else of the CLI is ever put in that folder. */
@@ -164,30 +172,20 @@ class StateDir(
     private fun writeAtomically(
         target: Path,
         bytes: ByteArray,
-    ) {
-        createOwnerOnlyDir()
-        val temp =
-            if (posix) {
-                Files.createTempFile(dir, ".tmp-", "", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
-            } else {
-                Files.createTempFile(dir, ".tmp-", "")
-            }
-        try {
-            FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING).use { channel ->
-                channel.write(ByteBuffer.wrap(bytes))
-                channel.force(true)
-            }
-            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            syncDir()
-        } finally {
-            Files.deleteIfExists(temp)
-        }
+    ) = viaTempFile(bytes) { temp ->
+        Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
     }
 
     /** Like [writeAtomically], but fails with [FileAlreadyExistsException] if [target] exists, and never replaces it. */
     private fun writeNew(
         target: Path,
         bytes: ByteArray,
+    ) = viaTempFile(bytes) { temp -> Files.createLink(target, temp) }
+
+    /** Writes [bytes] to an owner-only temp file in the dir, syncs it, lets [publish] put it in place, syncs the dir, deletes the temp. */
+    private fun viaTempFile(
+        bytes: ByteArray,
+        publish: (Path) -> Unit,
     ) {
         createOwnerOnlyDir()
         val temp =
@@ -201,7 +199,7 @@ class StateDir(
                 channel.write(ByteBuffer.wrap(bytes))
                 channel.force(true)
             }
-            Files.createLink(target, temp)
+            publish(temp)
             syncDir()
         } finally {
             Files.deleteIfExists(temp)

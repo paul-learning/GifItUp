@@ -6,6 +6,7 @@ import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.RecordStoreException
 import app.gifitup.shared.domain.auth.OpenHistoryKey
+import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.DeliveredMessage
 import app.gifitup.shared.domain.groups.IncomingSink
 import app.gifitup.shared.domain.messages.EncryptedMessageStore
@@ -33,7 +34,18 @@ internal class CliHistory(
         try {
             return block(store)
         } finally {
-            runCatching { store.close() }
+            closeQuietly(store)
+        }
+    }
+
+    /** Closing only drops the key from memory; the command's own result stands. A cancellation still passes. */
+    private suspend fun closeQuietly(store: EncryptedMessageStore) {
+        try {
+            store.close()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: HistoryStoreException) {
+            // Nothing to do.
         }
     }
 
@@ -103,4 +115,22 @@ internal suspend fun StateDir.clearHistory() {
         throw CliError("the old history of this state dir can't be deleted", EXIT_FAILURE)
     }
     historyKeys.clear()
+}
+
+/** `chat-history`: prints the stored messages of [group] from [store], oldest first, and the count of records that could not be read. */
+internal suspend fun printHistory(
+    store: EncryptedMessageStore,
+    group: ByteArray,
+    out: PrintStream,
+) {
+    val id = KeyBytes(group)
+    val stored =
+        try {
+            store.messages(id) to store.unreadable(id)
+        } catch (e: HistoryStoreException) {
+            throw historyError(e)
+        }
+    if (stored.first.isEmpty()) out.println("no stored messages")
+    stored.first.forEach { out.println(storedLine(it)) }
+    if (stored.second > 0) out.println("${stored.second} stored messages could not be read")
 }

@@ -2,12 +2,10 @@ package app.gifitup.cli
 
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.domain.auth.AuthResult
-import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.groups.IncomingSink
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.messages.EncryptedMessageStore
-import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.MessageIntake
 import app.gifitup.shared.domain.messages.SendGif
 import java.io.PrintStream
@@ -52,7 +50,6 @@ internal class ChatCommands(
             "chat-sync" -> outcome(chat.sync(session, checkNotNull(group), sink)) { "synced, ${it.applied} log entries" }
             "chat-resume" -> outcome(chat.resume(session, checkNotNull(group), sink)) { "nothing was pending" }
             "chat-groups" -> groups(session)
-            "chat-history" -> history(checkNotNull(group))
             else -> welcomes(session)
         }
     }
@@ -106,20 +103,6 @@ internal class ChatCommands(
                 EXIT_OK
             }
         }
-
-    private suspend fun history(group: ByteArray): Int {
-        val id = KeyBytes(group)
-        val stored =
-            try {
-                store.messages(id) to store.unreadable(id)
-            } catch (e: HistoryStoreException) {
-                throw historyError(e)
-            }
-        if (stored.first.isEmpty()) out.println("no stored messages")
-        stored.first.forEach { out.println(storedLine(it)) }
-        if (stored.second > 0) out.println("${stored.second} stored messages could not be read")
-        return EXIT_OK
-    }
 
     private suspend fun welcomes(session: Session): Int =
         when (val result = chat.welcomes(session, sink)) {
