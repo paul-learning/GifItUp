@@ -95,13 +95,13 @@ install -d -m 0700 secrets
 (umask 022; openssl rand -base64 32 | tr -d '\n' > secrets/postgres_app_password)
 chmod 0444 secrets/postgres_password secrets/postgres_app_password
 ```
-The Klipy API key (ADR-0003, #40) is the third secret. It comes from the owner's Klipy account, never from the repo or a chat, and goes only into this file. Check its shape before placing it (the server refuses anything else and the deploy rolls back); on the VM, with the key typed into the prompt so it never lands in shell history or a process list:
+The Klipy API key (ADR-0003, #40) is the third secret; `deploy.sh` also refuses a `klipy_api_key` that is not exactly one line of the key's shape. It comes from the owner's Klipy account, never from the repo or a chat, and goes only into this file. Check its shape before placing it (the server refuses anything else and the deploy rolls back); on the VM, with the key typed into the prompt so it never lands in shell history or a process list:
 ```bash
 cd /opt/gifitup/deploy
-read -rs KEY && printf '%s' "$KEY" | grep -Eq '^[A-Za-z0-9_-]{16,128}$' && (umask 022; printf '%s' "$KEY" > secrets/klipy_api_key) && chmod 0444 secrets/klipy_api_key; unset KEY
+read -rsp 'Klipy key: ' KEY && echo && printf '%s' "$KEY" | grep -Eq '^[A-Za-z0-9_-]{16,128}$' && (umask 022; printf '%s' "$KEY" > secrets/klipy_api_key) && chmod 0444 secrets/klipy_api_key; unset KEY
 ```
 If the check fails, the file is not written: tell the agent the key's real shape (length, characters), not the key, and ADR-0003's starting rule gets amended.
-The secret files are world-readable *inside* the `0700` directory on purpose. Compose bind-mounts them into the containers, where the Postgres entrypoint, the server and the `migrate` container read them as non-root users. Compose without swarm ignores per-secret modes, so the host mode decides. On the host, only `deploy` (and root) can get into `secrets/`. `deploy.sh` refuses to deploy unless `secrets/` is mode `0700`, owned by `deploy` and not a symlink, and both files are regular files (not symlinks), non-empty and world-readable.
+The secret files are world-readable *inside* the `0700` directory on purpose. Compose bind-mounts them into the containers, where the Postgres entrypoint, the server and the `migrate` container read them as non-root users. Compose without swarm ignores per-secret modes, so the host mode decides. On the host, only `deploy` (and root) can get into `secrets/`. `deploy.sh` refuses to deploy unless `secrets/` is mode `0700`, owned by `deploy` and not a symlink, and all three files are regular files (not symlinks), non-empty and world-readable.
 
 - `postgres_password`: the database superuser. Only Postgres and the one-shot `migrate` container get it (ADR-0008).
 - `postgres_app_password`: the server's least-privilege role `gifitup_app`. `migrate` sets the role's password from this file on every deploy. To rotate it, write a new file and redeploy.

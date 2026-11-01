@@ -106,6 +106,11 @@ for secret in postgres_password postgres_app_password klipy_api_key; do
   [ -s "$file" ] || reject "secrets/$secret is empty (docs/ops/vm-setup.md)"
   [ -n "$(find "$file" -perm -o=r)" ] || reject "secrets/$secret must be mode 0444 (docs/ops/vm-setup.md)"
 done
+# The key's shape (ADR-0003, #40): one line of 16 to 128 of [A-Za-z0-9_-]. The content is only tested, never printed; a key
+# outside it would fail the server's startup and roll the deploy back, so it is rejected up front.
+key_file=$secrets_dir/klipy_api_key
+[ "$(wc -l < "$key_file")" -le 1 ] || reject "secrets/klipy_api_key must be one line (docs/ops/vm-setup.md)"
+tr -d '\n' < "$key_file" | LC_ALL=C grep -Eq '^[A-Za-z0-9_-]{16,128}$' || reject "secrets/klipy_api_key is not a valid key (docs/ops/vm-setup.md)"
 
 # Schema migration with the NEW image, before the server switches over (ADR-0008). The running server is untouched
 # if it fails. Migrations are expand-only, so the old server keeps working on the migrated schema (rollback below).
