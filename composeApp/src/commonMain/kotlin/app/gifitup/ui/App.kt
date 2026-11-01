@@ -1,6 +1,10 @@
 package app.gifitup.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,9 +50,13 @@ fun App(
     screen: ScreenProtection = ScreenProtection.None,
 ) {
     GifItUpTheme {
+        // The window is edge to edge on Android: the surface paints to the edges, the content stays out of the status bar, the
+        // navigation bar, a display cutout and the keyboard (#217). On the web the insets are zero.
         Surface(modifier = Modifier.fillMaxSize()) {
-            val storage = graph.deviceStorage
-            if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen)
+            Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                val storage = graph.deviceStorage
+                if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen)
+            }
         }
     }
 }
