@@ -10,6 +10,7 @@ import app.gifitup.protocol.CreateInviteResponse
 import app.gifitup.protocol.DeviceListResponse
 import app.gifitup.protocol.ErrorResponse
 import app.gifitup.protocol.FetchMessagesResponse
+import app.gifitup.protocol.GifProviderResponse
 import app.gifitup.protocol.GroupStatusResponse
 import app.gifitup.protocol.InviteInfo
 import app.gifitup.protocol.InviteListResponse
@@ -199,6 +200,16 @@ class GifItUpApi(
     suspend fun listMembers(session: Session): ApiResult<MemberList> =
         exchange(Route.MEMBERS, body = null, session) { bytes -> decode(MembersResponse.serializer(), bytes)?.let(::readMembers) }
 
+    /**
+     * `GET /config/gif-provider`: the GIF provider's API key (ADR-0003, #40). The provider is not on the wire (the client
+     * hard-codes it), and an answer whose key breaks the rule is refused whole. A 404 means the server has no key (or
+     * is from before this endpoint): "no GIF search yet".
+     */
+    suspend fun gifProviderKey(session: Session): ApiResult<GifProviderKey> =
+        exchange(Route.GIF_PROVIDER, body = null, session) { bytes ->
+            decode(GifProviderResponse.serializer(), bytes)?.let { GifProviderKey.of(it.apiKey) }
+        }
+
     /** `GET /invites`: the account's own invites. */
     suspend fun listInvites(session: Session): ApiResult<List<Invite>> =
         exchange(Route.LIST_INVITES, body = null, session) { bytes ->
@@ -360,6 +371,7 @@ class GifItUpApi(
         LIST_INVITES(HttpMethod.Get, "/invites", HttpStatusCode.OK),
         REVOKE_INVITE(HttpMethod.Delete, "/invites", HttpStatusCode.NoContent),
         MEMBERS(HttpMethod.Get, "/members", HttpStatusCode.OK, MAX_MEMBERS_BODY_BYTES),
+        GIF_PROVIDER(HttpMethod.Get, "/config/gif-provider", HttpStatusCode.OK, MAX_GIF_PROVIDER_BODY_BYTES),
         CREATE_GROUP(HttpMethod.Post, "/groups", HttpStatusCode.OK),
         POST_MESSAGE(HttpMethod.Post, "/groups", HttpStatusCode.OK),
         FETCH_MESSAGES(HttpMethod.Get, "/groups", HttpStatusCode.OK, MAX_DELIVERY_BODY_BYTES),
@@ -407,6 +419,9 @@ class GifItUpApi(
 
         /** `GET /members` may carry 200 members with 10 devices each (ADR-0014): about 240 KiB at worst. */
         internal const val MAX_MEMBERS_BODY_BYTES = 256 * 1024
+
+        /** The answer is one 128-character key in a small object. */
+        private const val MAX_GIF_PROVIDER_BODY_BYTES = 1024
 
         private const val CONNECT_TIMEOUT_MS = 10_000L
         private const val SOCKET_TIMEOUT_MS = 15_000L

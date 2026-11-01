@@ -94,13 +94,13 @@ healthy() {
 
 start() { quiet compose pull server && quiet compose up -d server; }
 
-# Both containers read their secret as UID 10001 through a bind mount, so the files must exist, be non-empty and
+# The containers read their secrets as UID 10001 through a bind mount, so the files must exist, be non-empty and
 # world-readable (they sit in the 0700 secrets/ directory; docs/ops/vm-setup.md). Names only, never contents.
 # The directory is what keeps them private on the host: mode 0700, owned by the user running this script (#69 SEC-17).
 secrets_dir=$compose_dir/secrets
 if [ ! -d "$secrets_dir" ] || [ -L "$secrets_dir" ]; then reject "secrets/ missing (docs/ops/vm-setup.md)"; fi
 [ "$(stat -c '%a %u' "$secrets_dir")" = "700 $(id -u)" ] || reject "secrets/ must be mode 0700 and owned by $(id -un)"
-for secret in postgres_password postgres_app_password; do
+for secret in postgres_password postgres_app_password klipy_api_key; do
   file=$secrets_dir/$secret
   if [ ! -f "$file" ] || [ -L "$file" ]; then reject "secrets/$secret missing or a symlink (docs/ops/vm-setup.md)"; fi
   [ -s "$file" ] || reject "secrets/$secret is empty (docs/ops/vm-setup.md)"
