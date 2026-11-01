@@ -70,7 +70,8 @@ internal fun openProfile(
     username: String,
 ) {
     model.openProfile(username)
-    nav.navigate(ROUTE_CONTACT)
+    // One profile on the stack, whatever the number of taps.
+    nav.navigate(ROUTE_CONTACT) { launchSingleTop = true }
 }
 
 /**

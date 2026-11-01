@@ -99,9 +99,7 @@ internal fun ConversationScreen(
             state,
             tiles,
             list,
-            SendInput(caption, {
-                caption = it
-            }, { pickerOpen = true }),
+            SendInput(caption, { caption = it }, { pickerOpen = true }),
             Navigation(onOpenProfile, onBack),
         )
         if (pickerOpen) {
