@@ -52,7 +52,7 @@ least 48 dp.
 - **Screens render state; they decide nothing** (ADR-0013): logic lives in a state holder.
 - Text from another person (a username, a caption, a chat name) goes through `ChatTexts.isolated(...)` so it can't
   reorder the surrounding text; text a provider sends (a GIF's slug or title) is **never shown** or read by a screen reader.
-- A change of status text is announced: `Modifier.polite()` (live region).
+- A change of status text is announced: `Modifier.polite()` (a live region; defined in `ui/ConversationScreen.kt`).
 - Insets: the window is edge to edge, and `App` keeps all content out of the system bars, a display cutout and the
   keyboard (`WindowInsets.safeDrawing`), so a screen must not add its own status-bar padding.
 - Every action has a content description or label for a screen reader; a disabled control says why in text near it.
