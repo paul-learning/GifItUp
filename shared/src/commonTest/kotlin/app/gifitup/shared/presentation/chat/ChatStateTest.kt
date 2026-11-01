@@ -138,6 +138,15 @@ class ChatStateTest {
         ConversationStateHolder(this, sessions(), chat, store, marks, info, CaptionInput(CodePointCounter))
 
     @Test
+    fun theFilterIsKeptWhenTheListIsLeftAndOpenedAgain() =
+        runTest {
+            val holder = list()
+            holder.showOnly(ChatFilter.GROUPS)
+            holder.leave()
+            assertEquals(ChatFilter.GROUPS, holder.state.value.filter)
+        }
+
+    @Test
     fun theListShowsTheNewestActivityFirstWithPreviewAndUnreadCount() =
         runTest {
             chat.groups = listOf(group(1, "bob"), group(2, "carol"), group(3, "dave"))

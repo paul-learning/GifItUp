@@ -4,19 +4,23 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,6 +30,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.Ago
+import app.gifitup.shared.presentation.chat.ChatFilter
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.ConversationSummary
@@ -59,7 +67,7 @@ internal fun ChatListScreen(
     actions: ChatListActions,
     modifier: Modifier = Modifier,
     selected: KeyBytes? = null,
-    onBack: () -> Unit,
+    notice: (@Composable () -> Unit)? = null,
 ) {
     val state by holder.state.collectAsState()
     LaunchedEffect(holder) {
@@ -69,43 +77,84 @@ internal fun ChatListScreen(
         }
     }
     DisposableEffect(holder) { onDispose { holder.leave() } }
-    Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        AppTopBar(
-            title = ChatTexts.TITLE,
-            onBack = onBack,
-            trailing = {
+    Box(modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AppTopBar(title = ChatTexts.TITLE, onBack = null, trailing = { BurgerMenu(actions.onMenu) })
+            notice?.invoke()
+            FilterRow(state.filter, holder::showOnly)
+            if (state.refreshing) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconTile(ChatTexts.FRIENDS, actions.onFriends) { PeopleIcon(it) }
-                    Button(onClick = actions.onNewChat, shape = MaterialTheme.shapes.medium, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Text(ChatTexts.NEW_CHAT, fontWeight = FontWeight.Bold)
-                    }
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text(
+                        ChatTexts.REFRESHING,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-            },
-        )
-        if (state.refreshing) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Text(ChatTexts.REFRESHING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            state.problem?.let {
+                Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
+                if (it == ChatProblem.HISTORY) TextButton(onClick = holder::retryHistory) { Text(ChatTexts.HISTORY_RETRY) }
+                if (state.canResetHistory) ResetHistoryButton(holder::resetHistory)
+                if (state.resetFailed) Text(ChatTexts.RESET_FAILED, color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
+            }
+            if (state.loaded && state.visible.isEmpty()) {
+                Text(
+                    ChatTexts.emptyList(state.filter, anyChats = state.conversations.isNotEmpty()),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(state.visible, key = { it.id.listKey() }) { row ->
+                    ConversationRow(row, actions.onOpen, isSelected = row.id == selected)
+                }
+                // Room under the last row for the round "+" that floats over the list.
+                item { Spacer(Modifier.height(FAB_ROOM)) }
             }
         }
-        state.problem?.let {
-            Text(
-                ChatTexts.listProblem(it),
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.polite(),
-            )
-            if (it == ChatProblem.HISTORY) TextButton(onClick = holder::retryHistory) { Text(ChatTexts.HISTORY_RETRY) }
-            if (state.canResetHistory) ResetHistoryButton(holder::resetHistory)
-            if (state.resetFailed) Text(ChatTexts.RESET_FAILED, color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
-        }
-        if (state.loaded && state.conversations.isEmpty()) Text(ChatTexts.NO_CHATS, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(state.conversations, key = { it.id.listKey() }) { row ->
-                ConversationRow(row, actions.onOpen, isSelected = row.id == selected)
+        Box(
+            Modifier.align(Alignment.BottomEnd).padding(20.dp),
+        ) { PlusButton(ChatTexts.NEW_CHAT, enabled = true, onClick = actions.onNewChat) }
+    }
+}
+
+/** The burger menu of the list's top bar: profile, invite a friend, friends. */
+@Composable
+private fun BurgerMenu(actions: MenuActions) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconTile(ChatTexts.MENU, { open = true }) { MenuIcon(it) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            listOf(
+                ChatTexts.PROFILE to actions.onProfile,
+                ChatTexts.INVITE to actions.onInvite,
+                ChatTexts.FRIENDS to actions.onFriends,
+            ).forEach { (label, go) ->
+                DropdownMenuItem(text = { Text(label) }, onClick = {
+                    open = false
+                    go()
+                })
             }
+        }
+    }
+}
+
+/** All, direct chats, groups: one is selected, and the list shows only what it lets through. */
+@Composable
+private fun FilterRow(
+    filter: ChatFilter,
+    onChoose: (ChatFilter) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(
+            ChatFilter.ALL to ChatTexts.FILTER_ALL,
+            ChatFilter.DIRECT to ChatTexts.FILTER_DIRECT,
+            ChatFilter.GROUPS to ChatTexts.FILTER_GROUPS,
+        ).forEach { (choice, label) ->
+            FilterChip(selected = filter == choice, onClick = { onChoose(choice) }, label = { Text(label) })
         }
     }
 }
@@ -179,3 +228,4 @@ private fun UnreadBadge(count: String) {
 }
 
 private const val REFRESH_MILLIS = 15_000L
+private val FAB_ROOM = 96.dp

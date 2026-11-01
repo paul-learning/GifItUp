@@ -115,6 +115,17 @@ internal fun InfoIcon(color: Color) {
     }
 }
 
+/** Three bars: the menu. */
+@Composable
+internal fun MenuIcon(color: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val width = 2.5.dp.toPx()
+        listOf(0.2f, 0.5f, 0.8f).forEach { y ->
+            drawLine(color, Offset(size.width * 0.1f, size.height * y), Offset(size.width * 0.9f, size.height * y), width, StrokeCap.Round)
+        }
+    }
+}
+
 /** Two people: a head and shoulders, twice, the second behind the first. */
 @Composable
 internal fun PeopleIcon(color: Color) {

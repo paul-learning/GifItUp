@@ -41,12 +41,21 @@ lists, 36 dp in the member stack (overlapping by 10 dp, at most 3), 24 dp beside
 least 48 dp.
 
 ## Shared components
-- `AppTopBar(title, onBack, subtitle, trailing)`: every screen's top row; `IconTile` + `Chevron` is the back button.
+- `AppTopBar(title, onBack, modifier, subtitle, trailing, backLabel, backEnabled)`: every screen's top row (`onBack = null` on the
+  landing screen); `IconTile` + `Chevron` is the back button, `IconTile` + `MenuIcon` the burger menu.
 - `CardSurface`: the rounded card for a group of related content; `ActionCard` a card that is one big action.
 - `PrimaryButton` (purple, one per screen), `SecondaryButton` (container color), `PlusButton` (the round "+", dimmed when off).
 - `Avatar(name)` initials in a circle; `MemberAvatars(names)` the overlapping stack.
 - `GifTileView` shows a loaded GIF or an inert placeholder of the same shape; use it for every GIF, never an `<img>`.
-- Icons are drawn in code (`InfoIcon`, `PeopleIcon`, `Chevron`): no icon font, no extra dependency.
+- `OwnEmojisCard` and `OwnEmojisDialog` show the user's own key emojis (Friends and Profile screens).
+- Icons are drawn in code (`InfoIcon`, `PeopleIcon`, `Chevron`, `MenuIcon`): no icon font, no extra dependency.
+
+## Screens (#217)
+- **Landing:** after sign-in the first screen is the chat list: title "Chats" with a burger menu on the right (Profile,
+  Invite a friend, Friends), filter chips under it (All, Direct, Groups; "direct" = exactly one other member until the chat
+  kind exists), the round "+" at the lower right for a new chat or group. There is no back button: it is the start.
+- **Profile:** the username and the own key emojis (the same card and dialog as on the Friends screen).
+- A notice above the list: the server banner while the server isn't the default, and a note while some setup is pending.
 
 ## Rules every screen follows
 - **Screens render state; they decide nothing** (ADR-0013): logic lives in a state holder.
@@ -61,5 +70,5 @@ least 48 dp.
   composable.
 
 ## Not designed yet
-Typography overrides, motion, tablet/desktop beyond the two-pane chat layout, an app icon (#211), and the screens of #217
-(landing list, menu, profile). They are added here when they are built.
+Typography overrides, motion, tablet/desktop beyond the two-pane chat layout, an app icon (#211), and the contact profile
+(#217). They are added here when they are built.
