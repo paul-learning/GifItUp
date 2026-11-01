@@ -32,6 +32,14 @@ class ChatFilterTest {
     }
 
     @Test
+    fun aChatWithoutKnownMembersIsOnlyInAll() {
+        val removed = row(4, ConversationTitle.Members(emptyList()))
+        assertEquals(listOf(removed), ChatListState(conversations = listOf(removed)).visible)
+        assertEquals(emptyList(), ChatListState(conversations = listOf(removed), filter = ChatFilter.DIRECT).visible)
+        assertEquals(emptyList(), ChatListState(conversations = listOf(removed), filter = ChatFilter.GROUPS).visible)
+    }
+
+    @Test
     fun aNamedChatIsAGroupEvenWithOneOtherMember() {
         assertEquals(listOf(named), ChatListState(conversations = listOf(named), filter = ChatFilter.GROUPS).visible)
         assertEquals(emptyList(), ChatListState(conversations = listOf(named), filter = ChatFilter.DIRECT).visible)

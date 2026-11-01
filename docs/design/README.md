@@ -41,12 +41,14 @@ lists, 36 dp in the member stack (overlapping by 10 dp, at most 3), 24 dp beside
 least 48 dp.
 
 ## Shared components
-- `AppTopBar(title, onBack, subtitle, trailing)`: every screen's top row; `IconTile` + `Chevron` is the back button.
+- `AppTopBar(title, onBack, modifier, subtitle, trailing, backLabel, backEnabled)`: every screen's top row (`onBack = null` on the
+  landing screen); `IconTile` + `Chevron` is the back button, `IconTile` + `MenuIcon` the burger menu.
 - `CardSurface`: the rounded card for a group of related content; `ActionCard` a card that is one big action.
 - `PrimaryButton` (purple, one per screen), `SecondaryButton` (container color), `PlusButton` (the round "+", dimmed when off).
 - `Avatar(name)` initials in a circle; `MemberAvatars(names)` the overlapping stack.
 - `GifTileView` shows a loaded GIF or an inert placeholder of the same shape; use it for every GIF, never an `<img>`.
-- Icons are drawn in code (`InfoIcon`, `PeopleIcon`, `Chevron`): no icon font, no extra dependency.
+- `OwnEmojisCard` and `OwnEmojisDialog` show the user's own key emojis (Friends and Profile screens).
+- Icons are drawn in code (`InfoIcon`, `PeopleIcon`, `Chevron`, `MenuIcon`): no icon font, no extra dependency.
 
 ## Screens (#217)
 - **Landing:** after sign-in the first screen is the chat list: title "Chats" with a burger menu on the right (Profile,

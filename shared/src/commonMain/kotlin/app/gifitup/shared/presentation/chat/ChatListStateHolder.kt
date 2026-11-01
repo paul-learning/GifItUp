@@ -39,12 +39,19 @@ enum class ChatFilter {
     GROUPS,
     ;
 
-    fun matches(conversation: ConversationSummary): Boolean =
-        when (this) {
+    /**
+     * [DIRECT] is exactly one other member and no name; [GROUPS] a named chat or two or more others. A chat whose members
+     * are not known (a group the user was removed from) is in neither, only in [ALL].
+     */
+    fun matches(conversation: ConversationSummary): Boolean {
+        val title = conversation.title
+        val others = (title as? ConversationTitle.Members)?.names?.size
+        return when (this) {
             ALL -> true
-            DIRECT -> !conversation.title.isGroup
-            GROUPS -> conversation.title.isGroup
+            DIRECT -> others == 1
+            GROUPS -> title is ConversationTitle.Named || (others != null && others >= 2)
         }
+    }
 }
 
 data class ChatListState(
