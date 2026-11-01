@@ -46,9 +46,6 @@ internal fun OnboardingScreen(
     holder: OnboardingStateHolder,
     current: OriginView,
     onOpenSettings: (() -> Unit)?,
-    onFriends: () -> Unit,
-    onChats: () -> Unit,
-    onInvite: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
@@ -79,8 +76,9 @@ internal fun OnboardingScreen(
                 FinishPending(state, holder)
             }
 
+            // Not drawn here: once the account is ready the chat list is the landing screen (#217), shown by the caller.
             is OnboardingState.Done -> {
-                Done(state, onChats, onFriends, onInvite)
+                Unit
             }
 
             is OnboardingState.Blocked -> {
@@ -119,7 +117,7 @@ private fun originOf(state: OnboardingState): OriginView? =
 
 /** The server, always as canonical ASCII text; a custom one is called out (ADR-0013). */
 @Composable
-private fun OriginBanner(origin: OriginView) {
+internal fun OriginBanner(origin: OriginView) {
     val text = if (origin.custom) "Custom server: ${origin.origin}" else "Server: ${origin.origin}"
     val colors = MaterialTheme.colorScheme
     Text(
@@ -229,29 +227,6 @@ private fun FinishPending(
                 }) { Text("Delete and start over") }
             },
             dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Cancel") } },
-        )
-    }
-}
-
-@Composable
-private fun Done(
-    state: OnboardingState.Done,
-    onChats: () -> Unit,
-    onFriends: () -> Unit,
-    onInvite: () -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Avatar(state.username, 48.dp)
-        Text("Welcome, ${state.username}!", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-    }
-    ActionCard(ChatTexts.TITLE, "Your conversations", onChats)
-    ActionCard("Invite a friend", "A one-time link for someone you know", onInvite)
-    ActionCard("Friends", "Their keys, and the emojis to compare", onFriends)
-    if (state.keyPackagesUploaded == false) {
-        Text(
-            "Some setup is still pending; it finishes the next time you open the app.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

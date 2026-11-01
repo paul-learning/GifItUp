@@ -32,6 +32,21 @@ class ConversationSummary(
     val id: KeyBytes get() = info.id
 }
 
+/** What the list shows (#217): everything, only chats with one other person, or only groups. */
+enum class ChatFilter {
+    ALL,
+    DIRECT,
+    GROUPS,
+    ;
+
+    fun matches(conversation: ConversationSummary): Boolean =
+        when (this) {
+            ALL -> true
+            DIRECT -> !conversation.title.isGroup
+            GROUPS -> conversation.title.isGroup
+        }
+}
+
 data class ChatListState(
     val loaded: Boolean = false,
     val refreshing: Boolean = false,
@@ -41,7 +56,11 @@ data class ChatListState(
     val canResetHistory: Boolean = false,
     /** The last "reset history" did not finish: the history is as it was and the reset can be tried again. */
     val resetFailed: Boolean = false,
-)
+    val filter: ChatFilter = ChatFilter.ALL,
+) {
+    /** [conversations] the [filter] lets through, in the same order. */
+    val visible: List<ConversationSummary> get() = conversations.filter { filter.matches(it) }
+}
 
 /**
  * The chat list's logic (#25): what is on this device, newest activity first, with a refresh that joins new groups and
@@ -66,6 +85,14 @@ class ChatListStateHolder(
     /** A retry came while a refresh was running: one more refresh follows it, so the tap is never dropped. */
     private var refreshAgain = false
     private var resetting = false
+
+    /** Kept over [leave]: the list is left and opened again when the user goes to another screen and back. */
+    private var filter = ChatFilter.ALL
+
+    fun showOnly(choice: ChatFilter) {
+        filter = choice
+        flow.value = flow.value.copy(filter = choice)
+    }
 
     /** The user's "try again" for a history that could not be opened: opens it again and rebuilds the list. */
     fun retryHistory() {
@@ -126,7 +153,7 @@ class ChatListStateHolder(
         visit++
         running = false
         refreshAgain = false
-        flow.value = ChatListState()
+        flow.value = ChatListState(filter = filter)
     }
 
     private suspend fun run(forVisit: Int) {

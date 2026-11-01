@@ -13,9 +13,30 @@ import app.gifitup.shared.presentation.chat.Preview
  */
 internal object ChatTexts {
     const val TITLE = "Chats"
-    const val NEW_CHAT = "New chat"
+    const val NEW_CHAT = "New chat or group"
     const val FRIENDS = "Friends"
+    const val MENU = "Menu"
+    const val PROFILE = "Profile"
+    const val INVITE = "Invite a friend"
+    const val FILTER_ALL = "All"
+    const val FILTER_DIRECT = "Direct"
+    const val FILTER_GROUPS = "Groups"
+    const val NO_DIRECT = "No direct chats yet."
+    const val NO_GROUPS = "No groups yet."
+    const val SETUP_PENDING = "Some setup is still pending; it finishes the next time you open the app."
     const val NO_CHATS = "No chats yet. Start one with a friend."
+
+    /** What an empty list says: no chats at all, or none of the kind the filter shows. */
+    fun emptyList(
+        filter: app.gifitup.shared.presentation.chat.ChatFilter,
+        anyChats: Boolean,
+    ): String =
+        when {
+            !anyChats -> NO_CHATS
+            filter == app.gifitup.shared.presentation.chat.ChatFilter.DIRECT -> NO_DIRECT
+            else -> NO_GROUPS
+        }
+
     const val NO_MESSAGES = "No messages yet"
     const val REFRESHING = "Looking for new messages…"
     const val BACK = "Back"

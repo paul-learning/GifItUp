@@ -1,11 +1,14 @@
 package app.gifitup.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
@@ -57,6 +61,20 @@ fun App(
                 val storage = graph.deviceStorage
                 if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen)
             }
+        }
+    }
+}
+
+/** Above the landing list: the server banner while it isn't the default, and a note while some setup is pending. */
+@Composable
+private fun HomeNotice(
+    current: OriginView,
+    state: OnboardingState.Done,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (current.custom) OriginBanner(current)
+        if (state.keyPackagesUploaded == false) {
+            Text(ChatTexts.SETUP_PENDING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -158,15 +176,17 @@ private fun Navigation(
             LaunchedEffect(state is OnboardingState.EnterInvite) {
                 if (state is OnboardingState.EnterInvite) inbox.take()?.let(model.holder::submitInvite)
             }
-            OnboardingScreen(
-                state,
-                model.holder,
-                current,
-                onOpenSettings = if (services.graph.serverSettingsEditable) ({ nav.navigate(ROUTE_SETTINGS) }) else null,
-                onFriends = { nav.navigate(ROUTE_FRIENDS) },
-                onChats = { nav.navigate(ROUTE_CHATS) },
-            ) {
-                nav.navigate(ROUTE_INVITES)
+            val signedIn = state as? OnboardingState.Done
+            if (signedIn != null) {
+                // The account is ready: the chat list is the landing screen (#217).
+                ChatHome(model, nav) { HomeNotice(current, signedIn) }
+            } else {
+                OnboardingScreen(
+                    state,
+                    model.holder,
+                    current,
+                    onOpenSettings = if (services.graph.serverSettingsEditable) ({ nav.navigate(ROUTE_SETTINGS) }) else null,
+                )
             }
         }
         composable(ROUTE_INVITES) { entry ->
@@ -177,7 +197,7 @@ private fun Navigation(
                 if (nav.currentDestination?.route == ROUTE_INVITES) nav.popBackStack()
             }
         }
-        chatRoutes(nav, current.origin)
+        chatRoutes(nav, current.origin, services.graph.glyphs)
         composable(ROUTE_FRIENDS) { entry ->
             val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
             val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
@@ -208,4 +228,4 @@ private fun NavGraphBuilder.settingsRoute(
 }
 
 private const val ROUTE_SETTINGS = "settings"
-private const val ROUTE_INVITES = "invites"
+internal const val ROUTE_INVITES = "invites"

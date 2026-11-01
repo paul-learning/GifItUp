@@ -70,24 +70,32 @@ internal fun FriendsScreen(
         if (state.loaded && state.friends.isEmpty()) Text(FriendTexts.NO_FRIENDS, color = MaterialTheme.colorScheme.onSurfaceVariant)
         state.friends.forEach { friend -> Friend(friend, glyphs, canReview = !state.busy, onReview = { holder.review(friend.ref) }) }
     }
-    state.own?.takeIf { showOwn }?.let { own ->
-        AlertDialog(
-            onDismissRequest = { showOwn = false },
-            title = { Text(FriendTexts.OWN_TITLE) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(FriendTexts.OWN_HINT)
-                    EmojiBlock(own, glyphs)
-                }
-            },
-            confirmButton = { TextButton(onClick = { showOwn = false }) { Text(FriendTexts.CLOSE) } },
-        )
-    }
+    state.own?.takeIf { showOwn }?.let { own -> OwnEmojisDialog(own, glyphs) { showOwn = false } }
     state.review?.let { Review(it, glyphs, state.busy, holder) }
 }
 
+/** The user's own key emojis, to read out on a call: a dialog with the emojis and what they are for. */
 @Composable
-private fun OwnEmojisCard(onShow: () -> Unit) {
+internal fun OwnEmojisDialog(
+    own: List<FingerprintEmoji>,
+    glyphs: GlyphSupport,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(FriendTexts.OWN_TITLE) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(FriendTexts.OWN_HINT)
+                EmojiBlock(own, glyphs)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(FriendTexts.CLOSE) } },
+    )
+}
+
+@Composable
+internal fun OwnEmojisCard(onShow: () -> Unit) {
     CardSurface {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
