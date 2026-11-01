@@ -5,6 +5,9 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -100,5 +103,29 @@ class KtorProviderFetcherTest {
             assertFalse(key in answer.toString())
             val platform = fetcher { throw AssertionError("fetch failed $url") }.get(url, 100)
             assertTrue(platform === ProviderAnswer.Failed)
+        }
+
+    @Test
+    fun aSearchThatIsReplacedDoesNotCancelTheRequestOnTheWire() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val gate = CompletableDeferred<Unit>()
+            var finished = false
+            val slow =
+                KtorProviderFetcher(
+                    MockEngine {
+                        started.complete(Unit)
+                        gate.await()
+                        finished = true
+                        respond("{}", HttpStatusCode.OK)
+                    },
+                )
+            val call = launch(Dispatchers.Default) { slow.get(url, 1000) }
+            started.await()
+            call.cancel()
+            gate.complete(Unit)
+            call.join()
+            assertTrue(finished, "see KtorMediaFetcher: cancelling an Android response mid-read can crash the app")
+            assertTrue(call.isCancelled)
         }
 }

@@ -16,6 +16,7 @@ import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -196,5 +197,29 @@ class KtorMediaFetcherTest {
                 UnavailableReason.TOO_LARGE,
                 assertIs<MediaLoad.Unavailable>(LoadGifMedia { FetchResult.TooLarge }(reference)).reason,
             )
+        }
+
+    @Test
+    fun aCallerThatLeavesDoesNotCancelTheRequestOnTheWireAndGetsItsCancellationAfterwards() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val gate = CompletableDeferred<Unit>()
+            var finished = false
+            val slow =
+                KtorMediaFetcher(
+                    MockEngine {
+                        started.complete(Unit)
+                        gate.await()
+                        finished = true
+                        respond(tinyGif, HttpStatusCode.OK)
+                    },
+                )
+            val call = launch(Dispatchers.Default) { slow.fetch(reference) }
+            started.await()
+            call.cancel()
+            gate.complete(Unit)
+            call.join()
+            assertTrue(finished, "the request ran to its end: Android's HttpURLConnection can't be cancelled mid-read")
+            assertTrue(call.isCancelled, "and the caller is cancelled")
         }
 }
