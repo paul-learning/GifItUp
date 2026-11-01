@@ -208,9 +208,10 @@ Every command logs in and out again; the server allows 10 logins per device per 
 /**
  * The commands, over the same use cases the app uses: argument handling, the state dir and printing only (AGENTS.md
  * "Dev CLI": no client logic of its own). Output is fixed text per result code; tokens, keys and invite codes are never
- * printed. Returns the process exit code.
+ * printed. Returns the process exit code. The composition root: one injected seam each (engine, MLS, randomness, stdin,
+ * output) and one function per command.
  */
-@Suppress("LongParameterList") // The CLI's composition root: one injected seam each (engine, MLS, randomness, stdin, output).
+@Suppress("LongParameterList", "TooManyFunctions")
 class Cli(
     private val engine: () -> HttpClientEngine,
     private val mls: MlsClientFactory,
@@ -239,10 +240,29 @@ class Cli(
     ): Int {
         val register = RegisterDevice(api, guarded(), state.identities, state.keys, random, lock, HistoryLeftovers { state.clearHistory() })
         return when (invocation.command) {
+            // Reads only the local history: no login, so it costs none of the device's logins.
+            "chat-history" -> chatHistory(invocation, api, state)
+
             "register" -> register(invocation, api, register)
+
             "reset" -> report(register.discardPending()) { out.println("pending registration discarded") }
+
             else -> loggedIn(invocation, api, state) { session -> afterLogin(invocation, api, state, session) }
         }
+    }
+
+    private suspend fun chatHistory(
+        invocation: Invocation,
+        api: GifItUpApi,
+        state: StateDir,
+    ): Int {
+        val stored = state.identities.load()
+        if (stored?.deviceId == null || stored.origin != api.endpoint.origin) {
+            throw CliError("this state dir holds no registered identity for that origin", EXIT_REFUSED)
+        }
+        guard(api, stored.username, invocation.remoteTestAccount)
+        CliHistory(state, api.endpoint.origin, random, ciphers).use { printHistory(it, checkNotNull(invocation.group), out) }
+        return EXIT_OK
     }
 
     private suspend fun register(

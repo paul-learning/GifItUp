@@ -198,6 +198,19 @@ class StateDirTest {
         }
 
     @Test
+    fun aFileSystemFailureOfTheHistoryKeyIsStorageNotAnUnmappedException() =
+        runBlocking {
+            state.lock().use {
+                // A directory where the key file should be: reading it, replacing it and clearing it all fail with an IOException.
+                Files.createDirectory(dir.resolve("history-key"))
+                listOf<suspend () -> Unit>({ state.historyKeys.load() }, { state.historyKeys.save(ByteArray(32)) }).forEach { call ->
+                    assertEquals(LocalStateException.Problem.STORAGE, assertFailsWith<LocalStateException> { call() }.problem)
+                }
+                assertTrue(Files.isDirectory(dir.resolve("history-key")), "nothing replaced it")
+            }
+        }
+
+    @Test
     fun theRecordsLiveInTheirOwnFolder() =
         runBlocking {
             state.lock().use {
