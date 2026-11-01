@@ -66,6 +66,7 @@ class EndToEndTest {
             trust(cli, dbEnv)
             groups(cli, dbEnv)
             chat(cli, dbEnv)
+            history(cli, dbEnv)
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
@@ -509,6 +510,106 @@ class EndToEndTest {
         )
         refused(kim, "chat-sync", EXIT_REFUSED, "this group is no longer available", "--group", group)
         assertTrue(ok(kim, "chat-groups").single().startsWith("group $group removed"), "a removed member still lists the group, as removed")
+    }
+
+    /**
+     * The sealed history of the CLI (#177 PR 4c, ADR-0017) with the real cipher: what a device sends and reads is kept in
+     * records on disk that hold no plaintext, a later process shows it again, and a history key that is missing or damaged
+     * refuses instead of being replaced. Fresh accounts (a device may log in 10 times an hour, so the step is lean).
+     */
+    @Suppress("LongMethod") // One scripted scenario with two accounts; splitting it would hide the order that matters.
+    private fun history(
+        cli: Cli,
+        dbEnv: Map<String, String>,
+    ) {
+        fun register(name: String): Path {
+            val state = work.resolve("state-$name")
+            assertEquals(0, cli.run("register", state, "--username", "e2e_$name", stdin = createInvite(dbEnv)).exit, "register $name")
+            return state
+        }
+
+        fun ok(
+            state: Path,
+            command: String,
+            vararg args: String,
+            stdin: String = "",
+        ): List<String> {
+            val finished = cli.run(command, state, *args, stdin = stdin)
+            assertEquals(0, finished.exit, "$command exit code")
+            return finished.stdout.lines().filter { it.isNotBlank() }
+        }
+
+        val lena = register("lena")
+        val milo = register("milo")
+        assertEquals(0, cli.run("keypackages-refill", milo).exit, "milo refills")
+        plaintexts += "history one"
+        val created = ok(lena, "chat-create", "--target", "e2e_milo").single()
+        val group = Regex("^created group (\\S+) at seq 1$").matchEntire(created)?.groupValues?.get(1) ?: fail("chat-create: $created")
+        assertEquals(listOf("joined group $group"), ok(milo, "chat-welcomes"))
+        assertEquals(listOf("sent at seq 2"), ok(lena, "chat-send", "--group", group, stdin = "history one"))
+        val gif = "gif e2e-test-gif \"history one\""
+        assertEquals(
+            listOf("stored 2 - sent: $gif"),
+            ok(lena, "chat-history", "--group", group),
+            "the sender keeps its own message as sent",
+        )
+        assertEquals(
+            listOf("message 2 from e2e_lena: $gif", "synced, 1 log entries"),
+            ok(milo, "chat-sync", "--group", group),
+        )
+        assertEquals(
+            listOf("synced, 0 log entries"),
+            ok(milo, "chat-sync", "--group", group),
+            "nothing is read twice",
+        )
+        val shown = listOf("stored 2 e2e_lena -: $gif")
+        assertEquals(shown, ok(milo, "chat-history", "--group", group), "a later process shows the message once")
+
+        // On disk: records with keyed names and no plaintext; the history key is a secret like the others.
+        val keyFile = milo.resolve("history-key")
+        val key = Files.readAllBytes(keyFile)
+        assertEquals(32, key.size)
+        secrets +=
+            listOf(
+                java.util.Base64
+                    .getEncoder()
+                    .encodeToString(key),
+                key.joinToString("") { "%02x".format(it) },
+            )
+        val records = Files.walk(milo.resolve("history")).use { paths -> paths.filter { Files.isRegularFile(it) }.toList() }
+        assertTrue(records.isNotEmpty(), "milo's history has records")
+        records.forEach { record ->
+            assertTrue(Regex("^[0-9a-f]{64}$").matches(record.name), "a record name is 64 hex digits")
+            val bytes = Files.readAllBytes(record).toString(Charsets.ISO_8859_1)
+            listOf("history one", "e2e-test-gif", "e2e_lena").forEach { assertFalse(it in bytes, "a record holds plaintext") }
+        }
+
+        // A key that is damaged or gone is refused, never replaced; a valid key of another history opens an empty one.
+        fun refusedKey(
+            expected: ByteArray?,
+            what: String,
+        ) {
+            val finished = cli.run("chat-history", milo, "--group", group)
+            assertEquals(EXIT_REFUSED, finished.exit, "$what: exit code")
+            assertTrue("gifitup-cli: the history can't be opened (key)" in finished.stderr, "$what: the closed message")
+            if (expected == null) {
+                assertFalse(Files.exists(keyFile), "$what: no key was made")
+            } else {
+                assertTrue(expected.contentEquals(Files.readAllBytes(keyFile)), "$what: the key file is untouched")
+            }
+        }
+        Files.delete(keyFile)
+        refusedKey(null, "key missing, records present")
+        val damaged = ByteArray(31) { 9 }
+        Files.write(keyFile, damaged)
+        refusedKey(damaged, "key of the wrong size")
+        val other = ByteArray(32) { 5 }
+        Files.write(keyFile, other)
+        val wrong = ok(milo, "chat-history", "--group", group)
+        assertTrue(wrong.none { it.startsWith("stored ") }, "another key shows none of the old messages")
+        assertTrue(other.contentEquals(Files.readAllBytes(keyFile)), "and the key file is untouched")
+        Files.write(keyFile, key)
+        assertEquals(shown, ok(milo, "chat-history", "--group", group), "the right key shows the message again: nothing was lost")
     }
 
     /**

@@ -2,10 +2,13 @@ package app.gifitup.cli
 
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.groups.IncomingSink
 import app.gifitup.shared.domain.groups.SyncOutcome
-import app.gifitup.shared.domain.messages.InMemoryMessageStore
+import app.gifitup.shared.domain.messages.EncryptedMessageStore
+import app.gifitup.shared.domain.messages.HistoryStoreException
+import app.gifitup.shared.domain.messages.MessageIntake
 import app.gifitup.shared.domain.messages.SendGif
 import java.io.PrintStream
 import java.util.Base64
@@ -20,19 +23,21 @@ import kotlin.time.Clock
  */
 internal class ChatCommands(
     private val chat: ChatActions,
+    private val store: EncryptedMessageStore,
     private val out: PrintStream,
     private val readText: () -> String,
     private val report: suspend (AuthResult.Failed) -> Int,
 ) {
     private val base64 = Base64.getUrlEncoder().withoutPadding()
 
-    private val sendGif = SendGif(chat, InMemoryMessageStore()) { Clock.System.now().epochSeconds }
+    private val sendGif = SendGif(chat, store) { Clock.System.now().epochSeconds }
 
-    /** Prints each message the engine reads, whichever command it runs in: they are consumed once they are read. */
-    private val sink =
-        IncomingSink { message ->
-            messageLine(message)?.let(out::println)
-        }
+    /**
+     * Stores, then prints, each message the engine reads, whichever command it runs in: they are consumed once they are
+     * read. The store goes first and its failure is **not** caught here: it reaches the engine, which stops (ADR-0017), and
+     * the line of a message that was not stored is never printed.
+     */
+    private val sink = StoringSink(MessageIntake(store) { Clock.System.now().epochSeconds }, out)
 
     suspend fun run(
         invocation: Invocation,
@@ -47,6 +52,7 @@ internal class ChatCommands(
             "chat-sync" -> outcome(chat.sync(session, checkNotNull(group), sink)) { "synced, ${it.applied} log entries" }
             "chat-resume" -> outcome(chat.resume(session, checkNotNull(group), sink)) { "nothing was pending" }
             "chat-groups" -> groups(session)
+            "chat-history" -> history(checkNotNull(group))
             else -> welcomes(session)
         }
     }
@@ -100,6 +106,20 @@ internal class ChatCommands(
                 EXIT_OK
             }
         }
+
+    private suspend fun history(group: ByteArray): Int {
+        val id = KeyBytes(group)
+        val stored =
+            try {
+                store.messages(id) to store.unreadable(id)
+            } catch (e: HistoryStoreException) {
+                throw historyError(e)
+            }
+        if (stored.first.isEmpty()) out.println("no stored messages")
+        stored.first.forEach { out.println(storedLine(it)) }
+        if (stored.second > 0) out.println("${stored.second} stored messages could not be read")
+        return EXIT_OK
+    }
 
     private suspend fun welcomes(session: Session): Int =
         when (val result = chat.welcomes(session, sink)) {
