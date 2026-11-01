@@ -31,7 +31,10 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/gifitup
       DB_USER: gifitup_app
       DB_PASSWORD_FILE: /run/secrets/postgres_app_password
-    secrets: [postgres_app_password]
+      # The GIF provider's API key (ADR-0003, #40): a file, never an environment value. A file that doesn't hold a valid key
+      # fails startup and deploy.sh's health check rolls the deploy back (docs/ops/vm-setup.md).
+      GIF_PROVIDER_KEY_FILE: /run/secrets/klipy_api_key
+    secrets: [postgres_app_password, klipy_api_key]
     tmpfs: [/tmp]
     mem_limit: 512m
     pids_limit: 256
@@ -142,3 +145,6 @@ secrets:
   # Password of the gifitup_app role; migrate sets it, the server reads it (docs/ops/vm-setup.md).
   postgres_app_password:
     file: ./secrets/postgres_app_password
+  # The Klipy API key; the server hands it to authenticated clients only (ADR-0003, #40).
+  klipy_api_key:
+    file: ./secrets/klipy_api_key

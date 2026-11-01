@@ -11,6 +11,7 @@ import app.gifitup.shared.data.storage.RestoreCounter
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.auth.DeviceLock
+import app.gifitup.shared.domain.auth.FetchGifProviderKey
 import app.gifitup.shared.domain.auth.GuardedMlsFactory
 import app.gifitup.shared.domain.auth.HistoryLeftovers
 import app.gifitup.shared.domain.auth.ListDevices
@@ -58,6 +59,7 @@ data class Invocation(
                 "register" to (setOf("--username") to NONE),
                 "login" to (NONE to NONE),
                 "devices" to (NONE to NONE),
+                "gif-provider" to (NONE to NONE),
                 "reset" to (NONE to NONE),
                 "keypackages-refill" to (NONE to NONE),
                 "keypackages-status" to (NONE to NONE),
@@ -177,6 +179,7 @@ data class Invocation(
                                typed input is echoed, so pipe it in where others can see the screen)
   login                        log in and out again (checks the device still works)
   devices                      list the account's devices
+  gif-provider                 fetch the GIF provider key from the server; prints its length, never the key
   reset                        discard a pending registration (never a registered one)
   keypackages-refill           fill this device's KeyPackage pool on the server if it is below the server's mark
   keypackages-status           how many KeyPackages the server holds for this device
@@ -371,10 +374,26 @@ class Cli(
                 }.run(invocation, session)
             }
 
+            "gif-provider" -> {
+                gifProvider(api, session)
+            }
+
             else -> {
                 deviceCommand(invocation.command, api, session)
             }
         }
+    }
+
+    /** A thin shell over the app's use case (ADR-0003, #40): the key itself is never printed, only its length. */
+    private suspend fun gifProvider(
+        api: GifItUpApi,
+        session: Session,
+    ): Int {
+        val result = FetchGifProviderKey(api)(session)
+        if (result is AuthResult.Failed && result.error == AuthError.Api(ApiError.NOT_FOUND)) {
+            throw CliError("the server has no GIF provider key", EXIT_SERVER)
+        }
+        return report(result) { key -> out.println("gif provider klipy, key of ${key.reveal().length} characters") }
     }
 
     private suspend fun deviceCommand(

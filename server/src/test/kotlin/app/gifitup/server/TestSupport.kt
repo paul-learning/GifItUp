@@ -8,6 +8,7 @@ import app.gifitup.server.auth.CanonicalOrigin
 import app.gifitup.server.auth.Challenges
 import app.gifitup.server.auth.DenyAllInviteRedeemer
 import app.gifitup.server.auth.PUBLIC_PATHS
+import app.gifitup.server.config.GifProviderEndpoint
 import app.gifitup.server.db.TransactionRunner
 import app.gifitup.server.delivery.DeliveryLimits
 import app.gifitup.server.delivery.DeliveryService
@@ -111,6 +112,7 @@ internal fun Application.testModule(config: ServerConfig = testConfig()) {
         noDatabaseKeyPackages(),
         noDatabaseMembers(),
         noDatabaseDelivery(),
+        GifProviderEndpoint.unconfigured(),
         TEST_PUBLIC_PATHS,
     )
     routing {

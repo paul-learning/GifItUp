@@ -11,6 +11,9 @@ import app.gifitup.server.auth.InviteCleanup
 import app.gifitup.server.auth.PUBLIC_PATHS
 import app.gifitup.server.auth.authRoutes
 import app.gifitup.server.auth.installSessionAuth
+import app.gifitup.server.config.GifProviderEndpoint
+import app.gifitup.server.config.GifProviderKey
+import app.gifitup.server.config.gifProviderRoutes
 import app.gifitup.server.db.Database
 import app.gifitup.server.db.DatabaseConfig
 import app.gifitup.server.db.DeliveryCleanup
@@ -63,6 +66,8 @@ fun main() {
     val keyPackages = KeyPackageService(database, clock, KeyPackageLimits(clock))
     val members = MemberService(database)
     val delivery = DeliveryService(database, clock, DeliveryLimits(clock))
+    // The GIF provider's key comes from a secret file, never from the config object that may be logged (ADR-0003, #40).
+    val gifProvider = GifProviderEndpoint.of(GifProviderKey.fromEnv(env), clock)
     val inviteCleanup = InviteCleanup(database, clock).start()
     val keyPackageCleanup = KeyPackageCleanup(database, clock).start()
     val deliveryCleanup = DeliveryCleanup(database, clock).start()
@@ -71,7 +76,7 @@ fun main() {
         embeddedServer(
             Netty,
             configure = { applyTo(this, config, sockets) },
-            module = { module(config, readiness, auth, invites, keyPackages, members, delivery) },
+            module = { module(config, readiness, auth, invites, keyPackages, members, delivery, gifProvider) },
         )
     server.monitor.subscribe(ApplicationStopped) {
         inviteCleanup.shutdownNow()
@@ -130,7 +135,8 @@ fun Application.module(
     keyPackages: KeyPackageService,
     members: MemberService,
     delivery: DeliveryService,
-) = configure(config, readiness, auth, invites, keyPackages, members, delivery, PUBLIC_PATHS)
+    gifProvider: GifProviderEndpoint = GifProviderEndpoint.unconfigured(),
+) = configure(config, readiness, auth, invites, keyPackages, members, delivery, gifProvider, PUBLIC_PATHS)
 
 /** [module] with the public paths as a parameter, so tests can make their test-only routes public (#73 CR-5). */
 @Suppress("LongParameterList") // The composition root: one parameter per service.
@@ -142,6 +148,7 @@ internal fun Application.configure(
     keyPackages: KeyPackageService,
     members: MemberService,
     delivery: DeliveryService,
+    gifProvider: GifProviderEndpoint,
     publicPaths: Set<String>,
 ) {
     installErrorHandling()
@@ -159,6 +166,7 @@ internal fun Application.configure(
         inviteRoutes(invites)
         keyPackageRoutes(keyPackages)
         memberRoutes(members)
+        gifProviderRoutes(gifProvider)
         deliveryRoutes(delivery)
         // 503 when the database is unreachable, so deploy.sh's health gate covers it and rolls back (ADR-0008).
         get(HEALTH_PATH) {

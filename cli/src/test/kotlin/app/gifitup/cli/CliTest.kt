@@ -66,6 +66,7 @@ class CliTest {
             assertEquals(it, Invocation.parse(listOf(it) + base + listOf("--group", group)).command)
         }
         assertEquals("chat-welcomes", Invocation.parse(listOf("chat-welcomes") + base).command)
+        assertEquals("gif-provider", Invocation.parse(listOf("gif-provider") + base).command)
         assertEquals(
             setOf(
                 "chat-create",

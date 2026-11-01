@@ -10,6 +10,7 @@ import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
@@ -55,7 +56,10 @@ class EndToEndTest {
         var failed = false
         try {
             migrate(db, appPasswordFile)
-            server = startServer(dbEnv, port)
+            // The GIF provider's key (#40): a secret file like the passwords. It, and its tail, must appear in no output.
+            val gifKey = "e2e_" + UUID.randomUUID().toString().replace("-", "")
+            secrets += listOf(gifKey, gifKey.takeLast(UUID_LENGTH - 4))
+            server = startServer(dbEnv + ("GIF_PROVIDER_KEY_FILE" to "${processes.secretFile("gif-provider-key", gifKey)}"), port)
             val cli = Cli(port)
             val used = createInvite(dbEnv)
             walkingSkeleton(cli, used)
@@ -67,6 +71,7 @@ class EndToEndTest {
             groups(cli, dbEnv)
             chat(cli, dbEnv)
             history(cli, dbEnv)
+            gifProvider(cli, dbEnv, port, gifKey)
             server.stopAndWait()
             assertNoSecretInOutput()
         } catch (failure: Throwable) {
@@ -513,6 +518,29 @@ class EndToEndTest {
     }
 
     /**
+     * The GIF provider's key (ADR-0003, #40): an authenticated device gets it (the CLI prints only its length), a call
+     * without a session is refused with nothing of it, and it never shows in any process output (the key is in `secrets`).
+     */
+    private fun gifProvider(
+        cli: Cli,
+        dbEnv: Map<String, String>,
+        port: Int,
+        gifKey: String,
+    ) {
+        val nina = work.resolve("state-nina")
+        assertEquals(0, cli.run("register", nina, "--username", "e2e_nina", stdin = createInvite(dbEnv)).exit, "register nina")
+        val fetched = cli.run("gif-provider", nina)
+        assertEquals(0, fetched.exit, "gif-provider exit code")
+        assertEquals(listOf("gif provider klipy, key of ${gifKey.length} characters"), fetched.stdout.lines().filter { it.isNotBlank() })
+        HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build().use { http ->
+            val request = HttpRequest.newBuilder(URI("http://127.0.0.1:$port/config/gif-provider")).header("GifItUp-Protocol", "1").build()
+            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+            assertEquals(HTTP_UNAUTHORIZED, response.statusCode(), "no session: refused")
+            assertFalse(gifKey in response.body(), "and the refusal carries no key")
+        }
+    }
+
+    /**
      * The sealed history of the CLI (#177 PR 4c, ADR-0017) with the real cipher: what a device sends and reads is kept in
      * records on disk that hold no plaintext, a later process shows it again, and a history key that is missing or damaged
      * refuses instead of being replaced. Fresh accounts (a device may log in 10 times an hour, so the step is lean).
@@ -747,6 +775,7 @@ class EndToEndTest {
     private companion object {
         const val ORIGIN = "https://e2e.invalid"
         const val HTTP_OK = 200
+        const val HTTP_UNAUTHORIZED = 401
         const val POLL_MILLIS = 200L
         const val EXIT_SERVER = 1
         const val EXIT_REFUSED = 3

@@ -6,6 +6,7 @@ import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.Device
 import app.gifitup.shared.data.network.GifItUpApi
+import app.gifitup.shared.data.network.GifProviderKey
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.IdentityStore
 import app.gifitup.shared.data.storage.LocalStateException
@@ -75,6 +76,16 @@ class ListDevices(
     private val api: GifItUpApi,
 ) {
     suspend operator fun invoke(session: Session): AuthResult<List<Device>> = api.devices(session).toAuth()
+}
+
+/**
+ * Fetches the GIF provider's API key (ADR-0003, #40), already checked against the key rule. The caller keeps it in memory
+ * for the session only; scheduling (with login traffic and about every 6 hours, never on demand) is the picker's (#23).
+ */
+class FetchGifProviderKey(
+    private val api: GifItUpApi,
+) {
+    suspend operator fun invoke(session: Session): AuthResult<GifProviderKey> = api.gifProviderKey(session).toAuth()
 }
 
 /** Ends the session on the server. The caller drops its copy either way. */
