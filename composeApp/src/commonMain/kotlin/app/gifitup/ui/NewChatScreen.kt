@@ -73,8 +73,21 @@ internal fun NewChatScreen(
             onClick = holder::create,
             enabled = state.canCreate,
         )
-        if (state.created != null) SecondaryButton(ChatTexts.DONE, onClick = onDone, enabled = !state.creating)
+        NameRetryAndDone(state, holder, onDone)
     }
+}
+
+/** "Send the name again" while a group's name is not accepted, and "Done" once the chat exists. */
+@Composable
+private fun NameRetryAndDone(
+    state: NewChatState,
+    holder: NewChatStateHolder,
+    onDone: () -> Unit,
+) {
+    if (state.problem == NewChatProblem.NAME_NOT_SENT) {
+        SecondaryButton(ChatTexts.SEND_NAME_AGAIN, onClick = holder::retryName, enabled = !state.creating)
+    }
+    if (state.created != null) SecondaryButton(ChatTexts.DONE, onClick = onDone, enabled = !state.creating)
 }
 
 /** The two modes, what each needs, and the group's name field. */

@@ -30,15 +30,22 @@ interface ChatPort {
         target: String,
     ): AuthResult<GroupCreation>
 
-    /**
-     * Adds [target] to the group. Only a **group** may grow (#217); [initial] is for the creator's own setup of a group it
-     * just made (the flow adds the friends it chose after the first one, while the chat still has one other member).
-     */
+    /** Adds [target] to the group. Only a **group** may grow (#217); a direct chat and a chat of unknown kind are refused. */
     suspend fun add(
         session: Session,
         groupId: KeyBytes,
         target: String,
-        initial: Boolean = false,
+    ): AuthResult<SyncOutcome>
+
+    /**
+     * The creator's own setup of a group it **just made** with [create]: adds a friend it chose after the first one, while the
+     * chat still has one other member (so [add] would refuse it). Only the new-chat flow calls it; it is not for a chat that
+     * existed before.
+     */
+    suspend fun addToNewGroup(
+        session: Session,
+        groupId: KeyBytes,
+        target: String,
     ): AuthResult<SyncOutcome>
 
     suspend fun sendGif(

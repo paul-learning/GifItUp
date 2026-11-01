@@ -52,8 +52,8 @@ least 48 dp.
 
 ## Screens (#217)
 - **Landing:** after sign-in the first screen is the chat list: title "Chats" with a burger menu on the right (Profile,
-  Invite a friend, Friends), filter chips under it (All, Direct, Groups; "direct" = exactly one other member until the chat
-  kind exists), the round "+" at the lower right for a new chat or group. There is no back button: it is the start.
+  Invite a friend, Friends), filter chips under it (All, Direct, Groups; direct = one other member and no name, a group has a name or
+  two or more others, see ADR-0006 B3), the round "+" at the lower right for a new chat or group. There is no back button: it is the start.
 - **New chat:** two modes as chips: "Chat with a friend" (one friend, no name: a direct chat) and "New group" (a name of 1 to 64 characters and one or more friends; the name is sent after the friends are in). Only a group can grow.
 - **Profile:** the username and the own key emojis (the same card and dialog as on the Friends screen).
 - A notice above the list: the server banner while the server isn't the default, and a note while some setup is pending.

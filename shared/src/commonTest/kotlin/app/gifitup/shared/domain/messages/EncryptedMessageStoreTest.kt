@@ -146,6 +146,17 @@ class EncryptedMessageStoreTest {
         }
 
     @Test
+    fun aNameThatIsStillSendingNeverPushesTheSettledNameOut() =
+        runTest {
+            val s = store(HistoryLimits(maxPerGroup = 3, maxGroups = 10))
+            s.insert(named(1, 1, "Settled"))
+            s.insert(ChatMessage(id(1), ref(2), null, null, MessageBody.GroupMeta("Failed rename"), DeliveryState.FAILED, 6L))
+            for (n in 3..6) s.insert(received(1, n))
+            val kept = s.messages(id(1)).map { it.reference }
+            assertTrue(ref(1) in kept, "the settled name stays: $kept")
+        }
+
+    @Test
     fun aLimitOfOneNeverLoopsAndKeepsTheName() =
         runTest {
             val s = store(HistoryLimits(maxPerGroup = 1, maxGroups = 10))

@@ -1,8 +1,8 @@
 package app.gifitup.shared.domain.chat
 
 import app.gifitup.shared.domain.messages.ChatMessage
-import app.gifitup.shared.domain.messages.DeliveryState
 import app.gifitup.shared.domain.messages.MessageBody
+import app.gifitup.shared.domain.messages.isSettledName
 
 /**
  * Whether a chat is direct or a group, as this device sees it (#217; a best-effort local view, not agreed state; the history
@@ -27,10 +27,4 @@ fun chatKind(
  * The newest group name that is **settled**: received, or sent and accepted. A name that is still sending or failed never
  * counts, so a failed rename can't make a chat look like a group (#217).
  */
-fun settledName(messages: List<ChatMessage>): String? =
-    (
-        messages
-            .lastOrNull {
-                it.body is MessageBody.GroupMeta && (it.state == null || it.state == DeliveryState.SENT)
-            }?.body as? MessageBody.GroupMeta
-    )?.name
+fun settledName(messages: List<ChatMessage>): String? = (messages.lastOrNull { it.isSettledName() }?.body as? MessageBody.GroupMeta)?.name

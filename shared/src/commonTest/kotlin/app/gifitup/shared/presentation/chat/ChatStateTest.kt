@@ -103,7 +103,12 @@ class ChatStateTest {
             session: Session,
             groupId: KeyBytes,
             target: String,
-            initial: Boolean,
+        ) = answer<SyncOutcome>(SyncOutcome.InvalidRequest)
+
+        override suspend fun addToNewGroup(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
         ) = answer<SyncOutcome>(SyncOutcome.InvalidRequest)
 
         override suspend fun rename(

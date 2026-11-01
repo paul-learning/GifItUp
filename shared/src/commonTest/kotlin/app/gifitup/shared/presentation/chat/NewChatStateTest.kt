@@ -33,6 +33,7 @@ class NewChatStateTest {
         var created = listOf<String>()
         var added = listOf<Pair<KeyBytes, String>>()
         var initialAdds = 0
+        var plainAdds = 0
         var renamed = listOf<String>()
         var renameOutcome: AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.Sent(3))
         var beforeCreate: suspend () -> Unit = {}
@@ -61,10 +62,18 @@ class NewChatStateTest {
             session: Session,
             groupId: KeyBytes,
             target: String,
-            initial: Boolean,
+        ): AuthResult<SyncOutcome> {
+            plainAdds++
+            return AuthResult.Ok(SyncOutcome.InvalidRequest)
+        }
+
+        override suspend fun addToNewGroup(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
         ): AuthResult<SyncOutcome> {
             added += groupId to target
-            if (initial) initialAdds++
+            initialAdds++
             return AuthResult.Ok(addOutcome(target))
         }
 
@@ -167,7 +176,8 @@ class NewChatStateTest {
             advanceUntilIdle()
             assertEquals(listOf("bob"), chat.created, "the first (sorted) creates")
             assertEquals(listOf("carol", "dave"), chat.added.map { it.second })
-            assertEquals(2, chat.initialAdds, "the creator's own setup is not held to the direct-chat rule")
+            assertEquals(2, chat.initialAdds, "the creator's own setup uses its own call")
+            assertEquals(0, chat.plainAdds, "and never the policy-checked add")
             assertTrue(chat.added.all { it.first == KeyBytes(groupId) })
             assertEquals(listOf("Crew"), chat.renamed, "the name goes once, after everyone is in")
             assertNull(holder.state.value.problem)
@@ -207,6 +217,29 @@ class NewChatStateTest {
             assertEquals(listOf("Just us"), chat.renamed)
             assertNull(holder.state.value.problem)
             assertNotNull(holder.state.value.created)
+        }
+
+    @Test
+    fun sendingTheNameAgainAfterARejectionSettlesIt() =
+        runTest {
+            chat.renameOutcome = AuthResult.Ok(SyncOutcome.Rejected(ApiError.BAD_REQUEST))
+            val holder = opened()
+            holder.group("Crew")
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(NewChatProblem.NAME_NOT_SENT, holder.state.value.problem)
+            holder.retryName()
+            advanceUntilIdle()
+            assertEquals(NewChatProblem.NAME_NOT_SENT, holder.state.value.problem, "still rejected")
+            chat.renameOutcome = AuthResult.Ok(SyncOutcome.Sent(4))
+            holder.retryName()
+            advanceUntilIdle()
+            assertNull(holder.state.value.problem)
+            assertEquals(listOf("Crew", "Crew", "Crew"), chat.renamed)
+            holder.retryName()
+            advanceUntilIdle()
+            assertEquals(3, chat.renamed.size, "nothing to retry once it is settled")
         }
 
     @Test

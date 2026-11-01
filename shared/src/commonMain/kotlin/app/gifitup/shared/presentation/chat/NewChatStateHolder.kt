@@ -73,6 +73,7 @@ data class NewChatState(
  * group, each further one is added with its own commit (ADR-0016). A friend that can't be added doesn't undo the group:
  * it is listed in [NewChatState.notAdded]. At most [MAX_FRIENDS] are chosen at once.
  */
+@Suppress("TooManyFunctions") // One function per user action of the screen.
 class NewChatStateHolder(
     private val scope: CoroutineScope,
     private val sessions: SessionHolder,
@@ -175,6 +176,29 @@ class NewChatStateHolder(
     }
 
     /**
+     * "Send the name again" after [NewChatProblem.NAME_NOT_SENT] (the server did not accept it, or no answer came): the same
+     * name goes out once more, at the user's request. The group is kept either way.
+     */
+    fun retryName() {
+        val current = flow.value
+        val id = current.created
+        if (running || id == null || current.problem != NewChatProblem.NAME_NOT_SENT) return
+        running = true
+        val forVisit = visit
+        flow.value = current.copy(creating = true)
+        scope.launch {
+            try {
+                val sent = sessions.withSessionResult { chat.rename(it, id, current.name) }
+                val ok = sent is AuthResult.Ok && sent.value is SyncOutcome.Sent
+                if (forVisit == visit) flow.value = flow.value.copy(problem = if (ok) null else NewChatProblem.NAME_NOT_SENT)
+            } finally {
+                running = false
+                if (forVisit == visit) flow.value = flow.value.copy(creating = false)
+            }
+        }
+    }
+
+    /**
      * Drops the state, unless a create is still running: that one goes on, and its result stays in the state for when the
      * screen is opened again (the visit is kept, so the result is not dropped). The screen closes itself on a finished
      * result, so the next [leave] with nothing running starts the next visit clean.
@@ -250,7 +274,7 @@ class NewChatStateHolder(
     ): NewChatState {
         val missed = mutableListOf<String>()
         for (name in names.drop(1)) {
-            val added = sessions.withSessionResult { chat.add(it, id, name, initial = true) }
+            val added = sessions.withSessionResult { chat.addToNewGroup(it, id, name) }
             if (added !is AuthResult.Ok || added.value !is SyncOutcome.Sent) missed += name
         }
         // The name goes last: a member only reads what was sent after they joined, so every friend who was added is in by now.

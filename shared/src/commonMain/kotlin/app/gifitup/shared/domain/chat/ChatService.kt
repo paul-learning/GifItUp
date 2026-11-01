@@ -50,18 +50,6 @@ class ChatService(
         session: Session,
         groupId: KeyBytes,
         target: String,
-        initial: Boolean,
-    ): AuthResult<SyncOutcome> =
-        if (initial) {
-            actions.add(session, groupId.bytes, target, intake)
-        } else {
-            addToGroup(session, groupId, target)
-        }
-
-    private suspend fun addToGroup(
-        session: Session,
-        groupId: KeyBytes,
-        target: String,
     ): AuthResult<SyncOutcome> =
         when (val allowed = mayAdd(session, groupId)) {
             is AuthResult.Failed -> {
@@ -81,6 +69,12 @@ class ChatService(
                 }
             }
         }
+
+    override suspend fun addToNewGroup(
+        session: Session,
+        groupId: KeyBytes,
+        target: String,
+    ): AuthResult<SyncOutcome> = actions.add(session, groupId.bytes, target, intake)
 
     private suspend fun mayAdd(
         session: Session,
