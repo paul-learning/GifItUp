@@ -9,6 +9,8 @@ import io.ktor.http.URLBuilder
 import io.ktor.http.URLProtocol
 import io.ktor.http.appendPathSegments
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * [GifProvider] for Klipy (ADR-0003, `docs/spikes/gif-provider.md`): the one place that knows Klipy's host, path and answer.
@@ -30,6 +32,8 @@ class KlipyGifProvider(
     private val keys: GifKeyHolder,
     private val nowMillis: () -> Long,
 ) : GifProvider {
+    /** The two timestamps below are only read and written under [guard]. */
+    private val guard = Mutex()
     private var lastCallAt = Long.MIN_VALUE / 2
     private var blockedUntil = Long.MIN_VALUE / 2
 
@@ -39,7 +43,7 @@ class KlipyGifProvider(
         query: String,
         page: Int,
     ): GifResult {
-        val text = query.trim().take(MAX_QUERY_CHARS)
+        val text = cut(query.trim())
         return if (text.isEmpty()) call(TRENDING, null, page) else call(SEARCH, text, page)
     }
 
@@ -49,13 +53,12 @@ class KlipyGifProvider(
         query: String?,
         page: Int,
     ): GifResult {
-        val key = keys.current() ?: return GifResult.Failed(GifFailure.UNAVAILABLE)
         if (page !in 1..MAX_PAGE) return GifResult.Failed(GifFailure.MALFORMED)
-        val now = nowMillis()
-        if (now < blockedUntil) return GifResult.Failed(GifFailure.RATE_LIMITED, secondsUntil(blockedUntil - now))
-        if (now - lastCallAt < MIN_INTERVAL_MILLIS) return GifResult.Failed(GifFailure.RATE_LIMITED, 1)
-        lastCallAt = now
+        // The epoch first, then the key: a logout between the two leaves a key that belongs to an older epoch than the one
+        // checked after the call, so the answer is dropped (never the reverse).
         val epoch = keys.epoch()
+        val key = keys.current() ?: return GifResult.Failed(GifFailure.UNAVAILABLE)
+        refusal()?.let { return it }
         return try {
             val answer = fetcher.get(urlOf(key, endpoint, query, page), MAX_BODY_BYTES)
             if (keys.epoch() != epoch) GifResult.Failed(GifFailure.UNAVAILABLE) else resultOf(answer)
@@ -66,7 +69,25 @@ class KlipyGifProvider(
         }
     }
 
-    private fun resultOf(answer: ProviderAnswer): GifResult =
+    /** The guard against hammering a limit every friend shares: `null` if a request may go, else the refusal (no request). */
+    private suspend fun refusal(): GifResult.Failed? =
+        guard.withLock {
+            val now = nowMillis()
+            when {
+                now < blockedUntil -> GifResult.Failed(GifFailure.RATE_LIMITED, secondsUntil(blockedUntil - now))
+                now - lastCallAt < MIN_INTERVAL_MILLIS -> GifResult.Failed(GifFailure.RATE_LIMITED, 1)
+                else -> null.also { lastCallAt = now }
+            }
+        }
+
+    /** At most [MAX_QUERY_CHARS] UTF-16 units, never ending inside a surrogate pair. */
+    private fun cut(text: String): String {
+        if (text.length <= MAX_QUERY_CHARS) return text
+        val end = if (text[MAX_QUERY_CHARS - 1].isHighSurrogate()) MAX_QUERY_CHARS - 1 else MAX_QUERY_CHARS
+        return text.substring(0, end)
+    }
+
+    private suspend fun resultOf(answer: ProviderAnswer): GifResult =
         when (answer) {
             ProviderAnswer.Failed -> {
                 GifResult.Failed(GifFailure.OFFLINE)
@@ -85,9 +106,9 @@ class KlipyGifProvider(
             }
         }
 
-    private fun rateLimited(retryAfter: Int?): GifResult {
+    private suspend fun rateLimited(retryAfter: Int?): GifResult {
         val seconds = (retryAfter ?: DEFAULT_RETRY_AFTER_SECONDS).coerceIn(1, MAX_RETRY_AFTER_SECONDS)
-        blockedUntil = nowMillis() + seconds * MILLIS
+        guard.withLock { blockedUntil = nowMillis() + seconds * MILLIS }
         return GifResult.Failed(GifFailure.RATE_LIMITED, seconds)
     }
 

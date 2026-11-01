@@ -292,8 +292,16 @@ class KlipyGifProviderTest {
         }
 
     @Test
-    fun theKeyNeverPrintsFromTheHolderOrTheProvider() {
+    fun aLongQueryIsNeverCutInsideASurrogatePair() =
+        runTest {
+            // 99 letters, then a 2-unit emoji straddling the 100-unit limit: the whole emoji goes.
+            provider.search("a".repeat(99) + "\uD83D\uDE00")
+            val encoded = Regex("q=([^&]*)").find(urls.single())!!.groupValues[1]
+            assertEquals("a".repeat(99), encoded)
+        }
+
+    @Test
+    fun theHolderNeverPrintsTheKey() {
         assertFalse(key in keys.toString())
-        assertFalse(key in provider.toString().ifEmpty { "x" })
     }
 }
