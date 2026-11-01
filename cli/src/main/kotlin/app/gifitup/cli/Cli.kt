@@ -4,6 +4,8 @@ import app.gifitup.mls.UniffiHistoryCipherFactory
 import app.gifitup.shared.data.crypto.HistoryCipherFactory
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
+import app.gifitup.shared.data.gif.KlipyGifProvider
+import app.gifitup.shared.data.gif.KtorProviderFetcher
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
@@ -22,6 +24,7 @@ import app.gifitup.shared.domain.auth.TestAccountGuard
 import app.gifitup.shared.domain.contacts.AcceptContact
 import app.gifitup.shared.domain.contacts.ContactBookAccess
 import app.gifitup.shared.domain.contacts.RefreshContacts
+import app.gifitup.shared.domain.gif.GifKeyHolder
 import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.keypackages.ClaimKeyPackages
 import app.gifitup.shared.domain.keypackages.RefillKeyPackages
@@ -46,6 +49,7 @@ data class Invocation(
     val device: String? = null,
     val seq: Long? = null,
     val welcome: String? = null,
+    val query: String? = null,
 ) {
     companion object {
         private val NONE = emptySet<String>()
@@ -60,6 +64,7 @@ data class Invocation(
                 "login" to (NONE to NONE),
                 "devices" to (NONE to NONE),
                 "gif-provider" to (NONE to NONE),
+                "gif-search" to (NONE to setOf("--query")),
                 "reset" to (NONE to NONE),
                 "keypackages-refill" to (NONE to NONE),
                 "keypackages-status" to (NONE to NONE),
@@ -98,6 +103,8 @@ data class Invocation(
         val DELIVERY_COMMANDS: Set<String> = SPEC.keys.filter { it.startsWith("group-") || it.startsWith("welcome") }.toSet()
 
         /** The commands over the app's group sync engine. */
+        val GIF_COMMANDS: Set<String> = setOf("gif-provider", "gif-search")
+
         val CHAT_COMMANDS: Set<String> = SPEC.keys.filter { it.startsWith("chat-") }.toSet()
 
         private const val MIN_GROUP_ID = 16
@@ -142,6 +149,7 @@ data class Invocation(
                 device = values["--device"],
                 seq = values["--seq"]?.toLong(),
                 welcome = values["--welcome"],
+                query = values["--query"],
             )
 
         private fun idsAreCanonical(values: Map<String, String>): Boolean =
@@ -180,6 +188,7 @@ data class Invocation(
   login                        log in and out again (checks the device still works)
   devices                      list the account's devices
   gif-provider                 fetch the GIF provider key from the server; prints its length, never the key
+  gif-search [--query <text>]  search (or, without a query, trending) at the GIF provider with that key: prints the tiles' public links
   reset                        discard a pending registration (never a registered one)
   keypackages-refill           fill this device's KeyPackage pool on the server if it is below the server's mark
   keypackages-status           how many KeyPackages the server holds for this device
@@ -374,13 +383,38 @@ class Cli(
                 }.run(invocation, session)
             }
 
-            "gif-provider" -> {
-                gifProvider(api, session)
+            in Invocation.GIF_COMMANDS -> {
+                gifCommand(invocation, api, session)
             }
 
             else -> {
                 deviceCommand(invocation.command, api, session)
             }
+        }
+    }
+
+    private suspend fun gifCommand(
+        invocation: Invocation,
+        api: GifItUpApi,
+        session: Session,
+    ): Int = if (invocation.command == "gif-search") gifSearch(api, session, invocation.query) else gifProvider(api, session)
+
+    /**
+     * A thin shell over the app's use cases (ADR-0003, #23): the key from our server goes into memory for this one command
+     * (never the state dir, never the output), and the provider is the app's, so this is the request the app makes.
+     */
+    private suspend fun gifSearch(
+        api: GifItUpApi,
+        session: Session,
+        query: String?,
+    ): Int {
+        val holder = GifKeyHolder()
+        val fetched = FetchGifProviderKey(api)(session)
+        if (fetched is AuthResult.Failed) return report(fetched) { }
+        holder.set((fetched as AuthResult.Ok).value)
+        return KtorProviderFetcher(engine()).use { fetcher ->
+            val provider = KlipyGifProvider(fetcher, holder) { System.currentTimeMillis() }
+            printGifResult(if (query == null) provider.trending() else provider.search(query), out)
         }
     }
 
