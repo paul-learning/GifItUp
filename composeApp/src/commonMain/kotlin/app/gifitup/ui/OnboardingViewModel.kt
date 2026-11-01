@@ -40,6 +40,7 @@ import app.gifitup.shared.presentation.gif.GifPickerStateHolder
 import app.gifitup.shared.presentation.invite.CreateInviteStateHolder
 import app.gifitup.shared.presentation.onboarding.OnboardingState
 import app.gifitup.shared.presentation.onboarding.OnboardingStateHolder
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -72,7 +73,25 @@ internal class OnboardingViewModel(
     private val engine = graph.engine()
     private val api = GifItUpApi(engine, checkNotNull(ApiEndpoint.forOrigin(origin)) { "the origin setting only holds canonical origins" })
 
-    private val auth = DeviceAuth(storage, api, mls, graph.random, HistoryCloser { history.close() })
+    // The GIF picker (#23): the provider key is fetched from our server only by the refresher below (when the account is
+    // ready, then every 6 hours), kept in memory only, and cleared with this view model. Searches go to the provider directly.
+    private val gifKeys = GifKeyHolder()
+    private val providerFetcher = graph.conversations.providerFetcher()
+    private var gifKeyJob: Job? = null
+    private val gifProvider = KlipyGifProvider(providerFetcher, gifKeys) { Clock.System.now().toEpochMilliseconds() }
+
+    private val auth =
+        DeviceAuth(
+            storage,
+            api,
+            mls,
+            graph.random,
+            HistoryCloser {
+                // A wipe ends the GIF session too: the refresh stops and the key leaves memory before the history closes.
+                endGifSession()
+                history.close()
+            },
+        )
 
     private val sessions = SessionHolder({ auth.logIn() }, viewModelScope) { Clock.System.now().epochSeconds }
 
@@ -113,12 +132,6 @@ internal class OnboardingViewModel(
         )
     private val captions = CaptionInput(graph.conversations.graphemes)
 
-    // The GIF picker (#23): the provider key is fetched from our server only by the refresher below (when the account is
-    // ready, then every 6 hours), kept in memory only, and cleared with this view model. Searches go to the provider directly.
-    private val gifKeys = GifKeyHolder()
-    private val providerFetcher = graph.conversations.providerFetcher()
-    private val gifProvider = KlipyGifProvider(providerFetcher, gifKeys) { Clock.System.now().toEpochMilliseconds() }
-
     /** The picker's logic; its results' previews load through [previews], like the bubbles. */
     val picker = GifPickerStateHolder(viewModelScope, gifProvider)
     val previews =
@@ -143,10 +156,17 @@ internal class OnboardingViewModel(
         holder.start()
         // The key's refresh starts when the account is ready, with the login that fetches it, and ends with this view model.
         val refresher = GifKeyRefresher(gifKeys, { sessions.withSessionResult { FetchGifProviderKey(api)(it) } })
-        viewModelScope.launch {
-            holder.state.first { it is OnboardingState.Done }
-            refresher.run()
-        }
+        gifKeyJob =
+            viewModelScope.launch {
+                holder.state.first { it is OnboardingState.Done }
+                refresher.run()
+            }
+    }
+
+    /** The end of the signed-in session (a wipe, the end of this view model): no more refresh, and the key leaves memory. */
+    private fun endGifSession() {
+        gifKeyJob?.cancel()
+        gifKeys.clear()
     }
 
     override fun onCleared() {
@@ -158,7 +178,7 @@ internal class OnboardingViewModel(
         tiles.leave()
         picker.close()
         previews.leave()
-        gifKeys.clear()
+        endGifSession()
         (providerFetcher as? AutoCloseable)?.close()
         (mediaFetcher as? AutoCloseable)?.close()
         // The history key and the decrypted cache leave memory with the view model (the wipe has closed it already).

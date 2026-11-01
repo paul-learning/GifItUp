@@ -9,8 +9,8 @@ import kotlinx.coroutines.delay
  * Fetches the key from our server (#40) and keeps it fresh (ADR-0003, #23): once when [run] starts (with the login), then
  * every [refreshMillis] while it runs, and after a failed fetch again after [retryMillis] (growing, up to
  * [maxRetryMillis]). **Only on this schedule**: the picker, a provider 401/403 or a 429 never cause a fetch, so the server
- * can't tell when someone is about to send a GIF. The caller runs it in the logged-in session's scope and cancels it, and
- * clears the holder, at logout.
+ * can't tell when someone is about to send a GIF. The caller runs it in the signed-in session's scope and, when that session
+ * ends (a wipe, the end of the view model; the app has no logout yet), cancels it and clears the holder.
  */
 class GifKeyRefresher(
     private val holder: GifKeyHolder,
