@@ -3,6 +3,7 @@ package app.gifitup.server.config
 import app.gifitup.protocol.GifProviderKeyRule
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 /**
@@ -32,7 +33,13 @@ class GifProviderKey private constructor(
         fun fromEnv(env: Map<String, String>): GifProviderKey? {
             val path = env[VARIABLE] ?: return null
             require(path.isNotEmpty()) { "$VARIABLE is set but empty" }
-            return read(Path.of(path))
+            val file =
+                try {
+                    Path.of(path)
+                } catch (_: InvalidPathException) {
+                    throw IllegalArgumentException("$VARIABLE does not name a readable file")
+                }
+            return read(file)
         }
 
         internal fun read(path: Path): GifProviderKey {

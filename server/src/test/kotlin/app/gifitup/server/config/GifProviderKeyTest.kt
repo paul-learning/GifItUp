@@ -72,6 +72,17 @@ class GifProviderKeyTest {
     }
 
     @Test
+    fun anInvalidPathNeverReachesTheMessage() {
+        val message =
+            assertFailsWith<IllegalArgumentException> {
+                GifProviderKey.fromEnv(
+                    mapOf("GIF_PROVIDER_KEY_FILE" to "/x\u0000y"),
+                )
+            }.message
+        assertEquals("GIF_PROVIDER_KEY_FILE does not name a readable file", message)
+    }
+
+    @Test
     fun theVariableUnsetMeansNoKeyAndSetButEmptyFailsStartup() {
         assertNull(GifProviderKey.fromEnv(emptyMap()))
         assertFailsWith<IllegalArgumentException> { GifProviderKey.fromEnv(mapOf("GIF_PROVIDER_KEY_FILE" to "")) }
