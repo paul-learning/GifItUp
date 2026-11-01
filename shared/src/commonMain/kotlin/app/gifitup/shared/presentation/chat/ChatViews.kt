@@ -2,6 +2,7 @@ package app.gifitup.shared.presentation.chat
 
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.domain.auth.AuthError
+import app.gifitup.shared.domain.chat.settledName
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.GroupStatus
@@ -104,13 +105,17 @@ internal fun GroupStatus.toProblem(): ConversationProblem? =
         else -> ConversationProblem.STOPPED
     }
 
+/**
+ * What a chat is called (ADR-0006 B3, #217): its name if one is **settled** (received, or sent and accepted: a name that is
+ * still sending or failed never counts, so a failed rename can't make a chat look like a group), else the other members.
+ * A name in a chat with one other member makes it a named group of one.
+ */
 internal fun titleOf(
     info: GroupInfo,
     messages: List<ChatMessage>,
 ): ConversationTitle {
-    // A rename counts only in a group of three or more: a 2-member chat shows the contact's name (ADR-0006 B3).
-    val name = if (info.others.size >= 2) messages.lastOrNull { it.body is MessageBody.GroupMeta }?.body else null
-    return if (name is MessageBody.GroupMeta) ConversationTitle.Named(name.name) else ConversationTitle.Members(info.others)
+    val name = settledName(messages)
+    return if (name != null) ConversationTitle.Named(name) else ConversationTitle.Members(info.others)
 }
 
 internal fun previewOf(last: ChatMessage?): Preview =

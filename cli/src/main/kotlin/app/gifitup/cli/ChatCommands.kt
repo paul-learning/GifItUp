@@ -47,6 +47,7 @@ internal class ChatCommands(
             "chat-add" -> change(session, checkNotNull(group), checkNotNull(invocation.target), add = true)
             "chat-remove" -> change(session, checkNotNull(group), checkNotNull(invocation.target), add = false)
             "chat-send" -> send(session, checkNotNull(group))
+            "chat-rename" -> rename(session, checkNotNull(group))
             "chat-sync" -> outcome(chat.sync(session, checkNotNull(group), sink)) { "synced, ${it.applied} log entries" }
             "chat-resume" -> outcome(chat.resume(session, checkNotNull(group), sink)) { "nothing was pending" }
             "chat-groups" -> groups(session)
@@ -86,6 +87,12 @@ internal class ChatCommands(
         session: Session,
         group: ByteArray,
     ): Int = outcome(sendGif(session, group, TEST_GIF, readText().ifEmpty { null }, sink)) { sent -> "sent at seq ${sent.seq}" }
+
+    /** Names the group with the line on stdin (a `group_meta` message); the chat counts as named once the server accepted it. */
+    private suspend fun rename(
+        session: Session,
+        group: ByteArray,
+    ): Int = outcome(sendGif.rename(session, group, readText(), sink)) { sent -> "renamed at seq ${sent.seq}" }
 
     private suspend fun groups(session: Session): Int =
         when (val result = chat.groups(session, sink)) {

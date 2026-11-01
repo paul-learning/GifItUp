@@ -90,6 +90,7 @@ data class Invocation(
                 "chat-add" to (setOf("--group", "--target") to NONE),
                 "chat-remove" to (setOf("--group", "--target") to NONE),
                 "chat-send" to (setOf("--group") to NONE),
+                "chat-rename" to (setOf("--group") to NONE),
                 "chat-sync" to (setOf("--group") to NONE),
                 "chat-history" to (setOf("--group") to NONE),
                 "chat-resume" to (setOf("--group") to NONE),
@@ -208,6 +209,7 @@ data class Invocation(
   chat-create --target <name>          claim the member's KeyPackages and create an MLS group with them (consumes them)
   chat-add|chat-remove --group <id> --target <name>   add or remove a member's devices (removal needs the contact book's pins)
   chat-send --group <id>               send a test GIF with the line on stdin as its caption (chat-sync shows the caption)
+  chat-rename --group <id>             name the group with the line on stdin (a group name makes a chat a group)
   chat-sync --group <id>               fetch, decrypt and apply the group's log; prints each message with its sender
   chat-history --group <id>            the stored (sealed on disk) messages of the group, oldest first
   chat-resume --group <id>             post a pending message or commit again; chat-welcomes: join pending welcomes

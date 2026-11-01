@@ -55,3 +55,9 @@ class ChatMessage(
 ) {
     override fun toString(): String = "ChatMessage(state=$state)"
 }
+
+/**
+ * A group name that counts (#217): received, or sent and accepted by the server. One that is still sending or failed does not,
+ * and retention never lets it stand in for the settled one (the same test in `settledName` and in eviction).
+ */
+fun ChatMessage.isSettledName(): Boolean = body is MessageBody.GroupMeta && (state == null || state == DeliveryState.SENT)

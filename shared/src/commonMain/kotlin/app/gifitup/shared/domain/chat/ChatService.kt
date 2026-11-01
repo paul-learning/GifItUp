@@ -9,8 +9,8 @@ import app.gifitup.shared.domain.groups.GroupCreation
 import app.gifitup.shared.domain.groups.GroupList
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomesReport
+import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.MessageIntake
-import app.gifitup.shared.domain.messages.MessageStore
 import app.gifitup.shared.domain.messages.SendGif
 
 /**
@@ -19,11 +19,12 @@ import app.gifitup.shared.domain.messages.SendGif
  */
 class ChatService(
     private val actions: ChatActions,
-    store: MessageStore,
+    private val store: HistoryAccess,
     nowEpochSeconds: () -> Long,
 ) : ChatPort {
     private val intake = MessageIntake(store, nowEpochSeconds)
     private val gifs = SendGif(actions, store, nowEpochSeconds)
+    private val policy = AddPolicy(store)
 
     override suspend fun groups(session: Session): AuthResult<GroupList> = actions.groups(session, intake)
 
@@ -39,11 +40,65 @@ class ChatService(
         target: String,
     ): AuthResult<GroupCreation> = actions.create(session, target, intake)
 
+    /**
+     * Adds a friend to a **group** only (#217): a direct chat, and a chat whose kind this device can't tell (members not
+     * known, a record that can't be read, the history closed), refuse with [SyncOutcome.InvalidRequest] and never reach the
+     * engine. A client policy, not cryptography: a modified client could still add someone (members see the change). This
+     * is the only way the app adds members; the dev CLI's `chat-add` is a test driver and has no such rule.
+     */
     override suspend fun add(
         session: Session,
         groupId: KeyBytes,
         target: String,
+    ): AuthResult<SyncOutcome> =
+        when (val allowed = mayAdd(session, groupId)) {
+            is AuthResult.Failed -> {
+                allowed
+            }
+
+            is AuthResult.Ok -> {
+                if (allowed.value) {
+                    actions.add(
+                        session,
+                        groupId.bytes,
+                        target,
+                        intake,
+                    )
+                } else {
+                    AuthResult.Ok(SyncOutcome.InvalidRequest)
+                }
+            }
+        }
+
+    override suspend fun addToNewGroup(
+        session: Session,
+        groupId: KeyBytes,
+        target: String,
     ): AuthResult<SyncOutcome> = actions.add(session, groupId.bytes, target, intake)
+
+    private suspend fun mayAdd(
+        session: Session,
+        groupId: KeyBytes,
+    ): AuthResult<Boolean> =
+        when (val listed = actions.groups(session, intake)) {
+            is AuthResult.Failed -> {
+                listed
+            }
+
+            is AuthResult.Ok -> {
+                AuthResult.Ok(
+                    listed.value.groups
+                        .firstOrNull { it.id == groupId }
+                        ?.let { policy.allows(it) } == true,
+                )
+            }
+        }
+
+    override suspend fun rename(
+        session: Session,
+        groupId: KeyBytes,
+        name: String,
+    ): AuthResult<SyncOutcome> = gifs.rename(session, groupId.bytes, name, intake)
 
     override suspend fun sendGif(
         session: Session,

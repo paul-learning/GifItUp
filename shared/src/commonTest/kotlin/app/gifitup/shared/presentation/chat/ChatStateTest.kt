@@ -6,6 +6,7 @@ import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.chat.ChatKind
 import app.gifitup.shared.domain.chat.ChatPort
 import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.contacts.KeyBytes
@@ -104,6 +105,18 @@ class ChatStateTest {
             target: String,
         ) = answer<SyncOutcome>(SyncOutcome.InvalidRequest)
 
+        override suspend fun addToNewGroup(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
+        ) = answer<SyncOutcome>(SyncOutcome.InvalidRequest)
+
+        override suspend fun rename(
+            session: Session,
+            groupId: KeyBytes,
+            name: String,
+        ) = answer<SyncOutcome>(SyncOutcome.InvalidRequest)
+
         override suspend fun sendGif(
             session: Session,
             groupId: KeyBytes,
@@ -195,17 +208,24 @@ class ChatStateTest {
         }
 
     @Test
-    fun aGroupNameCountsOnlyInAGroupOfThreeOrMore() =
+    fun aSettledNameMakesAChatAGroupEvenWithOneOtherMemberAndASendingNameDoesNot() =
         runTest {
-            chat.groups = listOf(group(1, "bob"), group(2, "carol", "dave"))
+            chat.groups = listOf(group(1, "bob"), group(2, "carol", "dave"), group(3, "erin"))
             for (g in 1..2) store.insert(ChatMessage(id(g), id(200 + g), "bob", 1, MessageBody.GroupMeta("Weekend"), null, 10))
+            // Our own name that is still sending or failed is not the chat's name yet (#217).
+            store.insert(ChatMessage(id(3), id(203), null, null, MessageBody.GroupMeta("Mine"), DeliveryState.SENDING, 10))
             val holder = list()
             holder.refresh()
             advanceUntilIdle()
-            val titles =
+            val rows =
                 holder.state.value.conversations
-                    .associate { it.id to it.title }
-            assertIs<ConversationTitle.Members>(titles[id(1)], "a 2-member chat shows the contact's name")
+                    .associateBy { it.id }
+            assertEquals("Weekend", assertIs<ConversationTitle.Named>(rows.getValue(id(1)).title).name, "a named group of one")
+            assertEquals("Weekend", assertIs<ConversationTitle.Named>(rows.getValue(id(2)).title).name)
+            assertIs<ConversationTitle.Members>(rows.getValue(id(3)).title, "a name still sending does not count")
+            assertEquals(ChatKind.GROUP, rows.getValue(id(1)).kind)
+            assertEquals(ChatKind.DIRECT, rows.getValue(id(3)).kind)
+            val titles = rows.mapValues { it.value.title }
             assertEquals("Weekend", assertIs<ConversationTitle.Named>(titles[id(2)]).name)
             assertEquals(
                 "Weekend",

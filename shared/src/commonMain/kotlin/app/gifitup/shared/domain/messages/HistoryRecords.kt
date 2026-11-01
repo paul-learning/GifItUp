@@ -87,7 +87,13 @@ internal class HistoryRecords(
         return written
     }
 
-    /** Deletes the oldest records of the group beyond [max]; one that can't be deleted stays for the next insert. */
+    /**
+     * Deletes the oldest records of the group beyond [max]; one that can't be deleted stays for the next insert. **The newest
+     * settled group name (`group_meta`, by arrival; the same test as the chat's kind) is never deleted** (#217): it is what
+     * makes a chat with one other member a group, and it is the first message of a chat, so retention would take it first.
+     * It is recomputed from [items] on every call (a reload after a crash can hold more than [max]), and it is the one record
+     * the group may hold above [max].
+     */
     suspend fun evict(
         folder: String,
         items: MutableList<StoredMessage>,
@@ -95,14 +101,17 @@ internal class HistoryRecords(
         max: Int,
     ) {
         while (items.size > max) {
-            val oldest = items.first().message
+            val keep = items.indexOfLast { it.message.isSettledName() }
+            val index = if (keep == 0) 1 else 0
+            if (index >= items.size) return
+            val oldest = items[index].message
             val name = hex(cipher.messageName(oldest.groupId.bytes, oldest.reference.bytes))
             try {
                 records.delete(folder, name)
             } catch (_: RecordStoreException) {
                 return
             }
-            items.removeAt(0)
+            items.removeAt(index)
             names -= name
         }
     }

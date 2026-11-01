@@ -11,7 +11,11 @@ class ChatFilterTest {
         n: Int,
         title: ConversationTitle,
     ) = ConversationSummary(
-        GroupInfo(KeyBytes(ByteArray(16) { n.toByte() }), GroupStatus.ACTIVE, emptyList()),
+        GroupInfo(
+            KeyBytes(ByteArray(16) { n.toByte() }),
+            GroupStatus.ACTIVE,
+            (title as? ConversationTitle.Members)?.names ?: listOf("ben"),
+        ),
         title,
         Preview.Nothing,
         null,

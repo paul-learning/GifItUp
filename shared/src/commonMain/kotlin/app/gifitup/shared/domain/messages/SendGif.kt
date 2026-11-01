@@ -43,16 +43,34 @@ class SendGif(
         reference: GifReference,
         caption: String?,
         sink: IncomingSink,
-    ): AuthResult<SyncOutcome> = mutex.withLock { send(session, groupId, reference, caption, sink) }
+    ): AuthResult<SyncOutcome> =
+        mutex.withLock {
+            val content = ContentCodec.encodeGif(reference, caption)
+            if (content == null) AuthResult.Ok(SyncOutcome.InvalidRequest) else send(session, groupId, content, sink)
+        }
+
+    /**
+     * Names the group (`group_meta`, #217): sent, stored and settled exactly like a GIF (one in flight per group, the SENDING
+     * record first, resumable), so a name that is not accepted is never taken for the chat's name. A name that breaks the text
+     * rules sends nothing ([SyncOutcome.InvalidRequest]).
+     */
+    suspend fun rename(
+        session: Session,
+        groupId: ByteArray,
+        name: String,
+        sink: IncomingSink,
+    ): AuthResult<SyncOutcome> =
+        mutex.withLock {
+            val content = ContentCodec.encodeGroupMeta(name)
+            if (content == null) AuthResult.Ok(SyncOutcome.InvalidRequest) else send(session, groupId, content, sink)
+        }
 
     private suspend fun send(
         session: Session,
         groupId: ByteArray,
-        reference: GifReference,
-        caption: String?,
+        content: ByteArray,
         sink: IncomingSink,
     ): AuthResult<SyncOutcome> {
-        val content = ContentCodec.encodeGif(reference, caption) ?: return AuthResult.Ok(SyncOutcome.InvalidRequest)
         val group = KeyBytes(groupId)
         var sealed: KeyBytes? = null
         val observer =

@@ -13,7 +13,9 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.gifitup.shared.presentation.chat.NewChatMode
 import app.gifitup.shared.presentation.chat.NewChatProblem
 import app.gifitup.shared.presentation.chat.NewChatState
 import app.gifitup.shared.presentation.chat.NewChatStateHolder
@@ -55,7 +58,7 @@ internal fun NewChatScreen(
             backLabel = if (state.created != null) ChatTexts.DONE else ChatTexts.BACK,
             backEnabled = !state.creating,
         )
-        Text(ChatTexts.NEW_CHAT_HINT, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ModeAndName(state, holder)
         if (!state.loaded) CircularProgressIndicator()
         if (state.loaded && state.friends.isEmpty() && state.problem != NewChatProblem.FRIENDS_UNAVAILABLE) {
             Text(ChatTexts.NO_FRIENDS, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -65,8 +68,63 @@ internal fun NewChatScreen(
         }
         Notices(state)
         if (state.creating) CircularProgressIndicator()
-        PrimaryButton(ChatTexts.START_CHAT, onClick = holder::create, enabled = state.canCreate)
-        if (state.created != null) SecondaryButton(ChatTexts.DONE, onClick = onDone, enabled = !state.creating)
+        PrimaryButton(
+            if (state.mode == NewChatMode.GROUP) ChatTexts.CREATE_GROUP else ChatTexts.START_CHAT,
+            onClick = holder::create,
+            enabled = state.canCreate,
+        )
+        NameRetryAndDone(state, holder, onDone)
+    }
+}
+
+/** "Send the name again" while a group's name is not accepted, and "Done" once the chat exists. */
+@Composable
+private fun NameRetryAndDone(
+    state: NewChatState,
+    holder: NewChatStateHolder,
+    onDone: () -> Unit,
+) {
+    if (state.problem == NewChatProblem.NAME_NOT_SENT) {
+        SecondaryButton(ChatTexts.SEND_NAME_AGAIN, onClick = holder::retryName, enabled = !state.creating)
+    }
+    if (state.created != null) SecondaryButton(ChatTexts.DONE, onClick = onDone, enabled = !state.creating)
+}
+
+/** The two modes, what each needs, and the group's name field. */
+@Composable
+private fun ModeAndName(
+    state: NewChatState,
+    holder: NewChatStateHolder,
+) {
+    ModeRow(state, holder)
+    Text(
+        if (state.mode == NewChatMode.GROUP) ChatTexts.NEW_CHAT_HINT_GROUP else ChatTexts.NEW_CHAT_HINT_DIRECT,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (state.mode == NewChatMode.GROUP) {
+        OutlinedTextField(
+            value = state.name,
+            onValueChange = holder::setName,
+            label = { Text(ChatTexts.GROUP_NAME_LABEL) },
+            singleLine = true,
+            enabled = !state.creating && state.created == null,
+            isError = state.problem == NewChatProblem.NAME_INVALID,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/** A chat with one friend, or a group: two chips; a change is refused while something is being made. */
+@Composable
+private fun ModeRow(
+    state: NewChatState,
+    holder: NewChatStateHolder,
+) {
+    val enabled = !state.creating && state.created == null
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(NewChatMode.DIRECT to ChatTexts.MODE_DIRECT, NewChatMode.GROUP to ChatTexts.MODE_GROUP).forEach { (mode, label) ->
+            FilterChip(selected = state.mode == mode, enabled = enabled, onClick = { holder.setMode(mode) }, label = { Text(label) })
+        }
     }
 }
 

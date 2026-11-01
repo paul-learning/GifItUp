@@ -32,6 +32,10 @@ class NewChatStateTest {
     private class FakeChat : ChatPort {
         var created = listOf<String>()
         var added = listOf<Pair<KeyBytes, String>>()
+        var initialAdds = 0
+        var plainAdds = 0
+        var renamed = listOf<String>()
+        var renameOutcome: AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.Sent(3))
         var beforeCreate: suspend () -> Unit = {}
         var createOutcome: AuthResult<GroupCreation> = AuthResult.Ok(GroupCreation(byteArrayOf(7), SyncOutcome.Sent(1)))
         var addOutcome: (String) -> SyncOutcome = { SyncOutcome.Sent(2) }
@@ -59,8 +63,27 @@ class NewChatStateTest {
             groupId: KeyBytes,
             target: String,
         ): AuthResult<SyncOutcome> {
+            plainAdds++
+            return AuthResult.Ok(SyncOutcome.InvalidRequest)
+        }
+
+        override suspend fun addToNewGroup(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
+        ): AuthResult<SyncOutcome> {
             added += groupId to target
+            initialAdds++
             return AuthResult.Ok(addOutcome(target))
+        }
+
+        override suspend fun rename(
+            session: Session,
+            groupId: KeyBytes,
+            name: String,
+        ): AuthResult<SyncOutcome> {
+            renamed += name
+            return renameOutcome
         }
 
         override suspend fun sendGif(
@@ -94,6 +117,11 @@ class NewChatStateTest {
         }
 
     private fun TestScope.holder() = NewChatStateHolder(this, SessionHolder({ AuthResult.Ok(session) }, this) { 0L }, chat, names)
+
+    private fun NewChatStateHolder.group(name: String) {
+        setMode(NewChatMode.GROUP)
+        setName(name)
+    }
 
     private suspend fun TestScope.opened(): NewChatStateHolder =
         holder().also {
@@ -142,13 +170,90 @@ class NewChatStateTest {
     fun severalFriendsMakeAGroupWithOneCommitEach() =
         runTest {
             val holder = opened()
+            holder.group("Crew")
             listOf("dave", "bob", "carol").forEach(holder::toggle)
             holder.create()
             advanceUntilIdle()
             assertEquals(listOf("bob"), chat.created, "the first (sorted) creates")
             assertEquals(listOf("carol", "dave"), chat.added.map { it.second })
+            assertEquals(2, chat.initialAdds, "the creator's own setup uses its own call")
+            assertEquals(0, chat.plainAdds, "and never the policy-checked add")
             assertTrue(chat.added.all { it.first == KeyBytes(groupId) })
+            assertEquals(listOf("Crew"), chat.renamed, "the name goes once, after everyone is in")
             assertNull(holder.state.value.problem)
+        }
+
+    @Test
+    fun aDirectChatIsOneFriendAndNoName() =
+        runTest {
+            val holder = opened()
+            holder.toggle("bob")
+            holder.toggle("carol")
+            assertEquals(setOf("carol"), holder.state.value.selected, "one friend: the second choice replaces the first")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(listOf("carol"), chat.created)
+            assertTrue(chat.added.isEmpty() && chat.renamed.isEmpty())
+            assertNull(holder.state.value.problem)
+        }
+
+    @Test
+    fun aGroupOfOneFriendNeedsAValidNameAndIsNamed() =
+        runTest {
+            val holder = opened()
+            holder.setMode(NewChatMode.GROUP)
+            holder.toggle("bob")
+            assertTrue(!holder.state.value.canCreate, "no name yet")
+            holder.create()
+            assertEquals(NewChatProblem.NAME_INVALID, holder.state.value.problem)
+            assertTrue(chat.created.isEmpty())
+            holder.setName("   ")
+            holder.create()
+            assertEquals(NewChatProblem.NAME_INVALID, holder.state.value.problem)
+            holder.setName("Just us")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(listOf("bob"), chat.created)
+            assertEquals(listOf("Just us"), chat.renamed)
+            assertNull(holder.state.value.problem)
+            assertNotNull(holder.state.value.created)
+        }
+
+    @Test
+    fun sendingTheNameAgainAfterARejectionSettlesIt() =
+        runTest {
+            chat.renameOutcome = AuthResult.Ok(SyncOutcome.Rejected(ApiError.BAD_REQUEST))
+            val holder = opened()
+            holder.group("Crew")
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(NewChatProblem.NAME_NOT_SENT, holder.state.value.problem)
+            holder.retryName()
+            advanceUntilIdle()
+            assertEquals(NewChatProblem.NAME_NOT_SENT, holder.state.value.problem, "still rejected")
+            chat.renameOutcome = AuthResult.Ok(SyncOutcome.Sent(4))
+            holder.retryName()
+            advanceUntilIdle()
+            assertNull(holder.state.value.problem)
+            assertEquals(listOf("Crew", "Crew", "Crew"), chat.renamed)
+            holder.retryName()
+            advanceUntilIdle()
+            assertEquals(3, chat.renamed.size, "nothing to retry once it is settled")
+        }
+
+    @Test
+    fun aNameTheServerDidNotAcceptIsNamedAndTheGroupIsKept() =
+        runTest {
+            chat.renameOutcome = AuthResult.Ok(SyncOutcome.InFlight(ApiError.NETWORK))
+            val holder = opened()
+            holder.group("Crew")
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(NewChatProblem.NAME_NOT_SENT, holder.state.value.problem)
+            assertNotNull(holder.state.value.created)
+            assertEquals(NewChatMode.GROUP, holder.state.value.mode)
         }
 
     @Test
@@ -156,6 +261,7 @@ class NewChatStateTest {
         runTest {
             chat.addOutcome = { if (it == "carol") SyncOutcome.InvalidRequest else SyncOutcome.Sent(2) }
             val holder = opened()
+            holder.group("Crew")
             listOf("bob", "carol", "dave").forEach(holder::toggle)
             holder.create()
             advanceUntilIdle()
@@ -192,6 +298,7 @@ class NewChatStateTest {
         runTest {
             chat.createOutcome = AuthResult.Ok(GroupCreation(byteArrayOf(7), SyncOutcome.InFlight(ApiError.NETWORK)))
             val holder = opened()
+            holder.group("Crew")
             listOf("bob", "carol", "dave").forEach(holder::toggle)
             holder.create()
             advanceUntilIdle()
@@ -308,6 +415,7 @@ class NewChatStateTest {
         runTest {
             friends = (1..12).map { "friend$it" }
             val holder = opened()
+            holder.setMode(NewChatMode.GROUP)
             holder.create()
             assertEquals(NewChatProblem.NOBODY, holder.state.value.problem)
             holder.toggle("stranger")

@@ -1,8 +1,10 @@
 package app.gifitup.shared.presentation.chat
 
 import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.chat.ChatKind
 import app.gifitup.shared.domain.chat.ChatPort
 import app.gifitup.shared.domain.chat.ReadMarks
+import app.gifitup.shared.domain.chat.chatKind
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.SyncOutcome
@@ -28,8 +30,12 @@ class ConversationSummary(
     val problem: ConversationProblem?,
     /** The history of this conversation can't be read: [preview] and [unread] mean nothing, a marker is shown instead. */
     val historyProblem: Boolean = false,
+    /** Records of this chat that could not be read: with one other member they make the kind unknown (the name may be in one). */
+    val unreadable: Int = 0,
 ) {
     val id: KeyBytes get() = info.id
+
+    val kind: ChatKind get() = chatKind(info.others.size, title is ConversationTitle.Named, unreadable)
 }
 
 /** What the list shows (#217): everything, only chats with one other person, or only groups. */
@@ -40,18 +46,14 @@ enum class ChatFilter {
     ;
 
     /**
-     * [DIRECT] is exactly one other member and no name; [GROUPS] a named chat or two or more others. A chat whose members
-     * are not known (a group the user was removed from) is in neither, only in [ALL].
+     * By [ConversationSummary.kind]: a chat of unknown kind (members not known, or a record that can't be read) is only in [ALL].
      */
-    fun matches(conversation: ConversationSummary): Boolean {
-        val title = conversation.title
-        val others = (title as? ConversationTitle.Members)?.names?.size
-        return when (this) {
+    fun matches(conversation: ConversationSummary): Boolean =
+        when (this) {
             ALL -> true
-            DIRECT -> others == 1
-            GROUPS -> title is ConversationTitle.Named || (others != null && others >= 2)
+            DIRECT -> conversation.kind == ChatKind.DIRECT
+            GROUPS -> conversation.kind == ChatKind.GROUP
         }
-    }
 }
 
 data class ChatListState(
@@ -214,9 +216,11 @@ class ChatListStateHolder(
     private suspend fun summary(info: GroupInfo): ConversationSummary {
         val messages: List<ChatMessage>
         val unread: Int
+        val unreadable: Int
         try {
             messages = store.messages(info.id)
             unread = marks.unread(info.id, messages)
+            unreadable = store.unreadable(info.id)
         } catch (_: HistoryStoreException) {
             // Never an empty history shown as normal: the row says so, and "unread 0" would hide new messages. Also a history
             // that closed between the two reads (a wipe) or a read mark that can't be read.
@@ -228,6 +232,7 @@ class ChatListStateHolder(
                 0,
                 info.status.toProblem(),
                 historyProblem = true,
+                unreadable = 1,
             )
         }
         val last = messages.lastOrNull()
@@ -238,6 +243,7 @@ class ChatListStateHolder(
             lastAt = last?.at,
             unread = unread,
             problem = info.status.toProblem(),
+            unreadable = unreadable,
         )
     }
 }
