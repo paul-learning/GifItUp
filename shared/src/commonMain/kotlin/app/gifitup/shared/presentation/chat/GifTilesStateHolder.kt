@@ -116,7 +116,9 @@ class GifTilesStateHolder(
     }
 
     private companion object {
-        const val DEFAULT_PARALLEL = 3
+        // A tile that scrolled away keeps its slot until its request ends (a request on the wire is never cancelled on Android:
+        // see KtorMediaFetcher.fetch), at most one timeout; with six slots the visible tiles don't wait long behind such leftovers.
+        const val DEFAULT_PARALLEL = 6
     }
 }
 

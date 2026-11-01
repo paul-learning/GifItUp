@@ -14,6 +14,8 @@ import io.ktor.utils.io.cancel
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 
@@ -47,7 +49,12 @@ class KtorProviderFetcher(
     override suspend fun get(
         url: String,
         maxBytes: Int,
-    ): ProviderAnswer = withContext(NonCancellable) { getToEnd(url, maxBytes) }
+    ): ProviderAnswer {
+        val answer = withContext(NonCancellable) { getToEnd(url, maxBytes) }
+        // withContext(NonCancellable) returns normally for a caller that was cancelled meanwhile: say so now.
+        currentCoroutineContext().ensureActive()
+        return answer
+    }
 
     @Suppress("TooGenericExceptionCaught")
     private suspend fun getToEnd(

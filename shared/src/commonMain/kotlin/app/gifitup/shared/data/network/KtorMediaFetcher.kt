@@ -18,6 +18,8 @@ import io.ktor.utils.io.cancel
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 
@@ -57,7 +59,12 @@ class KtorMediaFetcher(
      * went away gets its [CancellationException] afterwards, and the result is dropped. A call that is still waiting for a slot
      * is cancelled normally: it has no request yet.
      */
-    override suspend fun fetch(reference: GifReference): FetchResult = withContext(NonCancellable) { fetchToEnd(reference) }
+    override suspend fun fetch(reference: GifReference): FetchResult {
+        val result = withContext(NonCancellable) { fetchToEnd(reference) }
+        // withContext(NonCancellable) returns normally for a caller that was cancelled meanwhile: say so now.
+        currentCoroutineContext().ensureActive()
+        return result
+    }
 
     @Suppress("TooGenericExceptionCaught")
     private suspend fun fetchToEnd(reference: GifReference): FetchResult {
