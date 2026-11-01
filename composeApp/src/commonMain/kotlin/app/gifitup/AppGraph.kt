@@ -38,7 +38,10 @@ class AppGraph(
     val conversations: ConversationPlatform,
     val historyCiphers: suspend () -> HistoryCipherFactory,
     val historyLimits: HistoryLimits,
-    /** `false` on the web: the page's own server is the only one it talks to, so the Settings screen and its entry don't exist (ADR-0013). */
+    /**
+     * `false` on the web: the page's own server is the only one it talks to, so the Settings screen and its entry don't exist
+     * (ADR-0013).
+     */
     val serverSettingsEditable: Boolean = true,
 )
 
