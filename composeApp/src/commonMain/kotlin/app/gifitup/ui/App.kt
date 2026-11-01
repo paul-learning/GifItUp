@@ -69,7 +69,7 @@ private fun Configured(
     inbox: InviteInbox,
     screen: ScreenProtection,
 ) {
-    val setting = remember(storage) { storage.originSetting(BuildDefaults.DEFAULT_ORIGIN) }
+    val setting = remember(storage) { storage.originSetting(BuildDefaults.DEFAULT_ORIGIN, graph.serverSettingsEditable) }
     var originVersion by remember { mutableIntStateOf(0) }
     val mls by produceState<MlsClientFactory?>(null) { value = graph.mlsClientFactory() }
     val loaded by produceState<Loaded?>(null, originVersion) {
@@ -177,26 +177,21 @@ private fun Navigation(
                 if (nav.currentDestination?.route == ROUTE_FRIENDS) nav.popBackStack()
             }
         }
-        settingsRoute(nav, services, current, SettingsWiring(scope, onOriginChanged))
+        settingsRoute(nav, services, current, scope, onOriginChanged)
     }
 }
-
-/** What the Settings route needs from [Navigation] besides the graph. */
-private class SettingsWiring(
-    val scope: CoroutineScope,
-    val onOriginChanged: () -> Unit,
-)
 
 /** Not registered where the server can't be chosen (the web, #159): there is no route to reach. */
 private fun NavGraphBuilder.settingsRoute(
     nav: NavHostController,
     services: Services,
     current: OriginView,
-    wiring: SettingsWiring,
+    scope: CoroutineScope,
+    onOriginChanged: () -> Unit,
 ) {
     if (!services.graph.serverSettingsEditable) return
     composable(ROUTE_SETTINGS) {
-        val holder = remember { ServerSettingsStateHolder(wiring.scope, services.setting, wiring.onOriginChanged) }
+        val holder = remember { ServerSettingsStateHolder(scope, services.setting, onOriginChanged) }
         SettingsScreen(holder, current.origin, services.setting.default) {
             // Only from Settings: a second tap must not pop the start destination and leave an empty back stack.
             if (nav.currentDestination?.route == ROUTE_SETTINGS) nav.popBackStack()

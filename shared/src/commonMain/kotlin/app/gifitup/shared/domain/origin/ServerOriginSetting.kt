@@ -16,6 +16,7 @@ import app.gifitup.shared.domain.auth.DeviceLock
  *   accepts only a canonical `https` origin after exactly one normalisation: trim ASCII whitespace, lowercase. Nothing
  *   is "fixed up".
  * - The setting is a [LocalStore] record, so the wipe's `deleteAll` resets it to the default (ADR-0011).
+ * - Where the server can't be chosen (`storedAllowed = false`, the web), a stored record is ignored and nothing is written.
  * After a change the caller rebuilds everything that holds the old origin (API, `DeviceAuth`, session holder).
  *
  * Storage failures are not swallowed: [current] and [set] throw [LocalStateException] (`STORAGE`, or `KEY_UNAVAILABLE`
@@ -26,6 +27,8 @@ class ServerOriginSetting(
     private val identities: IdentityStore,
     private val lock: DeviceLock,
     val default: String,
+    /** `false` on the web (ADR-0013, #159): the stored record is ignored and never written, only the build's default applies. */
+    private val storedAllowed: Boolean = true,
 ) {
     init {
         require(ApiEndpoint.isCanonicalOrigin(default)) { "the default origin must be canonical" }
@@ -59,13 +62,13 @@ class ServerOriginSetting(
         return when {
             identity.damaged -> Current.Unreadable
             identity.value != null -> originOf(checkNotNull(identity.value).origin)
-            else -> originOf(stored() ?: default)
+            else -> originOf(if (storedAllowed) stored() ?: default else default)
         }
     }
 
     suspend fun set(raw: String): SetResult {
         val origin = raw.trim { it == ' ' || it in '\t'..'\r' }.lowercase()
-        if (!ApiEndpoint.isCanonicalOrigin(origin)) return SetResult.Invalid
+        if (!storedAllowed || !ApiEndpoint.isCanonicalOrigin(origin)) return SetResult.Invalid
         return lock.holding {
             val identity = runCatchingDamaged { identities.load() }
             if (identity.damaged || identity.value != null) {

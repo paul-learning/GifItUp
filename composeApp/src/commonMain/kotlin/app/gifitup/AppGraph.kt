@@ -25,7 +25,7 @@ import io.ktor.client.engine.HttpClientEngine
  * needs from the platform. [historyCiphers] is the platform's message-history cipher (the web loads its wasm module on the
  * first call, like [mlsClientFactory]) and [historyLimits] how much history it keeps (Android 1000 messages per group, the
  * web 200; ADR-0017). [serverSettingsEditable] is `false` on the web (ADR-0013, #159): the code there comes from the server it
- * would talk to, so a server field adds nothing a user can trust, and the strict CSP (#27) pins `connect-src`.
+ * would talk to, so a server field adds nothing a user can trust, and the strict CSP (#27) pins `connect-src` to that host.
  */
 @Suppress("LongParameterList") // One record of what a platform hands over; grouping the fields would only rename them.
 class AppGraph(
@@ -39,8 +39,8 @@ class AppGraph(
     val historyCiphers: suspend () -> HistoryCipherFactory,
     val historyLimits: HistoryLimits,
     /**
-     * `false` on the web: the page's own server is the only one it talks to, so the Settings screen and its entry don't exist
-     * (ADR-0013).
+     * `false` on the web: only the build's default origin applies (a stored custom origin is ignored), so the Settings screen and
+     * its entry don't exist (ADR-0013, #159).
      */
     val serverSettingsEditable: Boolean = true,
 )
