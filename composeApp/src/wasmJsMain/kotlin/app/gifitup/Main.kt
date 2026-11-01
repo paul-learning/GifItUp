@@ -57,6 +57,7 @@ fun main() {
                     random = WebSecureRandom,
                     clipboard = WebClipboard,
                     glyphs = WebGlyphs,
+                    serverSettingsEditable = false,
                     conversations =
                         ConversationPlatform(
                             { BrowserMediaFetcher() },

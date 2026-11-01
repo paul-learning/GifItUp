@@ -151,7 +151,7 @@ private fun Navigation(
                 state,
                 model.holder,
                 current,
-                onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
+                onOpenSettings = if (services.graph.serverSettingsEditable) ({ nav.navigate(ROUTE_SETTINGS) }) else null,
                 onFriends = { nav.navigate(ROUTE_FRIENDS) },
                 onChats = { nav.navigate(ROUTE_CHATS) },
             ) {
@@ -174,14 +174,17 @@ private fun Navigation(
                 if (nav.currentDestination?.route == ROUTE_FRIENDS) nav.popBackStack()
             }
         }
-        composable(ROUTE_SETTINGS) {
-            val holder =
-                remember {
-                    ServerSettingsStateHolder(scope, services.setting, onOriginChanged)
+        // Not registered where the server can't be chosen (the web, #159): there is no route to reach.
+        if (services.graph.serverSettingsEditable) {
+            composable(ROUTE_SETTINGS) {
+                val holder =
+                    remember {
+                        ServerSettingsStateHolder(scope, services.setting, onOriginChanged)
+                    }
+                SettingsScreen(holder, current.origin, services.setting.default) {
+                    // Only from Settings: a second tap must not pop the start destination and leave an empty back stack.
+                    if (nav.currentDestination?.route == ROUTE_SETTINGS) nav.popBackStack()
                 }
-            SettingsScreen(holder, current.origin, services.setting.default) {
-                // Only from Settings: a second tap must not pop the start destination and leave an empty back stack.
-                if (nav.currentDestination?.route == ROUTE_SETTINGS) nav.popBackStack()
             }
         }
     }

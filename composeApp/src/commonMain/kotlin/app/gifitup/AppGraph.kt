@@ -24,7 +24,8 @@ import io.ktor.client.engine.HttpClientEngine
  * Friends screen whether the device draws an emoji (ADR-0014). [conversations] is what the conversation screen (#25)
  * needs from the platform. [historyCiphers] is the platform's message-history cipher (the web loads its wasm module on the
  * first call, like [mlsClientFactory]) and [historyLimits] how much history it keeps (Android 1000 messages per group, the
- * web 200; ADR-0017).
+ * web 200; ADR-0017). [serverSettingsEditable] is `false` on the web (ADR-0013, #159): the code there comes from the server it
+ * would talk to, so a server field adds nothing a user can trust, and the strict CSP (#27) pins `connect-src`.
  */
 @Suppress("LongParameterList") // One record of what a platform hands over; grouping the fields would only rename them.
 class AppGraph(
@@ -37,6 +38,8 @@ class AppGraph(
     val conversations: ConversationPlatform,
     val historyCiphers: suspend () -> HistoryCipherFactory,
     val historyLimits: HistoryLimits,
+    /** `false` on the web: the page's own server is the only one it talks to, so the Settings screen and its entry don't exist (ADR-0013). */
+    val serverSettingsEditable: Boolean = true,
 )
 
 /**

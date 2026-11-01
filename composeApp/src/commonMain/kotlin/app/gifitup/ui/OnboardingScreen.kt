@@ -45,7 +45,7 @@ internal fun OnboardingScreen(
     state: OnboardingState,
     holder: OnboardingStateHolder,
     current: OriginView,
-    onOpenSettings: () -> Unit,
+    onOpenSettings: (() -> Unit)?,
     onFriends: () -> Unit,
     onChats: () -> Unit,
     onInvite: () -> Unit,
@@ -139,7 +139,7 @@ private fun OriginBanner(origin: OriginView) {
 private fun EnterInvite(
     state: OnboardingState.EnterInvite,
     holder: OnboardingStateHolder,
-    onOpenSettings: () -> Unit,
+    onOpenSettings: (() -> Unit)?,
 ) {
     var text by remember { mutableStateOf("") }
     CardSurface {
@@ -159,7 +159,7 @@ private fun EnterInvite(
         state.otherOrigin?.let { Text("It is for: $it") }
         PrimaryButton("Continue", onClick = { holder.submitInvite(text) })
     }
-    SecondaryButton("Server settings", onOpenSettings)
+    onOpenSettings?.let { SecondaryButton("Server settings", it) }
 }
 
 @Composable
