@@ -184,7 +184,7 @@ private fun CaptionOnGif(
 
 /** The GIF itself, or a placeholder of the same shape that says what is going on. */
 @Composable
-private fun GifTileView(
+internal fun GifTileView(
     tile: GifTile?,
     reference: GifReference,
     description: String,

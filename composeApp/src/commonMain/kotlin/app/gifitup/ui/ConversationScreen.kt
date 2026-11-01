@@ -1,6 +1,7 @@
 package app.gifitup.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,12 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,9 +57,13 @@ import kotlinx.coroutines.flow.filter
 internal fun ConversationScreen(
     holder: ConversationStateHolder,
     tiles: GifTilesStateHolder,
+    picker: PickerParts,
     onBack: (() -> Unit)?,
 ) {
     val state by holder.state.collectAsState()
+    var pickerOpen by rememberSaveable { mutableStateOf(false) }
+    // What was typed stays while the picker is over the screen; it is not kept in saved state (nothing the user writes is).
+    var caption by remember { mutableStateOf("") }
     LaunchedEffect(holder) {
         holder.open()
         while (true) {
@@ -84,6 +91,36 @@ internal fun ConversationScreen(
     LaunchedEffect(state.messages.size) {
         if (pinned && state.messages.isNotEmpty()) list.scrollToItem(0)
     }
+    Box(Modifier.fillMaxSize()) {
+        ConversationColumn(holder, state, tiles, list, SendInput(caption, { caption = it }, { pickerOpen = true }), onBack)
+        if (pickerOpen) {
+            val close = {
+                pickerOpen = false
+                picker.picker.close()
+                picker.previews.leave()
+            }
+            // Over the whole conversation; the screen below keeps its state (the caption, the scroll position).
+            Surface(Modifier.fillMaxSize()) {
+                GifPickerScreen(picker, onClose = close) { reference ->
+                    holder.send(reference, caption.ifBlank { null })
+                    caption = ""
+                    close()
+                }
+            }
+        }
+    }
+}
+
+@Suppress("LongParameterList") // The screen's pieces, handed down from the one place that owns them.
+@Composable
+private fun ConversationColumn(
+    holder: ConversationStateHolder,
+    state: ConversationState,
+    tiles: GifTilesStateHolder,
+    list: LazyListState,
+    input: SendInput,
+    onBack: (() -> Unit)?,
+) {
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -109,7 +146,7 @@ internal fun ConversationScreen(
                 MessageRow(message, tiles, tileStates[message.reference])
             }
         }
-        SendArea(holder, state.sendProblem, state.hasUnsettled, state.canSend)
+        SendArea(holder, state, input)
     }
 }
 
@@ -147,35 +184,37 @@ private fun ConversationHeader(
     )
 }
 
-/** The caption field, the send button and what it needs to say. The button is off until the GIF picker (#23) can hand over a GIF. */
+/** What the send area needs from the screen: the caption text (kept there while the picker is open) and how to open the picker. */
+private class SendInput(
+    val caption: String,
+    val onCaption: (String) -> Unit,
+    val onChoose: () -> Unit,
+)
+
+/** The caption field, the button that opens the GIF picker (#23) and what a send needs to say. */
 @Composable
 private fun SendArea(
     holder: ConversationStateHolder,
-    problem: SendProblem?,
-    unsettled: Boolean,
-    canSend: Boolean,
+    state: ConversationState,
+    input: SendInput,
 ) {
+    val problem = state.sendProblem
+    val unsettled = state.hasUnsettled
+    val canSend = state.canSend
+    val caption = input.caption
     var open by rememberSaveable { mutableStateOf(false) }
-    // The field being open is kept over a recreation; what was typed is not (nothing the user writes goes into saved state).
-    var caption by remember { mutableStateOf("") }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         problem?.let { Text(ConversationTexts.sendProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
         if (unsettled) TextButton(onClick = holder::resend, enabled = canSend) { Text(ConversationTexts.RESEND) }
         if (open) {
-            CaptionField(holder.captions, caption, onChange = { caption = it }, onRemove = {
-                caption = ""
+            CaptionField(holder.captions, caption, onChange = input.onCaption, onRemove = {
+                input.onCaption("")
                 open = false
             })
         } else {
             TextButton(onClick = { open = true }) { Text(ConversationTexts.ADD_CAPTION) }
         }
-        PlusButton(ConversationTexts.SEND, enabled = false, onClick = {})
-        Text(
-            ConversationTexts.SEND_NEEDS_PICKER,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
+        PlusButton(ConversationTexts.SEND, enabled = canSend, onClick = input.onChoose)
     }
 }
 

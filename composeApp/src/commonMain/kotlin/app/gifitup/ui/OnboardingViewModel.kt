@@ -7,13 +7,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.gifitup.AppGraph
 import app.gifitup.shared.data.crypto.MlsClientFactory
+import app.gifitup.shared.data.gif.KlipyGifProvider
 import app.gifitup.shared.data.network.ApiEndpoint
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.domain.auth.DeviceAuth
 import app.gifitup.shared.domain.auth.DeviceStorage
+import app.gifitup.shared.domain.auth.FetchGifProviderKey
 import app.gifitup.shared.domain.auth.HistoryCloser
 import app.gifitup.shared.domain.chat.ChatService
 import app.gifitup.shared.domain.chat.ReadMarks
+import app.gifitup.shared.domain.gif.GifKeyHolder
+import app.gifitup.shared.domain.gif.GifKeyRefresher
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.invite.CreateInvite
 import app.gifitup.shared.domain.invite.ListInvites
@@ -32,9 +36,12 @@ import app.gifitup.shared.presentation.chat.ConversationStateHolder
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
 import app.gifitup.shared.presentation.chat.NewChatStateHolder
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
+import app.gifitup.shared.presentation.gif.GifPickerStateHolder
 import app.gifitup.shared.presentation.invite.CreateInviteStateHolder
+import app.gifitup.shared.presentation.onboarding.OnboardingState
 import app.gifitup.shared.presentation.onboarding.OnboardingStateHolder
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
@@ -106,6 +113,21 @@ internal class OnboardingViewModel(
         )
     private val captions = CaptionInput(graph.conversations.graphemes)
 
+    // The GIF picker (#23): the provider key is fetched from our server only by the refresher below (when the account is
+    // ready, then every 6 hours), kept in memory only, and cleared with this view model. Searches go to the provider directly.
+    private val gifKeys = GifKeyHolder()
+    private val providerFetcher = graph.conversations.providerFetcher()
+    private val gifProvider = KlipyGifProvider(providerFetcher, gifKeys) { Clock.System.now().toEpochMilliseconds() }
+
+    /** The picker's logic; its results' previews load through [previews], like the bubbles. */
+    val picker = GifPickerStateHolder(viewModelScope, gifProvider)
+    val previews =
+        GifTilesStateHolder(
+            viewModelScope,
+            MediaPolicy(graph.conversations.securityPatch) { CivilDate.ofEpochDays(Clock.System.now().epochSeconds / SECONDS_PER_DAY) },
+            LoadGifMedia(mediaFetcher),
+        )
+
     /** The conversation the list opened, `null` if none (the screen then goes back). One at a time. */
     var conversation: ConversationStateHolder? by mutableStateOf(null)
         private set
@@ -119,6 +141,12 @@ internal class OnboardingViewModel(
 
     init {
         holder.start()
+        // The key's refresh starts when the account is ready, with the login that fetches it, and ends with this view model.
+        val refresher = GifKeyRefresher(gifKeys, { sessions.withSessionResult { FetchGifProviderKey(api)(it) } })
+        viewModelScope.launch {
+            holder.state.first { it is OnboardingState.Done }
+            refresher.run()
+        }
     }
 
     override fun onCleared() {
@@ -128,6 +156,10 @@ internal class OnboardingViewModel(
         newChat.leave()
         conversation?.leave()
         tiles.leave()
+        picker.close()
+        previews.leave()
+        gifKeys.clear()
+        (providerFetcher as? AutoCloseable)?.close()
         (mediaFetcher as? AutoCloseable)?.close()
         // The history key and the decrypted cache leave memory with the view model (the wipe has closed it already).
         MainScope().launch { runCatching { history.close() } }
