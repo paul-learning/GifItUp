@@ -45,9 +45,11 @@ class AddPolicyTest {
         }
 
     @Test
-    fun aChatWhoseMembersAreNotKnownIsRefused() =
+    fun aChatWhoseMembersAreNotKnownIsRefusedAlsoWhenItIsNamed() =
         runTest {
             assertFalse(policy.allows(info()))
+            name("Gone")
+            assertFalse(policy.allows(info()), "a name does not make an unreadable roster growable")
         }
 
     @Test

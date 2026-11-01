@@ -14,9 +14,12 @@ class AddPolicy(
     private val store: HistoryAccess,
 ) {
     suspend fun allows(info: GroupInfo): Boolean =
-        try {
-            chatKind(info.others.size, settledName(store.messages(info.id)) != null, store.unreadable(info.id)) == ChatKind.GROUP
-        } catch (_: HistoryStoreException) {
-            false
-        }
+        // A roster that can't be read (no other members known) is refused even for a named chat: the group may be one this
+        // device was removed from, and the engine would only fail.
+        info.others.isNotEmpty() &&
+            try {
+                chatKind(info.others.size, settledName(store.messages(info.id)) != null, store.unreadable(info.id)) == ChatKind.GROUP
+            } catch (_: HistoryStoreException) {
+                false
+            }
 }
