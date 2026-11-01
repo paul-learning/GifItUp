@@ -17,6 +17,10 @@ import io.ktor.http.contentLength
 import io.ktor.utils.io.cancel
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 
 /**
@@ -47,8 +51,23 @@ class KtorMediaFetcher(
             }
         }
 
-    @Suppress("TooGenericExceptionCaught")
+    /**
+     * **Never cancelled while the request is on the wire.** Android's `HttpURLConnection` closes a cancelled response by reading
+     * the rest of the body, and does that on the thread that cancelled (the main thread, when a tile scrolls away) while
+     * another thread is still reading it: its timeout bookkeeping then throws `Unbalanced enter/exit` inside a cancellation
+     * handler, which ends the whole app. So the call runs to its end (bounded by the timeouts and the byte cap), a caller that
+     * went away gets its [CancellationException] afterwards, and the result is dropped. A call that is still waiting for a slot
+     * is cancelled normally: it has no request yet.
+     */
     override suspend fun fetch(reference: GifReference): FetchResult {
+        val result = withContext(NonCancellable) { fetchToEnd(reference) }
+        // withContext(NonCancellable) returns normally for a caller that was cancelled meanwhile: say so now.
+        currentCoroutineContext().ensureActive()
+        return result
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun fetchToEnd(reference: GifReference): FetchResult {
         var decided: FetchResult? = null
         return try {
             // execute { } hands over the response as it arrives; a plain get() would buffer the whole body first.

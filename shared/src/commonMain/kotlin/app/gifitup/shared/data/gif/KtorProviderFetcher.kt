@@ -13,6 +13,10 @@ import io.ktor.http.contentLength
 import io.ktor.utils.io.cancel
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 
 /**
@@ -37,8 +41,23 @@ class KtorProviderFetcher(
             }
         }
 
-    @Suppress("TooGenericExceptionCaught")
+    /**
+     * Never cancelled while the request is on the wire, for the reason given at [KtorMediaFetcher.fetch]: a newer search
+     * cancels the older one, and cancelling an Android `HttpURLConnection` response mid-read can crash the app. The older answer
+     * is dropped by the caller.
+     */
     override suspend fun get(
+        url: String,
+        maxBytes: Int,
+    ): ProviderAnswer {
+        val answer = withContext(NonCancellable) { getToEnd(url, maxBytes) }
+        // withContext(NonCancellable) returns normally for a caller that was cancelled meanwhile: say so now.
+        currentCoroutineContext().ensureActive()
+        return answer
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun getToEnd(
         url: String,
         maxBytes: Int,
     ): ProviderAnswer =
