@@ -59,6 +59,7 @@ internal fun ConversationScreen(
     holder: ConversationStateHolder,
     tiles: GifTilesStateHolder,
     picker: PickerParts,
+    onOpenProfile: (String) -> Unit,
     onBack: (() -> Unit)?,
 ) {
     val state by holder.state.collectAsState()
@@ -93,7 +94,14 @@ internal fun ConversationScreen(
         if (pinned && state.messages.isNotEmpty()) list.scrollToItem(0)
     }
     Box(Modifier.fillMaxSize()) {
-        ConversationColumn(holder, state, tiles, list, SendInput(caption, { caption = it }, { pickerOpen = true }), onBack)
+        ConversationColumn(
+            holder,
+            state,
+            tiles,
+            list,
+            SendInput(caption, { caption = it }, { pickerOpen = true }),
+            Navigation(onOpenProfile, onBack),
+        )
         if (pickerOpen) {
             val close = {
                 pickerOpen = false
@@ -120,13 +128,13 @@ private fun ConversationColumn(
     tiles: GifTilesStateHolder,
     list: LazyListState,
     input: SendInput,
-    onBack: (() -> Unit)?,
+    nav: Navigation,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ConversationHeader(state, onBack)
+        ConversationHeader(state, nav)
         state.conversationProblem?.let {
             Text(
                 ChatTexts.problem(it),
@@ -170,20 +178,29 @@ private fun HistoryNotices(
 @Composable
 private fun ConversationHeader(
     state: ConversationState,
-    onBack: (() -> Unit)?,
+    nav: Navigation,
 ) {
+    // A direct chat has one friend whose profile opens from an info button (#217); a group has none.
+    val friend = state.members.singleOrNull()?.takeIf { state.title is ConversationTitle.Members }
     AppTopBar(
         title = ChatTexts.title(state.title),
-        onBack = onBack,
+        onBack = nav.onBack,
         subtitle = ConversationTexts.subtitle(state.members, state.title is ConversationTitle.Named),
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (state.refreshing) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 MemberAvatars(state.members)
+                friend?.let { IconTile(ProfileTexts.OPEN_PROFILE, { nav.onOpenProfile(it) }) { InfoIcon(it) } }
             }
         },
     )
 }
+
+/** Where the conversation screen can go: back, and a friend's profile. */
+private class Navigation(
+    val onOpenProfile: (String) -> Unit,
+    val onBack: (() -> Unit)?,
+)
 
 /** What the send area needs from the screen: the caption text (kept there while the picker is open) and how to open the picker. */
 private class SendInput(

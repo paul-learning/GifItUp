@@ -28,6 +28,7 @@ import app.gifitup.shared.presentation.onboarding.OnboardingState
 internal const val ROUTE_ONBOARDING = "onboarding"
 internal const val ROUTE_FRIENDS = "friends"
 internal const val ROUTE_PROFILE = "profile"
+internal const val ROUTE_CONTACT = "contact"
 internal const val ROUTE_NEW_CHAT = "new-chat"
 internal const val ROUTE_CONVERSATION = "conversation"
 
@@ -49,17 +50,28 @@ internal fun ChatHome(
             if (!wide) nav.navigate(ROUTE_CONVERSATION)
         }
         val menu = MenuActions({ nav.navigate(ROUTE_PROFILE) }, { nav.navigate(ROUTE_INVITES) }, { nav.navigate(ROUTE_FRIENDS) })
-        val actions = ChatListActions({ nav.navigate(ROUTE_NEW_CHAT) }, menu, open)
+        val actions = ChatListActions({ nav.navigate(ROUTE_NEW_CHAT) }, menu, open) { openProfile(model, nav, it) }
         if (wide) {
             Row(Modifier.fillMaxSize()) {
                 ChatListScreen(model.chats, actions, Modifier.width(LIST_PANE_WIDTH), model.conversation?.id, notice)
                 VerticalDivider()
-                OpenConversation(model, Modifier.weight(1f))
+                OpenConversation(model, nav, Modifier.weight(1f))
             }
         } else {
             ChatListScreen(model.chats, actions, notice = notice)
         }
     }
+}
+
+/** Opens [username]'s profile; the name goes in the ViewModel, never in the route. */
+internal fun openProfile(
+    model: OnboardingViewModel,
+    nav: NavHostController,
+    username: String,
+) {
+    model.openProfile(username)
+    // One profile on the stack, whatever the number of taps.
+    nav.navigate(ROUTE_CONTACT) { launchSingleTop = true }
 }
 
 /**
@@ -78,6 +90,14 @@ internal fun NavGraphBuilder.chatRoutes(
         val leave = { if (nav.currentDestination?.route == ROUTE_PROFILE) nav.popBackStack() }
         (signedIn as? OnboardingState.Done)?.let { ProfileScreen(it.username, model.contacts, glyphs) { leave() } }
     }
+    composable(ROUTE_CONTACT) { entry ->
+        val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
+        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
+        val username = model.contactProfile
+        val leave = { if (nav.currentDestination?.route == ROUTE_CONTACT) nav.popBackStack() }
+        // A process that was recreated has no open profile: back.
+        if (username == null) LaunchedEffect(Unit) { leave() } else ContactProfileScreen(username, model.contacts, glyphs) { leave() }
+    }
     composable(ROUTE_NEW_CHAT) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
         val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
@@ -93,7 +113,13 @@ internal fun NavGraphBuilder.chatRoutes(
         if (holder == null) {
             LaunchedEffect(Unit) { leave() }
         } else {
-            ConversationScreen(holder, model.tiles, PickerParts(model.picker, model.previews), onBack = { leave() })
+            ConversationScreen(
+                holder,
+                model.tiles,
+                PickerParts(model.picker, model.previews),
+                onOpenProfile = { openProfile(model, nav, it) },
+                onBack = { leave() },
+            )
         }
     }
 }
@@ -102,6 +128,7 @@ internal fun NavGraphBuilder.chatRoutes(
 @Composable
 private fun OpenConversation(
     model: OnboardingViewModel,
+    nav: NavHostController,
     modifier: Modifier,
 ) {
     val holder = model.conversation
@@ -109,7 +136,15 @@ private fun OpenConversation(
         if (holder == null) {
             Text(ConversationTexts.PICK_CHAT, modifier = Modifier.align(Alignment.Center).padding(24.dp))
         } else {
-            key(holder) { ConversationScreen(holder, model.tiles, PickerParts(model.picker, model.previews), onBack = null) }
+            key(holder) {
+                ConversationScreen(
+                    holder,
+                    model.tiles,
+                    PickerParts(model.picker, model.previews),
+                    onOpenProfile = { openProfile(model, nav, it) },
+                    onBack = null,
+                )
+            }
         }
     }
 }

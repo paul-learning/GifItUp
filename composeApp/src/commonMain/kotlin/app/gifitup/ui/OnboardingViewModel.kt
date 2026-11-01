@@ -141,6 +141,14 @@ internal class OnboardingViewModel(
             LoadGifMedia(mediaFetcher),
         )
 
+    /** The contact whose profile is open (their username), `null` if none; set before navigating, never a route argument. */
+    var contactProfile: String? by mutableStateOf(null)
+        private set
+
+    fun openProfile(username: String) {
+        contactProfile = username
+    }
+
     /** The conversation the list opened, `null` if none (the screen then goes back). One at a time. */
     var conversation: ConversationStateHolder? by mutableStateOf(null)
         private set

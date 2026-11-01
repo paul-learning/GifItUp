@@ -57,6 +57,8 @@ class FriendView(
     val status: FriendStatus,
     val reason: TrustConflict?,
     val devices: List<List<FingerprintEmoji>>,
+    /** When this device first saw the friend, seconds since the epoch by its own clock (the server sends no time). */
+    val knownSince: Long = 0L,
 )
 
 /**
@@ -306,6 +308,7 @@ class ContactsStateHolder(
                 },
             reason = pending?.reason,
             devices = if (status == ContactStatus.UNCONFIRMED || fingerprints == null) emptyList() else cells(devices, fingerprints),
+            knownSince = firstSeen,
         )
 
     private fun order(friends: List<FriendView>): List<FriendView> =

@@ -123,7 +123,7 @@ class ContactsStateHolderTest {
         account: Int,
         name: String,
         vararg keyNumbers: Int,
-    ) = Contact(id(account), name, ContactStatus.OK, keyNumbers.associate { key(it) to id(1000 + it) }, null, 1L, 1L)
+    ) = Contact(id(account), name, ContactStatus.OK, keyNumbers.associate { key(it) to id(1000 + it) }, null, 5L, 9L)
 
     /** A saved friend whose key changed: `bob` was pinned with key 1 and a claim showed key 2. */
     private fun blockedBob(): ContactBook {
@@ -164,6 +164,7 @@ class ContactsStateHolderTest {
             val bob = state.friends.single { it.username == "bob" }
             assertEquals(FriendStatus.SAVED, bob.status)
             assertEquals(listOf(emojisOf(key(1))), bob.devices)
+            assertEquals(5L, bob.knownSince, "known since is the book's firstSeen, not lastSeen")
             val cara = state.friends.single { it.username == "cara" }
             assertEquals(FriendStatus.NOT_SAVED, cara.status)
             assertEquals(emptyList(), cara.devices, "a listed key says nothing about the key a claim will pin (SEC-42)")

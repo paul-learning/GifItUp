@@ -113,7 +113,7 @@ internal fun OwnEmojisCard(onShow: () -> Unit) {
 
 /** One friend: avatar, name and one line of status; a tap shows the saved emojis to compare, a changed key asks for a review. */
 @Composable
-private fun Friend(
+internal fun Friend(
     friend: FriendView,
     glyphs: GlyphSupport,
     canReview: Boolean,
@@ -170,7 +170,7 @@ private fun Friend(
  * emojis under the user, and the confirmation is forgotten whenever the review is rebuilt ([ReviewView.version]).
  */
 @Composable
-private fun Review(
+internal fun Review(
     review: ReviewView,
     glyphs: GlyphSupport,
     busy: Boolean,

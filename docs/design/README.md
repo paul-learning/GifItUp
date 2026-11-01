@@ -55,6 +55,7 @@ least 48 dp.
   Invite a friend, Friends), filter chips under it (All, Direct, Groups; direct = one other member and no name, a group has a name or
   two or more others, see ADR-0006 B3), the round "+" at the lower right for a new chat or group. There is no back button: it is the start.
 - **New chat:** two modes as chips: "Chat with a friend" (one friend, no name: a direct chat) and "New group" (a name of 1 to 64 characters and one or more friends; the name is sent after the friends are in). Only a group can grow.
+- **Contact profile:** the same friend card as the Friends screen (the saved key as emojis to compare, a review when it changed) and "Known since <date>" (the UTC day this device first saw them: the server sends no time). Reached by a long tap on a **direct** chat in the list, or the info button in the header of a direct chat.
 - **Profile:** the username and the own key emojis (the same card and dialog as on the Friends screen).
 - A notice above the list: the server banner while the server isn't the default, and a note while some setup is pending.
 
@@ -71,5 +72,5 @@ least 48 dp.
   composable.
 
 ## Not designed yet
-Typography overrides, motion, tablet/desktop beyond the two-pane chat layout, an app icon (#211), and the contact profile
+Typography overrides, motion, tablet/desktop beyond the two-pane chat layout, an app icon (#211), and the group info screen
 (#217). They are added here when they are built.

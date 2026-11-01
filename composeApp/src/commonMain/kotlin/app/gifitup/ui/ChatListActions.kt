@@ -10,6 +10,8 @@ internal class ChatListActions(
     val onNewChat: () -> Unit,
     val onMenu: MenuActions,
     val onOpen: ((GroupInfo) -> Unit)?,
+    /** A long tap on a direct chat opens that friend's profile. */
+    val onProfile: (String) -> Unit = {},
 )
 
 /** The destinations of the burger menu. */
