@@ -1,5 +1,7 @@
 package app.gifitup.cli
 
+import app.gifitup.mls.UniffiHistoryCipherFactory
+import app.gifitup.shared.data.crypto.HistoryCipherFactory
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.ApiError
@@ -82,6 +84,7 @@ data class Invocation(
                 "chat-remove" to (setOf("--group", "--target") to NONE),
                 "chat-send" to (setOf("--group") to NONE),
                 "chat-sync" to (setOf("--group") to NONE),
+                "chat-history" to (setOf("--group") to NONE),
                 "chat-resume" to (setOf("--group") to NONE),
                 "chat-welcomes" to (NONE to NONE),
                 "chat-groups" to (NONE to NONE),
@@ -193,6 +196,7 @@ data class Invocation(
   chat-add|chat-remove --group <id> --target <name>   add or remove a member's devices (removal needs the contact book's pins)
   chat-send --group <id>               send a test GIF with the line on stdin as its caption (chat-sync shows the caption)
   chat-sync --group <id>               fetch, decrypt and apply the group's log; prints each message with its sender
+  chat-history --group <id>            the stored (sealed on disk) messages of the group, oldest first
   chat-resume --group <id>             post a pending message or commit again; chat-welcomes: join pending welcomes
   chat-groups                          list the groups on this device: id, state and the other members
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
@@ -213,6 +217,7 @@ class Cli(
     private val random: SecureRandomSource,
     private val readInvite: () -> String,
     private val readText: () -> String = { throw CliError("no text on stdin", EXIT_USAGE) },
+    private val ciphers: HistoryCipherFactory = UniffiHistoryCipherFactory,
     private val out: PrintStream,
     private val err: PrintStream,
 ) {
@@ -232,8 +237,7 @@ class Cli(
         api: GifItUpApi,
         state: StateDir,
     ): Int {
-        // The CLI keeps its own state dir and has no history store yet (#177 PR 4c).
-        val register = RegisterDevice(api, guarded(), state.identities, state.keys, random, lock, HistoryLeftovers.None)
+        val register = RegisterDevice(api, guarded(), state.identities, state.keys, random, lock, HistoryLeftovers { state.clearHistory() })
         return when (invocation.command) {
             "register" -> register(invocation, api, register)
             "reset" -> report(register.discardPending()) { out.println("pending registration discarded") }
@@ -334,7 +338,11 @@ class Cli(
 
             in Invocation.CHAT_COMMANDS -> {
                 val chat = ChatActions(api, mls, state.identities, state.keys, lock, access, claim, random)
-                ChatCommands(chat, out, readText) { report(it) { } }.run(invocation, session)
+                // Every chat command opens the sealed history first: a command that reads messages must never run
+                // without a place to keep them (the engine acknowledges what its sink took), and a broken key refuses it.
+                CliHistory(state, api.endpoint.origin, random, ciphers).use { store ->
+                    ChatCommands(chat, store, out, readText) { report(it) { } }.run(invocation, session)
+                }
             }
 
             in Invocation.DELIVERY_COMMANDS -> {

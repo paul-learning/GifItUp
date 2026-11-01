@@ -47,6 +47,15 @@ distributions {
     }
 }
 
+// The unit tests that open the real history cipher find the crate's host library the same way the start scripts do.
+tasks.test {
+    val libraryDirs =
+        nativeLibrary.elements.map { files ->
+            files.map { it.asFile.parentFile.absolutePath }.distinct().joinToString(File.pathSeparator)
+        }
+    doFirst { systemProperty("jna.library.path", libraryDirs.get()) }
+}
+
 tasks.named<CreateStartScripts>("startScripts") {
     doLast {
         unixScript.writeText(unixScript.readText().replace("__APP_HOME__", "'\"\$APP_HOME\"'"))

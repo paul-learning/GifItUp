@@ -1,5 +1,6 @@
 package app.gifitup.cli
 
+import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.data.storage.StoredIdentity
 import app.gifitup.shared.domain.contacts.Contact
 import app.gifitup.shared.domain.contacts.ContactBook
@@ -166,6 +167,46 @@ class StateDirTest {
                 assertEquals(EXIT_REFUSED, assertFailsWith<CliError> { state.keys.save(ByteArray(33)) }.exit)
                 assertEquals(31, Files.size(dir.resolve("snapshot-key")))
             }
+        }
+
+    @Test
+    fun theHistoryKeyIsOwnerOnlyNeverReplacedAndADamagedOneIsNotAbsent() =
+        runBlocking {
+            state.lock().use {
+                assertNull(state.historyKeys.load())
+                state.historyKeys.save(ByteArray(32) { 1 })
+                assertFailsWith<LocalStateException> { state.historyKeys.save(ByteArray(32) { 2 }) }
+                assertContentEquals(ByteArray(32) { 1 }, Files.readAllBytes(dir.resolve("history-key")), "the first key is byte-identical")
+                assertContentEquals(ByteArray(32) { 1 }, state.historyKeys.load())
+                assertEquals(
+                    listOf("history-key", "lock"),
+                    dir.listDirectoryEntries().map { it.name }.sorted(),
+                    "no temp file, and nothing of the CLI in the records folder",
+                )
+                if ("posix" in dir.fileSystem.supportedFileAttributeViews()) {
+                    assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(dir.resolve("history-key"))))
+                }
+                listOf(0, 31, 33).forEach { size ->
+                    Files.write(dir.resolve("history-key"), ByteArray(size))
+                    val failure = assertFailsWith<LocalStateException>("$size bytes") { state.historyKeys.load() }
+                    assertEquals(LocalStateException.Problem.DAMAGED, failure.problem)
+                    assertEquals(size.toLong(), Files.size(dir.resolve("history-key")), "the damaged file is untouched")
+                }
+                state.historyKeys.clear()
+                assertNull(state.historyKeys.load())
+            }
+        }
+
+    @Test
+    fun theRecordsLiveInTheirOwnFolder() =
+        runBlocking {
+            state.lock().use {
+                state.records.put("0".repeat(64), "1".repeat(64), byteArrayOf(1))
+                state.historyKeys.save(ByteArray(32))
+                state.identities.save(identity)
+            }
+            assertEquals(listOf("0".repeat(64)), dir.resolve("history").listDirectoryEntries().map { it.name })
+            assertEquals(listOf("1".repeat(64)), dir.resolve("history/" + "0".repeat(64)).listDirectoryEntries().map { it.name })
         }
 
     private companion object {

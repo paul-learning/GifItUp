@@ -7,6 +7,7 @@ import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.groups.RejectReason
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomeOutcome
+import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.domain.messages.MessageIntake
 import java.util.Base64
@@ -81,16 +82,21 @@ private fun statusLine(status: GroupStatus): String =
  * shown, the link is not; a caption is a checked text, but it is masked anyway (see [printable]).
  */
 internal fun messageLine(message: DeliveredMessage): String? {
-    val what =
-        when (val body = MessageIntake.bodyOf(message.plaintext)) {
-            null -> return null
-            is MessageBody.Gif -> "gif ${body.reference.slug}" + (body.caption?.let { " \"${printable(it)}\"" } ?: "")
-            is MessageBody.GroupMeta -> "group name \"${printable(body.name)}\""
-            MessageBody.Unavailable -> "message unavailable"
-            MessageBody.UpdateNeeded -> "update needed"
-        }
-    return "message ${message.seq} from ${message.senderUsername}: $what"
+    val body = MessageIntake.bodyOf(message.plaintext) ?: return null
+    return "message ${message.seq} from ${message.senderUsername}: ${bodyText(body)}"
 }
+
+private fun bodyText(body: MessageBody): String =
+    when (body) {
+        is MessageBody.Gif -> "gif ${body.reference.slug}" + (body.caption?.let { " \"${printable(it)}\"" } ?: "")
+        is MessageBody.GroupMeta -> "group name \"${printable(body.name)}\""
+        MessageBody.Unavailable -> "message unavailable"
+        MessageBody.UpdateNeeded -> "update needed"
+    }
+
+/** One stored message of `chat-history`: seq (or `-`), sender (or `-` for one this device sent), state (or `-`), the same text. */
+internal fun storedLine(message: ChatMessage): String =
+    "stored ${message.seq ?: "-"} ${message.sender ?: "-"} ${message.state?.name?.lowercase() ?: "-"}: ${bodyText(message.body)}"
 
 private const val TEST_GIF_WIDTH = 320
 private const val TEST_GIF_HEIGHT = 240

@@ -29,8 +29,11 @@ import kotlinx.coroutines.sync.withLock
  * takes the `DeviceLock`. A registration cannot race the open (it only runs for an identity that is not registered, and
  * this refuses one), and a wipe cannot (it closes the history first, terminally). The caller zeroes the returned array
  * after handing it to `HistoryCipherFactory.create`.
+ *
+ * Public for exactly two callers: the app's [DeviceStorage] and the dev CLI (`cli/`, which has no [DeviceStorage]). The rule "a
+ * key is made only over a record store that holds nothing, and never replaces one" must be this code, not a copy of it.
  */
-internal class OpenHistoryKey(
+class OpenHistoryKey(
     private val keys: HistoryKeyStore,
     private val identities: IdentityStore,
     private val origin: String,

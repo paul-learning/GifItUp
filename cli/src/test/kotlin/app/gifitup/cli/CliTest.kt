@@ -62,12 +62,22 @@ class CliTest {
             assertEquals("ben", parsed.target)
             assertEquals(16, parsed.group?.size)
         }
-        listOf("chat-send", "chat-sync", "chat-resume").forEach {
+        listOf("chat-send", "chat-sync", "chat-resume", "chat-history").forEach {
             assertEquals(it, Invocation.parse(listOf(it) + base + listOf("--group", group)).command)
         }
         assertEquals("chat-welcomes", Invocation.parse(listOf("chat-welcomes") + base).command)
         assertEquals(
-            setOf("chat-create", "chat-add", "chat-remove", "chat-send", "chat-sync", "chat-resume", "chat-welcomes", "chat-groups"),
+            setOf(
+                "chat-create",
+                "chat-add",
+                "chat-remove",
+                "chat-send",
+                "chat-sync",
+                "chat-history",
+                "chat-resume",
+                "chat-welcomes",
+                "chat-groups",
+            ),
             Invocation.CHAT_COMMANDS,
         )
 

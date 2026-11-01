@@ -1,16 +1,22 @@
 package app.gifitup.cli
 
+import app.gifitup.mls.storage.FileRecordStore
 import app.gifitup.shared.data.storage.ContactRecordCodec
+import app.gifitup.shared.data.storage.HistoryKeyStore
 import app.gifitup.shared.data.storage.IdentityStore
+import app.gifitup.shared.data.storage.LocalStateException
+import app.gifitup.shared.data.storage.RecordStore
 import app.gifitup.shared.data.storage.SnapshotKeyStore
 import app.gifitup.shared.data.storage.StoredIdentity
 import app.gifitup.shared.domain.contacts.ContactBook
 import app.gifitup.shared.domain.contacts.ContactLoad
 import app.gifitup.shared.domain.contacts.ContactStore
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -37,6 +43,7 @@ class StateDir(
     private val identityFile = dir.resolve("identity")
     private val keyFile = dir.resolve("snapshot-key")
     private val contactsFile = dir.resolve("contacts")
+    private val historyKeyFile = dir.resolve("history-key")
 
     /** Creates the dir if needed and takes the lock; close it when the command ends. */
     fun lock(): AutoCloseable {
@@ -115,6 +122,34 @@ class StateDir(
             override suspend fun clear() = delete(keyFile)
         }
 
+    /**
+     * The history key (ADR-0017): 32 random bytes in a plain file beside the snapshot key, protected like it (not at all
+     * beyond the owner-only mode: test accounts only). It is **never replaced**: [save] publishes the file with a hard
+     * link, which fails if the target exists, so the refusal does not depend on a check before it or on the state dir's
+     * lock. A file of any other size is `DAMAGED` (never "absent": absent plus an empty history would make a new key).
+     */
+    val historyKeys: HistoryKeyStore =
+        object : HistoryKeyStore {
+            override suspend fun load(): ByteArray? =
+                readOrNull(historyKeyFile)?.also {
+                    if (it.size != KEY_BYTES) throw LocalStateException(LocalStateException.Problem.DAMAGED)
+                }
+
+            override suspend fun save(key: ByteArray) {
+                require(key.size == KEY_BYTES) { "a history key is 32 bytes" }
+                try {
+                    writeNew(historyKeyFile, key)
+                } catch (_: FileAlreadyExistsException) {
+                    throw LocalStateException(LocalStateException.Problem.STORAGE)
+                }
+            }
+
+            override suspend fun clear() = delete(historyKeyFile)
+        }
+
+    /** The sealed history records: `<state dir>/history`, and nothing else of the CLI is ever put in that folder. */
+    val records: RecordStore = FileRecordStore(File(dir.toFile(), HISTORY_FOLDER))
+
     private fun readOrNull(file: Path): ByteArray? = if (Files.exists(file)) Files.readAllBytes(file) else null
 
     private fun createOwnerOnlyDir() {
@@ -149,6 +184,30 @@ class StateDir(
         }
     }
 
+    /** Like [writeAtomically], but fails with [FileAlreadyExistsException] if [target] exists, and never replaces it. */
+    private fun writeNew(
+        target: Path,
+        bytes: ByteArray,
+    ) {
+        createOwnerOnlyDir()
+        val temp =
+            if (posix) {
+                Files.createTempFile(dir, ".tmp-", "", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
+            } else {
+                Files.createTempFile(dir, ".tmp-", "")
+            }
+        try {
+            FileChannel.open(temp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING).use { channel ->
+                channel.write(ByteBuffer.wrap(bytes))
+                channel.force(true)
+            }
+            Files.createLink(target, temp)
+            syncDir()
+        } finally {
+            Files.deleteIfExists(temp)
+        }
+    }
+
     private fun delete(file: Path) {
         if (Files.deleteIfExists(file)) syncDir()
     }
@@ -165,6 +224,7 @@ class StateDir(
 
     internal companion object {
         const val KEY_BYTES = 32
+        const val HISTORY_FOLDER = "history"
         private val base64 = Base64.getEncoder()
         private val base64Decoder = Base64.getDecoder()
 
