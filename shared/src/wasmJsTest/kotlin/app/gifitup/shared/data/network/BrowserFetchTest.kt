@@ -1,5 +1,7 @@
 package app.gifitup.shared.data.network
 
+import app.gifitup.shared.data.gif.BrowserApiFetch
+import app.gifitup.shared.data.gif.ProviderAnswer
 import app.gifitup.shared.domain.media.FetchResult
 import app.gifitup.shared.domain.media.MediaFormat
 import app.gifitup.shared.domain.media.MediaInfo
@@ -139,6 +141,37 @@ class BrowserFetchTest {
                 val afterCancel = bytesSent(server)
                 realDelay(300)
                 assertEquals(afterCancel, bytesSent(server), "the server stopped being read from")
+            }
+        }
+
+    @Test
+    fun theApiFetchGivesTheStatusAndBodyOfAnAnswerAndFailsOnARedirect() =
+        runTest {
+            withServer { base, server ->
+                val ok = BrowserApiFetch.fetch("$base/gif", 1024, 5000)
+                assertEquals("GIF89a", assertIs<ProviderAnswer.Reply>(ok).body.decodeToString())
+                val missing = assertIs<ProviderAnswer.Reply>(BrowserApiFetch.fetch("$base/missing", 1024, 5000))
+                assertEquals(404, missing.status)
+                assertEquals(0, missing.body.size)
+                assertEquals(ProviderAnswer.Failed, BrowserApiFetch.fetch("$base/redirect", 1024, 5000))
+                assertEquals(3, requestCount(server), "the redirect target was never requested")
+            }
+        }
+
+    @Test
+    fun theApiFetchSendsNoCookiesRefererOrAuthorizationAndStopsAtTheCap() =
+        runTest {
+            withServer { base, _ ->
+                val headers =
+                    assertIs<ProviderAnswer.Reply>(
+                        BrowserApiFetch.fetch("$base/headers", 4096, 5000),
+                    ).body.decodeToString().lowercase()
+                assertTrue("\"accept\":\"application/json\"" in headers, headers)
+                for (name in listOf("cookie", "referer", "authorization")) {
+                    assertFalse("\"$name\"" in headers, headers)
+                }
+                assertEquals(ProviderAnswer.TooLarge, BrowserApiFetch.fetch("$base/declared", 1024, 5000))
+                assertEquals(ProviderAnswer.TooLarge, BrowserApiFetch.fetch("$base/big", 256 * 1024, 5000))
             }
         }
 
