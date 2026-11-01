@@ -102,9 +102,10 @@ data class Invocation(
         /** The commands of the Delivery Service test driver. */
         val DELIVERY_COMMANDS: Set<String> = SPEC.keys.filter { it.startsWith("group-") || it.startsWith("welcome") }.toSet()
 
-        /** The commands over the app's group sync engine. */
+        /** The commands over the GIF provider key and search (ADR-0003). */
         val GIF_COMMANDS: Set<String> = setOf("gif-provider", "gif-search")
 
+        /** The commands over the app's group sync engine. */
         val CHAT_COMMANDS: Set<String> = SPEC.keys.filter { it.startsWith("chat-") }.toSet()
 
         private const val MIN_GROUP_ID = 16
