@@ -30,10 +30,15 @@ interface ChatPort {
         target: String,
     ): AuthResult<GroupCreation>
 
+    /**
+     * Adds [target] to the group. Only a **group** may grow (#217); [initial] is for the creator's own setup of a group it
+     * just made (the flow adds the friends it chose after the first one, while the chat still has one other member).
+     */
     suspend fun add(
         session: Session,
         groupId: KeyBytes,
         target: String,
+        initial: Boolean = false,
     ): AuthResult<SyncOutcome>
 
     suspend fun sendGif(
@@ -41,6 +46,13 @@ interface ChatPort {
         groupId: KeyBytes,
         reference: GifReference,
         caption: String?,
+    ): AuthResult<SyncOutcome>
+
+    /** Names the group (a `group_meta` message, #217); it counts as the chat's name only once the server accepted it. */
+    suspend fun rename(
+        session: Session,
+        groupId: KeyBytes,
+        name: String,
     ): AuthResult<SyncOutcome>
 
     /** Posts the group's unsettled message again. */

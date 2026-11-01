@@ -49,10 +49,22 @@ internal object ConversationTexts {
         }
 
     /** The line under the title: how many people are in it (you included), and that it is encrypted. */
-    fun subtitle(others: Int): String {
+    fun subtitle(
+        others: List<String>,
+        named: Boolean,
+    ): String {
         val encrypted = ENCRYPTED.replaceFirstChar { it.uppercase() }
-        return if (others < 2) encrypted else "${others + 1} friends · $ENCRYPTED"
+        return when {
+            // A name is text another member chose: the real usernames stay in view next to it (#217).
+            named && others.size in 1..MAX_NAMED_MEMBERS -> "${others.joinToString(", ") { ChatTexts.isolated(it) }} · $ENCRYPTED"
+
+            others.size < 2 -> encrypted
+
+            else -> "${others.size + 1} friends · $ENCRYPTED"
+        }
     }
+
+    private const val MAX_NAMED_MEMBERS = 4
 
     fun renamed(name: String): String = "The chat was renamed to ${ChatTexts.isolated(name)}"
 

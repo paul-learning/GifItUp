@@ -113,6 +113,60 @@ class EncryptedMessageStoreTest {
             assertEquals(4, records.snapshot().values.sumOf { it.size }, "three of group 1 and one of group 2 are on disk")
         }
 
+    private fun named(
+        group: Int,
+        n: Int,
+        name: String,
+    ) = ChatMessage(id(group), ref(n), "cy", null, MessageBody.GroupMeta(name), null, 5L)
+
+    @Test
+    fun theNewestGroupNameIsNeverEvictedAndTheOlderOnesAre() =
+        runTest {
+            val s = store(HistoryLimits(maxPerGroup = 3, maxGroups = 10))
+            s.insert(named(1, 1, "Old"))
+            s.insert(named(1, 2, "Newest"))
+            for (n in 3..8) s.insert(received(1, n))
+            // The name is the oldest record, yet it stays; the limit counts it, so two ordinary messages remain.
+            assertEquals(listOf(ref(2), ref(7), ref(8)), s.messages(id(1)).map { it.reference })
+            val reopened = store(HistoryLimits(maxPerGroup = 3, maxGroups = 10))
+            assertEquals(listOf(ref(2), ref(7), ref(8)), reopened.messages(id(1)).map { it.reference })
+            assertEquals("Newest", assertIs<MessageBody.GroupMeta>(reopened.messages(id(1)).first().body).name)
+        }
+
+    @Test
+    fun aNewerNameMakesTheOlderOneEvictable() =
+        runTest {
+            val s = store(HistoryLimits(maxPerGroup = 2, maxGroups = 10))
+            s.insert(named(1, 1, "First"))
+            s.insert(received(1, 2))
+            s.insert(named(1, 3, "Second"))
+            assertEquals(listOf(ref(2), ref(3)), s.messages(id(1)).map { it.reference })
+            s.insert(received(1, 4))
+            assertEquals(listOf(ref(3), ref(4)), s.messages(id(1)).map { it.reference })
+        }
+
+    @Test
+    fun aLimitOfOneNeverLoopsAndKeepsTheName() =
+        runTest {
+            val s = store(HistoryLimits(maxPerGroup = 1, maxGroups = 10))
+            s.insert(named(1, 1, "Only"))
+            s.insert(received(1, 2))
+            s.insert(received(1, 3))
+            assertEquals(listOf(ref(1)), s.messages(id(1)).map { it.reference })
+        }
+
+    @Test
+    fun aReloadThatHoldsMoreThanTheLimitStillKeepsTheNewestName() =
+        runTest {
+            val wide = store(HistoryLimits(maxPerGroup = 10, maxGroups = 10))
+            wide.insert(named(1, 1, "Kept"))
+            for (n in 2..7) wide.insert(received(1, n))
+            // A narrower limit on the same records (a crash before eviction finished looks the same): the next insert evicts.
+            val narrow = store(HistoryLimits(maxPerGroup = 3, maxGroups = 10))
+            narrow.insert(received(1, 8))
+            assertEquals(listOf(ref(1), ref(7), ref(8)), narrow.messages(id(1)).map { it.reference })
+        }
+
     @Test
     fun aFloodInOneGroupNeverEvictsAnotherGroup() =
         runTest {

@@ -1,5 +1,6 @@
 package app.gifitup.shared.presentation.chat
 
+import app.gifitup.shared.data.content.ContentCodec
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.chat.ChatPort
 import app.gifitup.shared.domain.chat.FriendNames
@@ -32,12 +33,23 @@ enum class NewChatProblem {
      */
     PARTLY,
 
+    /** The group was made, but its name is not accepted by the server yet: the chat still looks like a direct chat. */
+    NAME_NOT_SENT,
+
+    /** A group needs a name (1 to 64 characters, no line breaks). */
+    NAME_INVALID,
+
     OFFLINE,
     NOT_SIGNED_IN,
     FAILED,
 }
 
+/** What the screen makes: a chat with one friend (direct), or a group with a name and one or more friends (#217). */
+enum class NewChatMode { DIRECT, GROUP }
+
 data class NewChatState(
+    val mode: NewChatMode = NewChatMode.DIRECT,
+    val name: String = "",
     val loaded: Boolean = false,
     val friends: List<String> = emptyList(),
     val selected: Set<String> = emptySet(),
@@ -47,7 +59,13 @@ data class NewChatState(
     val notAdded: List<String> = emptyList(),
     val problem: NewChatProblem? = null,
 ) {
-    val canCreate: Boolean get() = selected.isNotEmpty() && !creating && created == null
+    val canCreate: Boolean
+        get() =
+            !creating && created == null &&
+                when (mode) {
+                    NewChatMode.DIRECT -> selected.size == 1
+                    NewChatMode.GROUP -> selected.isNotEmpty() && ContentCodec.encodeGroupMeta(name) != null
+                }
 }
 
 /**
@@ -100,10 +118,29 @@ class NewChatStateHolder(
             }
     }
 
+    /** Switches between a chat with one friend and a new group; a direct chat keeps at most one friend chosen. */
+    fun setMode(mode: NewChatMode) {
+        val current = flow.value
+        if (current.creating || current.created != null) return
+        val kept = if (mode == NewChatMode.DIRECT) current.selected.take(1).toSet() else current.selected
+        flow.value = current.copy(mode = mode, selected = kept, problem = null)
+    }
+
+    fun setName(text: String) {
+        val current = flow.value
+        if (current.creating || current.created != null) return
+        flow.value = current.copy(name = text.take(MAX_NAME_INPUT), problem = null)
+    }
+
     fun toggle(name: String) {
         val current = flow.value
         if (name !in current.friends || current.creating || current.created != null) return
-        val next = if (name in current.selected) current.selected - name else current.selected + name
+        val next =
+            when {
+                current.mode == NewChatMode.DIRECT -> if (name in current.selected) emptySet() else setOf(name)
+                name in current.selected -> current.selected - name
+                else -> current.selected + name
+            }
         if (next.size <= MAX_FRIENDS) {
             createFailed = false
             flow.value = current.copy(selected = next, problem = null)
@@ -115,7 +152,13 @@ class NewChatStateHolder(
         // A create that is still going (the screen was left and opened again) shows as `creating` and is never doubled.
         if (running) return
         if (!current.canCreate) {
-            if (current.selected.isEmpty()) flow.value = current.copy(problem = NewChatProblem.NOBODY)
+            val problem =
+                when {
+                    current.selected.isEmpty() -> NewChatProblem.NOBODY
+                    current.mode == NewChatMode.GROUP -> NewChatProblem.NAME_INVALID
+                    else -> null
+                }
+            if (problem != null) flow.value = current.copy(problem = problem)
             return
         }
         running = true
@@ -123,7 +166,7 @@ class NewChatStateHolder(
         flow.value = current.copy(creating = true, problem = null)
         scope.launch {
             try {
-                make(forVisit, current.selected.sorted())
+                make(forVisit, current.selected.sorted(), current.name.takeIf { current.mode == NewChatMode.GROUP })
             } finally {
                 running = false
                 if (forVisit == visit) flow.value = flow.value.copy(creating = false)
@@ -146,6 +189,7 @@ class NewChatStateHolder(
     private suspend fun make(
         forVisit: Int,
         names: List<String>,
+        groupName: String?,
     ) {
         createFailed = false
         val creation = sessions.withSessionResult { chat.create(it, names.first()) }
@@ -161,16 +205,20 @@ class NewChatStateHolder(
                 }
 
                 is AuthResult.Ok -> {
-                    afterCreation(creation.value, names)
+                    afterCreation(creation.value, names, groupName)
                 }
             }
         createFailed = result.created == null && result.problem != null
-        if (forVisit == visit) flow.value = result.copy(friends = flow.value.friends)
+        if (forVisit == visit) {
+            val now = flow.value
+            flow.value = result.copy(friends = now.friends, mode = now.mode, name = now.name)
+        }
     }
 
     private suspend fun afterCreation(
         creation: GroupCreation,
         names: List<String>,
+        groupName: String?,
     ): NewChatState {
         val id = creation.groupId?.let(::KeyBytes)
         return when {
@@ -190,7 +238,7 @@ class NewChatStateHolder(
             }
 
             else -> {
-                addTheRest(id, names)
+                addTheRest(id, names, groupName)
             }
         }
     }
@@ -198,23 +246,38 @@ class NewChatStateHolder(
     private suspend fun addTheRest(
         id: KeyBytes,
         names: List<String>,
+        groupName: String?,
     ): NewChatState {
         val missed = mutableListOf<String>()
         for (name in names.drop(1)) {
-            val added = sessions.withSessionResult { chat.add(it, id, name) }
+            val added = sessions.withSessionResult { chat.add(it, id, name, initial = true) }
             if (added !is AuthResult.Ok || added.value !is SyncOutcome.Sent) missed += name
         }
+        // The name goes last: a member only reads what was sent after they joined, so every friend who was added is in by now.
+        // It counts as the chat's name only once the server accepted it (a failure leaves a message the conversation resends).
+        val named = groupName?.let { sessions.withSessionResult { session -> chat.rename(session, id, it) } }
+        val nameMissing = named != null && (named !is AuthResult.Ok || named.value !is SyncOutcome.Sent)
         return NewChatState(
+            mode = if (groupName != null) NewChatMode.GROUP else NewChatMode.DIRECT,
+            name = groupName.orEmpty(),
             loaded = true,
             selected = names.toSet(),
             created = id,
             notAdded = missed,
-            problem = if (missed.isEmpty()) null else NewChatProblem.PARTLY,
+            problem =
+                when {
+                    missed.isNotEmpty() -> NewChatProblem.PARTLY
+                    nameMissing -> NewChatProblem.NAME_NOT_SENT
+                    else -> null
+                },
         )
     }
 
     companion object {
         const val MAX_FRIENDS = 9
+
+        /** More than the 64 characters of a name is cut as typed; the rules (B3a) decide the rest. */
+        const val MAX_NAME_INPUT = 200
     }
 }
 

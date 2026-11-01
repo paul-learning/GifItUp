@@ -515,6 +515,14 @@ class EndToEndTest {
         )
         refused(kim, "chat-sync", EXIT_REFUSED, "this group is no longer available", "--group", group)
         assertTrue(ok(kim, "chat-groups").single().startsWith("group $group removed"), "a removed member still lists the group, as removed")
+
+        // A group name is a message too (#217): it is sent after the members are in, and the others read it.
+        assertEquals(listOf("renamed at seq 8"), ok(iris, "chat-rename", "--group", group, stdin = say("Weekend")))
+        assertEquals(
+            listOf("message 8 from e2e_iris: group name \"Weekend\"", "synced, 1 log entries"),
+            ok(jack, "chat-sync", "--group", group),
+            "jack reads the name",
+        )
     }
 
     /**

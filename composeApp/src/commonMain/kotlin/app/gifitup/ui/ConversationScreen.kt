@@ -41,6 +41,7 @@ import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.ConversationState
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
+import app.gifitup.shared.presentation.chat.ConversationTitle
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
 import app.gifitup.shared.presentation.chat.SendProblem
 import app.gifitup.shared.presentation.chat.isGroup
@@ -174,7 +175,7 @@ private fun ConversationHeader(
     AppTopBar(
         title = ChatTexts.title(state.title),
         onBack = onBack,
-        subtitle = ConversationTexts.subtitle(state.members.size),
+        subtitle = ConversationTexts.subtitle(state.members, state.title is ConversationTitle.Named),
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (state.refreshing) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
