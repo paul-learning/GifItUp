@@ -7,6 +7,7 @@ import app.gifitup.mls.loadWasmHistoryCipherFactory
 import app.gifitup.mls.loadWasmMlsClientFactory
 import app.gifitup.mls.storage.claimWebDeviceStorage
 import app.gifitup.shared.data.device.BrowserGraphemeCounter
+import app.gifitup.shared.data.gif.BrowserProviderFetcher
 import app.gifitup.shared.data.network.BrowserMediaFetcher
 import app.gifitup.shared.domain.messages.HistoryLimits
 import app.gifitup.ui.App
@@ -56,7 +57,13 @@ fun main() {
                     random = WebSecureRandom,
                     clipboard = WebClipboard,
                     glyphs = WebGlyphs,
-                    conversations = ConversationPlatform({ BrowserMediaFetcher() }, null, BrowserGraphemeCounter()),
+                    conversations =
+                        ConversationPlatform(
+                            { BrowserMediaFetcher() },
+                            { BrowserProviderFetcher() },
+                            null,
+                            BrowserGraphemeCounter(),
+                        ),
                     historyCiphers = { loadWasmHistoryCipherFactory() },
                     // The browser keeps less history than the phone (owner decision 2026-10-29, ADR-0017).
                     historyLimits = HistoryLimits(maxPerGroup = WEB_HISTORY_PER_GROUP),

@@ -3,6 +3,7 @@ package app.gifitup
 import app.gifitup.shared.data.crypto.HistoryCipherFactory
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
+import app.gifitup.shared.data.gif.ProviderFetcher
 import app.gifitup.shared.domain.auth.DeviceStorage
 import app.gifitup.shared.domain.media.DeviceSecurityPatch
 import app.gifitup.shared.domain.media.MediaFetcher
@@ -41,10 +42,12 @@ class AppGraph(
 /**
  * What the conversation screen needs from the platform (#25): [mediaFetcher] makes a fetcher per conversation flow (one
  * that is `AutoCloseable` is closed with it), [securityPatch] is `null` where the browser updates its own codecs
- * (ADR-0003), [graphemes] counts the characters of a caption.
+ * (ADR-0003), [graphemes] counts the characters of a caption. [providerFetcher] makes the fetcher of the GIF provider's API
+ * calls (the key is in their URL: never the Ktor JS engine on the web, see `BrowserProviderFetcher`).
  */
 class ConversationPlatform(
     val mediaFetcher: () -> MediaFetcher,
+    val providerFetcher: () -> ProviderFetcher,
     val securityPatch: DeviceSecurityPatch?,
     val graphemes: GraphemeCounter,
 )
