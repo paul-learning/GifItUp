@@ -5,7 +5,6 @@ import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.gif.ProviderFetcher
 import app.gifitup.shared.domain.auth.DeviceStorage
-import app.gifitup.shared.domain.media.DeviceSecurityPatch
 import app.gifitup.shared.domain.media.MediaFetcher
 import app.gifitup.shared.domain.messages.GraphemeCounter
 import app.gifitup.shared.domain.messages.HistoryLimits
@@ -54,6 +53,5 @@ class AppGraph(
 class ConversationPlatform(
     val mediaFetcher: () -> MediaFetcher,
     val providerFetcher: () -> ProviderFetcher,
-    val securityPatch: DeviceSecurityPatch?,
     val graphemes: GraphemeCounter,
 )

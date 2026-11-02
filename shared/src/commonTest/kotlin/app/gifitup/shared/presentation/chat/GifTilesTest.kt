@@ -2,12 +2,9 @@ package app.gifitup.shared.presentation.chat
 
 import app.gifitup.shared.data.content.GifReference
 import app.gifitup.shared.domain.contacts.KeyBytes
-import app.gifitup.shared.domain.media.CivilDate
-import app.gifitup.shared.domain.media.DeviceSecurityPatch
 import app.gifitup.shared.domain.media.FetchResult
 import app.gifitup.shared.domain.media.LoadGifMedia
 import app.gifitup.shared.domain.media.MediaFetcher
-import app.gifitup.shared.domain.media.MediaPolicy
 import app.gifitup.shared.domain.media.UnavailableReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +20,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** The bubbles' media: tap-to-load on old devices, one download per bubble, nothing kept after a bubble is gone. */
+/** The bubbles' media: every device loads on its own, one download per bubble, nothing kept after a bubble is gone. */
 class GifTilesTest {
     private val url = "https://static.klipy.com/ii/0123456789abcdef0123456789abcdef/ab/cd/funny_cat-1.webp"
     private val reference = assertNotNull(GifReference.of("klipy", "funny-cat", url, 16, 8))
@@ -41,16 +38,10 @@ class GifTilesTest {
             answer()
         }
 
-    private fun TestScope.tiles(
-        patch: String? = null,
-        parallel: Int = 3,
-    ): GifTilesStateHolder {
-        val device = patch?.let { level -> DeviceSecurityPatch { level } }
-        return GifTilesStateHolder(this, MediaPolicy(device) { CivilDate(2026, 10, 28) }, LoadGifMedia(fetcher), parallel)
-    }
+    private fun TestScope.tiles(parallel: Int = 3): GifTilesStateHolder = GifTilesStateHolder(this, LoadGifMedia(fetcher), parallel)
 
     @Test
-    fun aBubbleLoadsOnItsOwnWhereCodecsAreKeptCurrent() =
+    fun aBubbleLoadsOnItsOwn() =
         runTest {
             val holder = tiles()
             holder.show(key, reference)
@@ -59,20 +50,6 @@ class GifTilesTest {
             assertEquals(16, assertIs<GifTile.Ready>(holder.tiles.value[key]).info.width)
             holder.show(key, reference) // composing again does not fetch again
             advanceUntilIdle()
-            assertEquals(1, fetches)
-        }
-
-    @Test
-    fun anOldPatchLevelWaitsForATapAndFetchesNothingBefore() =
-        runTest {
-            val holder = tiles(patch = "2024-01-05")
-            holder.show(key, reference)
-            advanceUntilIdle()
-            assertIs<GifTile.TapToLoad>(holder.tiles.value[key])
-            assertEquals(0, fetches)
-            holder.tap(key, reference)
-            advanceUntilIdle()
-            assertIs<GifTile.Ready>(holder.tiles.value[key])
             assertEquals(1, fetches)
         }
 
@@ -143,7 +120,6 @@ class GifTilesTest {
             val holder =
                 GifTilesStateHolder(
                     CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
-                    MediaPolicy(null) { CivilDate(2026, 10, 28) },
                     LoadGifMedia(fetcher),
                 )
             holder.show(key, reference)

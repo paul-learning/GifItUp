@@ -8,7 +8,6 @@ import app.gifitup.mls.UniffiMlsClientFactory
 import app.gifitup.mls.storage.KeystoreKeySupplier
 import app.gifitup.mls.storage.fileDeviceStorage
 import app.gifitup.shared.data.device.AndroidGraphemeCounter
-import app.gifitup.shared.data.device.AndroidSecurityPatch
 import app.gifitup.shared.data.gif.KtorProviderFetcher
 import app.gifitup.shared.data.network.KtorMediaFetcher
 import app.gifitup.shared.domain.messages.HistoryLimits
@@ -35,7 +34,6 @@ class GifItUpApp : Application() {
                 ConversationPlatform(
                     { KtorMediaFetcher(Android.create()) },
                     { KtorProviderFetcher(Android.create()) },
-                    AndroidSecurityPatch(),
                     AndroidGraphemeCounter(),
                 ),
             historyCiphers = { UniffiHistoryCipherFactory },

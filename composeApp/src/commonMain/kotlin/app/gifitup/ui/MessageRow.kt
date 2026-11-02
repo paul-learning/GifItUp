@@ -203,15 +203,6 @@ internal fun GifTileView(
             AnimatedGif(tile.data, tile.info, description, shape) { failed = true }
         }
 
-        tile is GifTile.TapToLoad -> {
-            Placeholder(
-                shape,
-                description,
-                PlaceholderWords(ConversationTexts.TAP_TO_LOAD, ConversationTexts.TAP_TO_LOAD_WHY, ConversationTexts.LOAD_GIF),
-                onTap,
-            )
-        }
-
         tile is GifTile.Unavailable -> {
             Placeholder(
                 shape,
