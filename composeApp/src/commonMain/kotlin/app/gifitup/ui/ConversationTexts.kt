@@ -6,9 +6,9 @@ import app.gifitup.shared.presentation.chat.SendProblem
 
 /** The fixed words of the conversation screen (#25); a friend's text is isolated like in [ChatTexts]. */
 internal object ConversationTexts {
-    const val ADD_CAPTION = "+ add caption"
-    const val REMOVE_CAPTION = "Remove caption"
-    const val CAPTION_LABEL = "Caption (optional)"
+    const val SEND_GIF = "Send"
+    const val SEND_TITLE = "Send this GIF"
+    const val CAPTION_LABEL = "Add a caption (optional)"
     const val SEND = "Choose a GIF to send"
     const val RESEND = "Send again"
     const val YOU = "you"

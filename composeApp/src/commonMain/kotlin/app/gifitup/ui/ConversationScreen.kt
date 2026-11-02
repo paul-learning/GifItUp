@@ -37,7 +37,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import app.gifitup.shared.domain.messages.CaptionInput
+import app.gifitup.shared.data.content.GifReference
 import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.ConversationState
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
@@ -64,8 +64,8 @@ internal fun ConversationScreen(
 ) {
     val state by holder.state.collectAsState()
     var pickerOpen by rememberSaveable { mutableStateOf(false) }
-    // What was typed stays while the picker is over the screen; it is not kept in saved state (nothing the user writes is).
-    var caption by remember { mutableStateOf("") }
+    // The GIF picked in the picker, waiting for its optional caption; not kept in saved state (#217).
+    var chosen by remember { mutableStateOf<GifReference?>(null) }
     LaunchedEffect(holder) {
         holder.open()
         while (true) {
@@ -99,21 +99,26 @@ internal fun ConversationScreen(
             state,
             tiles,
             list,
-            SendInput(caption, { caption = it }, { pickerOpen = true }),
+            SendInput { pickerOpen = true },
             Navigation(onOpenProfile, onBack),
         )
         if (pickerOpen) {
             val close = {
+                chosen = null
                 pickerOpen = false
                 picker.picker.close()
                 picker.previews.leave()
             }
-            // Over the whole conversation; the screen below keeps its state (the caption, the scroll position).
+            // Over the whole conversation; the screen below keeps its state (the scroll position). Pick, then caption and send.
             Surface(Modifier.fillMaxSize()) {
-                GifPickerScreen(picker, onClose = close) { reference ->
-                    holder.send(reference, caption.ifBlank { null })
-                    caption = ""
-                    close()
+                GifPickerScreen(picker, onClose = close) { chosen = it }
+                chosen?.let { reference ->
+                    Surface(Modifier.fillMaxSize()) {
+                        GifSendScreen(reference, picker.previews, holder.captions, onBack = { chosen = null }) { caption ->
+                            holder.send(reference, caption)
+                            close()
+                        }
+                    }
                 }
             }
         }
@@ -202,14 +207,12 @@ private class Navigation(
     val onBack: (() -> Unit)?,
 )
 
-/** What the send area needs from the screen: the caption text (kept there while the picker is open) and how to open the picker. */
+/** What the send area needs from the screen: how to open the picker. */
 private class SendInput(
-    val caption: String,
-    val onCaption: (String) -> Unit,
     val onChoose: () -> Unit,
 )
 
-/** The caption field, the button that opens the GIF picker (#23) and what a send needs to say. */
+/** The button that opens the GIF picker (#23) and what a send needs to say. */
 @Composable
 private fun SendArea(
     holder: ConversationStateHolder,
@@ -219,47 +222,10 @@ private fun SendArea(
     val problem = state.sendProblem
     val unsettled = state.hasUnsettled
     val canSend = state.canSend
-    val caption = input.caption
-    var open by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         problem?.let { Text(ConversationTexts.sendProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
         if (unsettled) TextButton(onClick = holder::resend, enabled = canSend) { Text(ConversationTexts.RESEND) }
-        if (open) {
-            CaptionField(holder.captions, caption, onChange = input.onCaption, onRemove = {
-                input.onCaption("")
-                open = false
-            })
-        } else {
-            TextButton(onClick = { open = true }) { Text(ConversationTexts.ADD_CAPTION) }
-        }
         PlusButton(ConversationTexts.SEND, enabled = canSend, onClick = input.onChoose)
-    }
-}
-
-@Composable
-private fun CaptionField(
-    rules: CaptionInput,
-    caption: String,
-    onChange: (String) -> Unit,
-    onRemove: () -> Unit,
-) {
-    val check = rules.check(caption)
-    val problem = ConversationTexts.captionProblem(check.verdict)
-    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = caption,
-            onValueChange = onChange,
-            label = { Text(ConversationTexts.CAPTION_LABEL) },
-            singleLine = true,
-            isError = problem != null,
-            supportingText = {
-                Text(
-                    listOfNotNull(problem, ConversationTexts.counter(check.graphemes, CaptionInput.MAX_GRAPHEMES)).joinToString(" · "),
-                )
-            },
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onRemove) { Text(ConversationTexts.REMOVE_CAPTION) }
     }
 }
 
