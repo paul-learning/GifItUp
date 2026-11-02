@@ -31,6 +31,9 @@ internal object ConversationTexts {
             "$count stored messages could not be read."
         }
 
+    const val PAUSE_GIF = "Pause the GIF"
+    const val PLAY_GIF = "Play the GIF"
+    const val PAUSED = "Paused"
     const val RETRY_GIF = "Try loading the GIF again"
     const val PICK_CHAT = "Choose a chat to read it."
     const val LOADING_GIF = "Loading GIF…"

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -189,6 +190,7 @@ internal fun GifTileView(
     tile: GifTile?,
     reference: GifReference,
     description: String,
+    pausable: Boolean = true,
     onTap: () -> Unit,
 ) {
     // The shape of a placeholder comes from the sender's size hint; once loaded, from the file itself. Both are clamped.
@@ -201,7 +203,7 @@ internal fun GifTileView(
     val shape = Modifier.fillMaxWidth().aspectRatio(ratio)
     when {
         tile is GifTile.Ready && !failed -> {
-            AnimatedGif(tile.data, tile.info, description, shape) { failed = true }
+            PausableGif(tile, description, shape, pausable) { failed = true }
         }
 
         tile is GifTile.Unavailable -> {
@@ -227,6 +229,52 @@ internal fun GifTileView(
             }
         }
     }
+}
+
+/**
+ * A loaded GIF: a tap pauses it (the frame stays, with a "Paused" label) and a tap plays it again. Not [pausable] where the
+ * tap means something else (the picker: a tap chooses the GIF). The state is the tile's: it starts again when the bubble
+ * leaves the screen and comes back.
+ */
+@Composable
+private fun PausableGif(
+    tile: GifTile.Ready,
+    description: String,
+    shape: Modifier,
+    pausable: Boolean,
+    onFailed: () -> Unit,
+) {
+    var paused by remember(tile) { mutableStateOf(false) }
+    // With less motion asked for the GIF is a still picture already: there is nothing to pause.
+    val tap =
+        if (pausable && !prefersReducedMotion()) {
+            Modifier.clickable(
+                onClickLabel = if (paused) ConversationTexts.PLAY_GIF else ConversationTexts.PAUSE_GIF,
+                role = Role.Button,
+            ) { paused = !paused }
+        } else {
+            Modifier
+        }
+    Box(shape.then(tap), contentAlignment = Alignment.Center) {
+        AnimatedGif(tile.data, tile.info, description, Modifier.fillMaxSize(), paused, onFailed)
+        if (paused) PausedChip()
+    }
+}
+
+/** The "Paused" label in the middle of a paused GIF; the click label of the GIF already says how to play it. */
+@Composable
+private fun PausedChip() {
+    Text(
+        ConversationTexts.PAUSED,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        color = Color.White,
+        modifier =
+            Modifier
+                .background(Color.Black.copy(alpha = CHIP_SCRIM), MaterialTheme.shapes.small)
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .clearAndSetSemantics { },
+    )
 }
 
 /** What a placeholder says: [title], an optional [hint] under it, and the label of its tap action for a screen reader. */

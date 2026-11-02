@@ -161,7 +161,7 @@ private fun PreviewCell(
         }
     // Not the provider's slug or title: a fixed label with the position, so no provider text reaches the screen reader.
     Box(pick.semantics { }) {
-        GifTileView(loaded, tile.preview, "GIF ${index + 1}") { parts.previews.tap(key, tile.preview) }
+        GifTileView(loaded, tile.preview, "GIF ${index + 1}", pausable = false) { parts.previews.tap(key, tile.preview) }
     }
 }
 

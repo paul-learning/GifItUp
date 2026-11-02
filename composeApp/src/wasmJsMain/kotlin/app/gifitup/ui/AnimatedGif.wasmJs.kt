@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
@@ -27,12 +28,14 @@ import org.jetbrains.skia.ImageInfo
  * The browser decodes (its codecs are patched with the browser, GIF spike); Skia only draws the finished pixels. A
  * browser without WebCodecs' `ImageDecoder` shows the first frame as a still picture.
  */
+@Suppress("LongParameterList") // The same call on every platform: the bytes, how to describe them, where and whether they play.
 @Composable
 internal actual fun AnimatedGif(
     data: ByteArray,
     info: MediaInfo,
     contentDescription: String,
     modifier: Modifier,
+    paused: Boolean,
     onFailed: () -> Unit,
 ) {
     var current by remember(data) { mutableStateOf<ImageBitmap?>(null) }
@@ -40,8 +43,10 @@ internal actual fun AnimatedGif(
     val frames = remember(data) { newFrameCache() }
     DisposableEffect(frames) { onDispose { frames.close() } }
     val still = prefersReducedMotion()
+    // Read by the loop between frames, not a reason to start it again.
+    val isPaused by rememberUpdatedState(paused)
     LaunchedEffect(frames, still) {
-        if (!play(data, info, frames, still) { current = it }) onFailed()
+        if (!play(data, info, frames, Playback(still) { isPaused }) { current = it }) onFailed()
     }
     current?.let { Image(it, contentDescription, modifier, contentScale = ContentScale.Fit) }
 }
@@ -57,12 +62,12 @@ private suspend fun play(
     data: ByteArray,
     info: MediaInfo,
     frames: FrameCache<Shown>,
-    still: Boolean,
+    playback: Playback,
     show: (ImageBitmap) -> Unit,
 ): Boolean {
     val source = BrowserGifSource.open(data, info) ?: return false
     return try {
-        showFrames(source, frames, still, show)
+        showFrames(source, frames, playback, show)
     } catch (e: CancellationException) {
         throw e
     } catch (ignored: Throwable) {
@@ -75,13 +80,15 @@ private suspend fun play(
 private suspend fun showFrames(
     source: BrowserGifSource,
     frames: FrameCache<Shown>,
-    still: Boolean,
+    playback: Playback,
     show: (ImageBitmap) -> Unit,
 ): Boolean {
+    val (still, paused) = playback
     var index = 0
     while (true) {
-        // A tab in the background does not decode.
+        // A tab in the background does not decode, and neither does a GIF the user paused.
         while (tabHidden()) delay(HIDDEN_POLL_MS)
+        while (paused()) delay(PAUSED_POLL_MS)
         val shown = frames.get(index) ?: source.frame(index)?.let { frames.put(index, wrap(it), it.rgba.size) } ?: return false
         show(shown.image)
         if (source.frameCount == 1 || still) return true
@@ -89,6 +96,12 @@ private suspend fun showFrames(
         index = (index + 1) % source.frameCount
     }
 }
+
+/** Whether the frames play: [still] (reduced motion) shows the first one only, [paused] holds the current one. */
+private data class Playback(
+    val still: Boolean,
+    val paused: () -> Boolean,
+)
 
 /** A decoded frame ready to draw; [skia] is the image behind [image], released with the cache. */
 private class Shown(
@@ -120,5 +133,6 @@ private external fun tabHidden(): Boolean
 
 private const val CACHE_BYTES = 24 * 1024 * 1024
 private const val HIDDEN_POLL_MS = 500L
+private const val PAUSED_POLL_MS = 100L
 
 private const val BYTES_PER_PIXEL = 4

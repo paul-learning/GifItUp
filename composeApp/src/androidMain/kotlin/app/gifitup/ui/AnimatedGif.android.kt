@@ -25,22 +25,24 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.ByteBuffer
 
+@Suppress("LongParameterList") // The same call on every platform: the bytes, how to describe them, where and whether they play.
 @Composable
 internal actual fun AnimatedGif(
     data: ByteArray,
     info: MediaInfo,
     contentDescription: String,
     modifier: Modifier,
+    paused: Boolean,
     onFailed: () -> Unit,
 ) {
     // Decoding is off the main thread; `null` until it is done, and for a file the decoder refuses.
     val decoded by produceState<Decoded?>(null, data) { value = withContext(Dispatchers.Default) { decode(data, info) } }
     val drawable = decoded?.drawable
-    // With less motion asked for, the first frame stays.
-    val still = prefersReducedMotion()
+    // With less motion asked for, the first frame stays; so it does while the user has paused the GIF.
+    val play = !prefersReducedMotion() && !paused
     var frame by remember { mutableIntStateOf(0) }
     LaunchedEffect(decoded) { if (decoded?.drawable == null && decoded != null) onFailed() }
-    DisposableEffect(drawable, still) {
+    DisposableEffect(drawable) {
         val handler = Handler(Looper.getMainLooper())
         // A drawable holds its callback weakly: onDispose below refers to this local, which keeps it alive until then.
         val callback =
@@ -62,13 +64,16 @@ internal actual fun AnimatedGif(
                 ) = handler.removeCallbacks(what, who)
             }
         drawable?.callback = callback
-        if (!still) (drawable as? AnimatedImageDrawable)?.start()
         onDispose {
             (drawable as? AnimatedImageDrawable)?.stop()
             // Naming the callback here is what keeps it reachable while the drawable holds it only weakly.
             if (drawable != null && drawable.callback === callback) drawable.callback = null
             handler.removeCallbacksAndMessages(drawable)
         }
+    }
+    // Starting and stopping do not touch the callback above, so a pause keeps the frame on screen.
+    LaunchedEffect(drawable, play) {
+        (drawable as? AnimatedImageDrawable)?.let { if (play) it.start() else it.stop() }
     }
     if (drawable != null) {
         Canvas(modifier.semantics { this.contentDescription = contentDescription }) {
