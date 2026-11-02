@@ -245,8 +245,9 @@ private fun PausableGif(
     onFailed: () -> Unit,
 ) {
     var paused by remember(tile) { mutableStateOf(false) }
+    // With less motion asked for the GIF is a still picture already: there is nothing to pause.
     val tap =
-        if (pausable) {
+        if (pausable && !prefersReducedMotion()) {
             Modifier.clickable(
                 onClickLabel = if (paused) ConversationTexts.PLAY_GIF else ConversationTexts.PAUSE_GIF,
                 role = Role.Button,
