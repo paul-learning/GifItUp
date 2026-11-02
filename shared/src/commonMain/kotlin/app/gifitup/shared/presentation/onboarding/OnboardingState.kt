@@ -5,7 +5,7 @@ import app.gifitup.shared.domain.auth.AuthError
 /** The server a screen is about to talk to, always shown as the canonical ASCII origin (ADR-0013). Plain text only. */
 class OriginView(
     val origin: String,
-    /** Not the build's default: the UI shows a banner on every screen. */
+    /** Not the build's default: the UI shows a banner on the sign-up screens and the Profile, and a marker on the chat list. */
     val custom: Boolean,
 )
 

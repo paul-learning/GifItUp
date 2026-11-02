@@ -56,9 +56,9 @@ least 48 dp.
   two or more others, see ADR-0006 B3), the round "+" at the lower right for a new chat or group. There is no back button: it is the start.
 - **New chat:** two modes as chips: "Chat with a friend" (one friend, no name: a direct chat) and "New group" (a name of 1 to 64 characters and one or more friends; the name is sent after the friends are in). Only a group can grow.
 - **Contact profile:** the same friend card as the Friends screen (the saved key as emojis to compare, a review when it changed) and "Known since <date>" (the UTC day this device first saw them: the server sends no time). Reached by a long tap on a **direct** chat in the list, or the info button in the header of a direct chat.
-- **Profile:** the username and the own key emojis (the same card and dialog as on the Friends screen).
+- **Profile:** the server (the banner, orange while it is custom), the username and the own key emojis (the same card and dialog as on the Friends screen).
 - **Send step:** picking a GIF in the picker opens it large with an optional caption field and "Send" under it (the GIF's height is capped so the caption and Send stay on screen); Back returns to the results and drops the typed caption.
-- A notice above the list: the server banner while the server isn't the default, and a note while some setup is pending.
+- A notice above the list: a note while some setup is pending. While the server is not the default, the top bar carries a small orange ring-and-exclamation marker ("Custom server: tap to see which") that opens the Profile, which shows the server in full (ADR-0013); the sign-up steps keep the full banner.
 
 ## Rules every screen follows
 - **Screens render state; they decide nothing** (ADR-0013): logic lives in a state holder.

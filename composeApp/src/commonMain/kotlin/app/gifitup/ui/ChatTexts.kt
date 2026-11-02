@@ -16,6 +16,8 @@ internal object ChatTexts {
     const val NEW_CHAT = "New chat or group"
     const val FRIENDS = "Friends"
     const val MENU = "Menu"
+    const val CUSTOM_SERVER_SHORT = "Custom server"
+    const val CUSTOM_SERVER = "Custom server: tap to see which"
     const val PROFILE = "Profile"
     const val INVITE = "Invite a friend"
     const val FILTER_ALL = "All"

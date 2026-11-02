@@ -12,6 +12,8 @@ internal class ChatListActions(
     val onOpen: ((GroupInfo) -> Unit)?,
     /** A long tap on a direct chat opens that friend's profile. */
     val onProfile: (String) -> Unit = {},
+    /** The server is not the default: the top bar carries a marker that opens the Profile (ADR-0013). */
+    val customServer: Boolean = false,
 )
 
 /** The destinations of the burger menu. */
