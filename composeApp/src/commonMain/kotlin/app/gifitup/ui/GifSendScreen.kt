@@ -1,9 +1,11 @@
 package app.gifitup.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.data.content.GifReference
@@ -52,7 +55,10 @@ internal fun GifSendScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         AppTopBar(title = ConversationTexts.SEND_TITLE, onBack = onBack)
-        GifTileView(loaded[key], reference, "GIF") { tiles.tap(key, reference) }
+        // Capped, so a tall GIF doesn't push the caption and Send off the screen.
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(Modifier.heightIn(max = MAX_GIF_HEIGHT)) { GifTileView(loaded[key], reference, "GIF") { tiles.tap(key, reference) } }
+        }
         OutlinedTextField(
             value = caption,
             onValueChange = { caption = it },
@@ -71,3 +77,5 @@ internal fun GifSendScreen(
         }
     }
 }
+
+private val MAX_GIF_HEIGHT = 360.dp

@@ -57,6 +57,7 @@ least 48 dp.
 - **New chat:** two modes as chips: "Chat with a friend" (one friend, no name: a direct chat) and "New group" (a name of 1 to 64 characters and one or more friends; the name is sent after the friends are in). Only a group can grow.
 - **Contact profile:** the same friend card as the Friends screen (the saved key as emojis to compare, a review when it changed) and "Known since <date>" (the UTC day this device first saw them: the server sends no time). Reached by a long tap on a **direct** chat in the list, or the info button in the header of a direct chat.
 - **Profile:** the username and the own key emojis (the same card and dialog as on the Friends screen).
+- **Send step:** picking a GIF in the picker opens it large with an optional caption field and "Send" under it (the GIF's height is capped so the caption and Send stay on screen); Back returns to the results and drops the typed caption.
 - A notice above the list: the server banner while the server isn't the default, and a note while some setup is pending.
 
 ## Rules every screen follows
