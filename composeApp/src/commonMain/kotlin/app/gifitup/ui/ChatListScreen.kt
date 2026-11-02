@@ -133,7 +133,15 @@ private fun TopBarActions(
     menu: MenuActions,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (customServer) IconTile(ChatTexts.CUSTOM_SERVER, menu.onProfile) { WarningIcon(MaterialTheme.colorScheme.tertiary) }
+        if (customServer) {
+            // Text next to the icon, so the cue does not depend on colour alone (SEC-1 of the review).
+            Text(
+                ChatTexts.CUSTOM_SERVER_SHORT,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            IconTile(ChatTexts.CUSTOM_SERVER, menu.onProfile) { WarningIcon(MaterialTheme.colorScheme.tertiary) }
+        }
         BurgerMenu(menu)
     }
 }
