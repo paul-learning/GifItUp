@@ -177,9 +177,9 @@ private fun CaptionUnderGif(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
                 .heightIn(max = CAPTION_MAX_HEIGHT)
-                .clipToBounds()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .clipToBounds(),
     )
 }
 
