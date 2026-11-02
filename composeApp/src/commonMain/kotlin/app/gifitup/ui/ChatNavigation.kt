@@ -24,6 +24,7 @@ import androidx.navigation.compose.composable
 import app.gifitup.GlyphSupport
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.onboarding.OnboardingState
+import app.gifitup.shared.presentation.onboarding.OriginView
 
 internal const val ROUTE_ONBOARDING = "onboarding"
 internal const val ROUTE_FRIENDS = "friends"
@@ -40,6 +41,7 @@ internal const val ROUTE_CONVERSATION = "conversation"
 internal fun ChatHome(
     model: OnboardingViewModel,
     nav: NavHostController,
+    customServer: Boolean,
     notice: (@Composable () -> Unit)?,
 ) {
     BoxWithConstraints {
@@ -50,7 +52,7 @@ internal fun ChatHome(
             if (!wide) nav.navigate(ROUTE_CONVERSATION)
         }
         val menu = MenuActions({ nav.navigate(ROUTE_PROFILE) }, { nav.navigate(ROUTE_INVITES) }, { nav.navigate(ROUTE_FRIENDS) })
-        val actions = ChatListActions({ nav.navigate(ROUTE_NEW_CHAT) }, menu, open) { openProfile(model, nav, it) }
+        val actions = ChatListActions({ nav.navigate(ROUTE_NEW_CHAT) }, menu, open, { openProfile(model, nav, it) }, customServer)
         if (wide) {
             Row(Modifier.fillMaxSize()) {
                 ChatListScreen(model.chats, actions, Modifier.width(LIST_PANE_WIDTH), model.conversation?.id, notice)
@@ -80,15 +82,16 @@ internal fun openProfile(
  */
 internal fun NavGraphBuilder.chatRoutes(
     nav: NavHostController,
-    origin: String,
+    server: OriginView,
     glyphs: GlyphSupport,
 ) {
+    val origin = server.origin
     composable(ROUTE_PROFILE) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
         val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
         val signedIn by model.holder.state.collectAsState()
         val leave = { if (nav.currentDestination?.route == ROUTE_PROFILE) nav.popBackStack() }
-        (signedIn as? OnboardingState.Done)?.let { ProfileScreen(it.username, model.contacts, glyphs) { leave() } }
+        (signedIn as? OnboardingState.Done)?.let { ProfileScreen(it.username, server, model.contacts, glyphs) { leave() } }
     }
     composable(ROUTE_CONTACT) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
