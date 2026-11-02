@@ -130,7 +130,7 @@ private fun ModeRow(
 
 /** A friend as a card with a checkbox: a tap on the card toggles it; selected ones have an accent outline. */
 @Composable
-private fun FriendRow(
+internal fun FriendRow(
     name: String,
     checked: Boolean,
     enabled: Boolean,

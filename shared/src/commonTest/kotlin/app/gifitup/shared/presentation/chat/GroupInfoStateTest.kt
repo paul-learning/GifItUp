@@ -1,0 +1,235 @@
+package app.gifitup.shared.presentation.chat
+
+import app.gifitup.shared.data.content.GifReference
+import app.gifitup.shared.data.network.ApiEndpoint
+import app.gifitup.shared.data.network.ApiError
+import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.domain.auth.AuthError
+import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.chat.ChatPort
+import app.gifitup.shared.domain.chat.FriendNames
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.groups.GroupCreation
+import app.gifitup.shared.domain.groups.GroupInfo
+import app.gifitup.shared.domain.groups.GroupList
+import app.gifitup.shared.domain.groups.GroupStatus
+import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.groups.WelcomesReport
+import app.gifitup.shared.domain.messages.ChatMessage
+import app.gifitup.shared.domain.messages.InMemoryMessageStore
+import app.gifitup.shared.domain.messages.MessageBody
+import app.gifitup.shared.domain.session.SessionHolder
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class GroupInfoStateTest {
+    private val groupId = KeyBytes(byteArrayOf(1))
+    private val store = InMemoryMessageStore()
+    private var friendNames: List<String>? = listOf("bob", "carol", "dave", "erin")
+
+    private class FakeChat : ChatPort {
+        var adds = listOf<String>()
+        var renames = listOf<String>()
+        var addOutcome: (String) -> AuthResult<SyncOutcome> = { AuthResult.Ok(SyncOutcome.Sent(2)) }
+        var renameOutcome: AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.Sent(3))
+
+        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("me", emptyList()))
+
+        override suspend fun welcomes(session: Session) = AuthResult.Ok(WelcomesReport(emptyList(), null))
+
+        override suspend fun sync(
+            session: Session,
+            groupId: KeyBytes,
+        ) = AuthResult.Ok<SyncOutcome>(SyncOutcome.CaughtUp(0))
+
+        override suspend fun create(
+            session: Session,
+            target: String,
+        ): AuthResult<GroupCreation> = error("not used")
+
+        override suspend fun add(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
+        ): AuthResult<SyncOutcome> {
+            adds += target
+            return addOutcome(target)
+        }
+
+        override suspend fun addToNewGroup(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
+        ): AuthResult<SyncOutcome> = error("not used")
+
+        override suspend fun rename(
+            session: Session,
+            groupId: KeyBytes,
+            name: String,
+        ): AuthResult<SyncOutcome> {
+            renames += name
+            return renameOutcome
+        }
+
+        override suspend fun sendGif(
+            session: Session,
+            groupId: KeyBytes,
+            reference: GifReference,
+            caption: String?,
+        ) = AuthResult.Ok<SyncOutcome>(SyncOutcome.Sent(1))
+
+        override suspend fun resume(
+            session: Session,
+            groupId: KeyBytes,
+        ) = AuthResult.Ok<SyncOutcome>(SyncOutcome.Sent(1))
+    }
+
+    private val chat = FakeChat()
+    private val session = Session("d", "t", Long.MAX_VALUE, checkNotNull(ApiEndpoint.forOrigin("https://chat.example.test")))
+    private val names =
+        object : FriendNames {
+            override suspend fun names(): List<String>? = friendNames
+
+            override suspend fun refresh(session: Session): AuthResult<Unit> = AuthResult.Ok(Unit)
+        }
+
+    private fun TestScope.holder(vararg others: String) =
+        GroupInfoStateHolder(
+            this,
+            SessionHolder({ AuthResult.Ok(session) }, this) { 0L },
+            chat,
+            names,
+            store,
+            GroupInfo(groupId, GroupStatus.ACTIVE, others.toList()),
+        )
+
+    private suspend fun TestScope.opened(vararg others: String): GroupInfoStateHolder =
+        holder(*others).also {
+            it.open()
+            advanceUntilIdle()
+        }
+
+    private suspend fun named(name: String) {
+        store.insert(ChatMessage(groupId, KeyBytes(byteArrayOf(9)), "bob", 1, MessageBody.GroupMeta(name), null, 10))
+    }
+
+    @Test
+    fun aNamedGroupShowsItsNameItsMembersAndTheFriendsNotInIt() =
+        runTest {
+            named("Weekend")
+            val state = opened("bob").state.value
+            assertEquals("Weekend", state.name)
+            assertEquals(listOf("bob"), state.members)
+            assertEquals(listOf("carol", "dave", "erin"), state.candidates)
+            assertTrue(state.canAdd)
+        }
+
+    @Test
+    fun aDirectChatCannotGrow() =
+        runTest {
+            val state = opened("bob").state.value
+            assertFalse(state.canAdd)
+            val holder = opened("bob")
+            holder.toggle("carol")
+            holder.add()
+            advanceUntilIdle()
+            assertTrue(chat.adds.isEmpty())
+        }
+
+    @Test
+    fun chosenFriendsAreAddedOneByOneAndTheNameIsSentAgainAfterwards() =
+        runTest {
+            named("Weekend")
+            val holder = opened("bob", "carol")
+            holder.toggle("erin")
+            holder.toggle("dave")
+            holder.add()
+            advanceUntilIdle()
+            assertEquals(listOf("dave", "erin"), chat.adds)
+            assertEquals(listOf("Weekend"), chat.renames)
+            val state = holder.state.value
+            assertEquals(listOf("bob", "carol", "dave", "erin"), state.members)
+            assertTrue(state.candidates.isEmpty())
+            assertNull(state.problem)
+        }
+
+    @Test
+    fun aFriendWhoCannotBeAddedIsListedAndTheOthersStay() =
+        runTest {
+            named("Weekend")
+            chat.addOutcome = { if (it == "dave") AuthResult.Ok(SyncOutcome.InvalidRequest) else AuthResult.Ok(SyncOutcome.Sent(2)) }
+            val holder = opened("bob", "carol")
+            holder.toggle("dave")
+            holder.toggle("erin")
+            holder.add()
+            advanceUntilIdle()
+            val state = holder.state.value
+            assertEquals(GroupInfoProblem.PARTLY, state.problem)
+            assertEquals(listOf("dave"), state.notAdded)
+            assertEquals(listOf("bob", "carol", "erin"), state.members)
+            assertEquals(setOf("dave"), state.selected)
+        }
+
+    @Test
+    fun aNameThatIsNotAcceptedCanBeSentAgain() =
+        runTest {
+            named("Weekend")
+            chat.renameOutcome = AuthResult.Ok(SyncOutcome.InvalidRequest)
+            val holder = opened("bob", "carol")
+            holder.toggle("dave")
+            holder.add()
+            advanceUntilIdle()
+            assertEquals(GroupInfoProblem.NAME_NOT_SENT, holder.state.value.problem)
+            chat.renameOutcome = AuthResult.Ok(SyncOutcome.Sent(4))
+            holder.retryName()
+            advanceUntilIdle()
+            assertNull(holder.state.value.problem)
+            assertEquals(listOf("Weekend", "Weekend"), chat.renames)
+        }
+
+    @Test
+    fun noNameIsSentForAGroupWithoutOneAndNothingIsSentWhenNobodyWasAdded() =
+        runTest {
+            val holder = opened("bob", "carol")
+            holder.toggle("dave")
+            holder.add()
+            advanceUntilIdle()
+            assertTrue(chat.renames.isEmpty())
+            named("Weekend")
+            chat.addOutcome = { AuthResult.Failed(AuthError.Api(ApiError.NETWORK)) }
+            val second = opened("bob", "carol")
+            second.toggle("erin")
+            second.add()
+            advanceUntilIdle()
+            assertEquals(GroupInfoProblem.OFFLINE, second.state.value.problem)
+            assertTrue(chat.renames.isEmpty())
+        }
+
+    @Test
+    fun addingWithNobodyChosenIsAProblemAndNoMoreThanNineAtOnce() =
+        runTest {
+            named("Weekend")
+            val holder = opened("bob", "carol")
+            holder.add()
+            assertEquals(GroupInfoProblem.NOBODY, holder.state.value.problem)
+            friendNames = (1..12).map { "f$it" }
+            val many = opened("bob", "carol")
+            many.state.value.candidates
+                .forEach(many::toggle)
+            assertEquals(NewChatStateHolder.MAX_FRIENDS, many.state.value.selected.size)
+        }
+
+    @Test
+    fun anUnreadableFriendsListIsAProblem() =
+        runTest {
+            named("Weekend")
+            friendNames = null
+            assertEquals(GroupInfoProblem.FRIENDS_UNAVAILABLE, opened("bob", "carol").state.value.problem)
+        }
+}

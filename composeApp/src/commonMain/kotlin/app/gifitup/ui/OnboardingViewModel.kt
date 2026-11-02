@@ -34,6 +34,7 @@ import app.gifitup.shared.domain.session.SessionHolder
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
+import app.gifitup.shared.presentation.chat.GroupInfoStateHolder
 import app.gifitup.shared.presentation.chat.NewChatStateHolder
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
 import app.gifitup.shared.presentation.gif.GifPickerStateHolder
@@ -147,6 +148,25 @@ internal class OnboardingViewModel(
 
     fun openProfile(username: String) {
         contactProfile = username
+    }
+
+    /** The info screen of the open group, `null` if none; set before navigating, never a route argument (#217). */
+    var groupInfo: GroupInfoStateHolder? by mutableStateOf(null)
+        private set
+
+    /** Opens the info of the open conversation, with the members it shows now. */
+    fun openGroupInfo() {
+        val open = conversation ?: return
+        groupInfo?.leave()
+        groupInfo =
+            GroupInfoStateHolder(
+                viewModelScope,
+                sessions,
+                chatService,
+                auth.friendNames,
+                history,
+                GroupInfo(open.id, open.info.status, open.state.value.members),
+            )
     }
 
     /** The conversation the list opened, `null` if none (the screen then goes back). One at a time. */

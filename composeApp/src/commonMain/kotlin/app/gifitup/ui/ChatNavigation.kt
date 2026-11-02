@@ -30,6 +30,7 @@ internal const val ROUTE_ONBOARDING = "onboarding"
 internal const val ROUTE_FRIENDS = "friends"
 internal const val ROUTE_PROFILE = "profile"
 internal const val ROUTE_CONTACT = "contact"
+internal const val ROUTE_GROUP = "group-info"
 internal const val ROUTE_NEW_CHAT = "new-chat"
 internal const val ROUTE_CONVERSATION = "conversation"
 
@@ -76,6 +77,15 @@ internal fun openProfile(
     nav.navigate(ROUTE_CONTACT) { launchSingleTop = true }
 }
 
+/** Opens the info of the open group. */
+internal fun openGroup(
+    model: OnboardingViewModel,
+    nav: NavHostController,
+) {
+    model.openGroupInfo()
+    nav.navigate(ROUTE_GROUP) { launchSingleTop = true }
+}
+
 /**
  * The other chat routes. The onboarding entry stays on the back stack below them, so its ViewModel (API, session, engine, the
  * in-memory history) is the one they use; leaving a route drops that screen's state, not the history.
@@ -101,6 +111,14 @@ internal fun NavGraphBuilder.chatRoutes(
         // A process that was recreated has no open profile: back.
         if (username == null) LaunchedEffect(Unit) { leave() } else ContactProfileScreen(username, model.contacts, glyphs) { leave() }
     }
+    composable(ROUTE_GROUP) { entry ->
+        val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
+        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
+        val info = model.groupInfo
+        val leave = { if (nav.currentDestination?.route == ROUTE_GROUP) nav.popBackStack() }
+        // A process that was recreated has no open group: back.
+        if (info == null) LaunchedEffect(Unit) { leave() } else GroupInfoScreen(info) { leave() }
+    }
     composable(ROUTE_NEW_CHAT) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
         val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
@@ -120,8 +138,7 @@ internal fun NavGraphBuilder.chatRoutes(
                 holder,
                 model.tiles,
                 PickerParts(model.picker, model.previews),
-                onOpenProfile = { openProfile(model, nav, it) },
-                onBack = { leave() },
+                Navigation({ openProfile(model, nav, it) }, { openGroup(model, nav) }, { leave() }),
             )
         }
     }
@@ -144,8 +161,7 @@ private fun OpenConversation(
                     holder,
                     model.tiles,
                     PickerParts(model.picker, model.previews),
-                    onOpenProfile = { openProfile(model, nav, it) },
-                    onBack = null,
+                    Navigation({ openProfile(model, nav, it) }, { openGroup(model, nav) }, null),
                 )
             }
         }

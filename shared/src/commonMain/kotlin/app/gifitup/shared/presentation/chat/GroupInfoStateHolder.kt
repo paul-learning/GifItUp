@@ -1,0 +1,220 @@
+package app.gifitup.shared.presentation.chat
+
+import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.chat.AddPolicy
+import app.gifitup.shared.domain.chat.ChatPort
+import app.gifitup.shared.domain.chat.FriendNames
+import app.gifitup.shared.domain.chat.settledName
+import app.gifitup.shared.domain.groups.GroupInfo
+import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.messages.HistoryAccess
+import app.gifitup.shared.domain.messages.HistoryStoreException
+import app.gifitup.shared.domain.session.SessionHolder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+enum class GroupInfoProblem {
+    /** The friends list can't be read (the contact book is missing or damaged). */
+    FRIENDS_UNAVAILABLE,
+
+    /** Nobody was chosen. */
+    NOBODY,
+
+    /** Some of the chosen friends are not in the group yet ([GroupInfoState.notAdded]); they can be chosen again. */
+    PARTLY,
+
+    /** The friends are in, but the group's name is not accepted by the server yet: they may see no name. */
+    NAME_NOT_SENT,
+
+    OFFLINE,
+    NOT_SIGNED_IN,
+    FAILED,
+}
+
+data class GroupInfoState(
+    /** The group's name, `null` while it has none (or this device can't read it). */
+    val name: String? = null,
+    /** The usernames of the other members, with the ones added from this screen. */
+    val members: List<String> = emptyList(),
+    val loaded: Boolean = false,
+    /** Adding is offered: the chat is a group this device can still grow (a client policy, [AddPolicy]). */
+    val canAdd: Boolean = false,
+    /** The friends who are not in the group yet. */
+    val candidates: List<String> = emptyList(),
+    val selected: Set<String> = emptySet(),
+    val adding: Boolean = false,
+    val notAdded: List<String> = emptyList(),
+    val problem: GroupInfoProblem? = null,
+) {
+    val canSubmit: Boolean get() = canAdd && !adding && selected.isNotEmpty()
+}
+
+/**
+ * A group's info screen (#217 part 4b): the name and the members, and adding friends who are not in it. Only a **group**
+ * grows ([AddPolicy]; [ChatPort.add] refuses anything else too). Each friend is added with its own commit (ADR-0016); the
+ * name is sent again after the adds, because a member only reads what was sent after they joined. A friend who can't be
+ * added doesn't undo the others: it is listed in [GroupInfoState.notAdded].
+ */
+class GroupInfoStateHolder(
+    private val scope: CoroutineScope,
+    private val sessions: SessionHolder,
+    private val chat: ChatPort,
+    private val friends: FriendNames,
+    private val store: HistoryAccess,
+    private val group: GroupInfo,
+) {
+    private val flow = MutableStateFlow(GroupInfoState(members = group.others))
+    val state: StateFlow<GroupInfoState> = flow.asStateFlow()
+    private var visit = 0
+    private var running = false
+
+    /** Shows what this device knows, then reads the server's member list into the contact book and shows the result. */
+    fun open() =
+        scope.launch {
+            val forVisit = visit
+            show(forVisit, null)
+            val refreshed = sessions.withSessionResult { friends.refresh(it) }
+            show(forVisit, (refreshed as? AuthResult.Failed)?.error?.toChatProblem()?.toInfoProblem())
+        }
+
+    private suspend fun show(
+        forVisit: Int,
+        problem: GroupInfoProblem?,
+    ) {
+        val names = friends.names()
+        val name = nameOf()
+        val allowed = AddPolicy(store).allows(group)
+        if (forVisit != visit) return
+        val current = flow.value
+        flow.value =
+            current.copy(
+                name = name,
+                loaded = true,
+                canAdd = allowed,
+                candidates = names.orEmpty().filter { it !in current.members }.sorted(),
+                selected = current.selected.filter { it in names.orEmpty() && it !in current.members }.toSet(),
+                problem = problem ?: GroupInfoProblem.FRIENDS_UNAVAILABLE.takeIf { names == null } ?: current.problem,
+            )
+    }
+
+    private suspend fun nameOf(): String? =
+        try {
+            settledName(store.messages(group.id))
+        } catch (_: HistoryStoreException) {
+            null
+        }
+
+    fun toggle(name: String) {
+        val current = flow.value
+        if (name !in current.candidates || current.adding) return
+        val next = if (name in current.selected) current.selected - name else current.selected + name
+        if (next.size <= NewChatStateHolder.MAX_FRIENDS) flow.value = current.copy(selected = next, problem = null)
+    }
+
+    /** Adds the chosen friends one by one, then sends the name again. */
+    fun add() {
+        val current = flow.value
+        if (running || !current.canAdd || current.adding) return
+        if (current.selected.isEmpty()) {
+            flow.value = current.copy(problem = GroupInfoProblem.NOBODY)
+            return
+        }
+        running = true
+        val forVisit = visit
+        flow.value = current.copy(adding = true, problem = null, notAdded = emptyList())
+        scope.launch {
+            try {
+                addAll(forVisit, current.selected.sorted())
+            } finally {
+                running = false
+            }
+        }
+    }
+
+    /** "Send the name again" after [GroupInfoProblem.NAME_NOT_SENT]. */
+    fun retryName() {
+        val current = flow.value
+        val name = current.name
+        val retryable = current.problem == GroupInfoProblem.NAME_NOT_SENT && !current.adding
+        if (running || !retryable || name == null) return
+        running = true
+        val forVisit = visit
+        flow.value = current.copy(adding = true, problem = null)
+        scope.launch {
+            try {
+                val sent = sendName(name)
+                if (forVisit ==
+                    visit
+                ) {
+                    flow.value = flow.value.copy(adding = false, problem = if (sent) null else GroupInfoProblem.NAME_NOT_SENT)
+                }
+            } finally {
+                running = false
+            }
+        }
+    }
+
+    private suspend fun addAll(
+        forVisit: Int,
+        names: List<String>,
+    ) {
+        val added = mutableListOf<String>()
+        val missed = mutableListOf<String>()
+        var failure: GroupInfoProblem? = null
+        for (name in names) {
+            when (val result = sessions.withSessionResult { chat.add(it, group.id, name) }) {
+                is AuthResult.Ok -> {
+                    if (result.value is SyncOutcome.Sent) added += name else missed += name
+                }
+
+                is AuthResult.Failed -> {
+                    missed += name
+                    failure = failure ?: result.error.toChatProblem().toInfoProblem()
+                }
+            }
+        }
+        // The name goes last, once everyone who could be added is in; only if somebody was added, and the group has a name.
+        val name = flow.value.name
+        val nameSent = added.isEmpty() || name == null || sendName(name)
+        if (forVisit != visit) return
+        val current = flow.value
+        val members = current.members + added
+        flow.value =
+            current.copy(
+                members = members,
+                candidates = current.candidates.filter { it !in added },
+                selected = current.selected - added.toSet(),
+                adding = false,
+                notAdded = missed,
+                problem =
+                    when {
+                        failure != null -> failure
+                        missed.isNotEmpty() -> GroupInfoProblem.PARTLY
+                        !nameSent -> GroupInfoProblem.NAME_NOT_SENT
+                        else -> null
+                    },
+            )
+    }
+
+    private suspend fun sendName(name: String): Boolean {
+        val named = sessions.withSessionResult { chat.rename(it, group.id, name) }
+        return named is AuthResult.Ok && named.value is SyncOutcome.Sent
+    }
+
+    /** The screen closed: an answer that is still on its way is dropped. */
+    fun leave() {
+        if (running) return
+        visit++
+        flow.value = GroupInfoState(members = group.others)
+    }
+}
+
+private fun ChatProblem.toInfoProblem(): GroupInfoProblem =
+    when (this) {
+        ChatProblem.OFFLINE -> GroupInfoProblem.OFFLINE
+        ChatProblem.NOT_SIGNED_IN -> GroupInfoProblem.NOT_SIGNED_IN
+        ChatProblem.FAILED, ChatProblem.HISTORY -> GroupInfoProblem.FAILED
+    }
