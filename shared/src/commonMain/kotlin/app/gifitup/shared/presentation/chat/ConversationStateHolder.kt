@@ -103,6 +103,9 @@ class ConversationStateHolder(
     /** Which conversation this is. */
     val id: KeyBytes get() = group.id
 
+    /** The group as the list described it when it was opened (the members may have grown since: [ConversationState.members]). */
+    val info: GroupInfo get() = group
+
     private val flow =
         MutableStateFlow(
             ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.status.toProblem()),

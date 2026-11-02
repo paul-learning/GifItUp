@@ -59,8 +59,7 @@ internal fun ConversationScreen(
     holder: ConversationStateHolder,
     tiles: GifTilesStateHolder,
     picker: PickerParts,
-    onOpenProfile: (String) -> Unit,
-    onBack: (() -> Unit)?,
+    nav: Navigation,
 ) {
     val state by holder.state.collectAsState()
     var pickerOpen by rememberSaveable { mutableStateOf(false) }
@@ -100,7 +99,7 @@ internal fun ConversationScreen(
             tiles,
             list,
             SendInput { pickerOpen = true },
-            Navigation(onOpenProfile, onBack),
+            nav,
         )
         if (pickerOpen) {
             val close = {
@@ -196,14 +195,16 @@ private fun ConversationHeader(
                 if (state.refreshing) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 MemberAvatars(state.members)
                 friend?.let { IconTile(ProfileTexts.OPEN_PROFILE, { nav.onOpenProfile(it) }) { InfoIcon(it) } }
+                if (state.title.isGroup) IconTile(ConversationTexts.OPEN_GROUP, nav.onOpenGroup) { InfoIcon(it) }
             }
         },
     )
 }
 
-/** Where the conversation screen can go: back, and a friend's profile. */
-private class Navigation(
+/** Where the conversation screen can go: back, a friend's profile and the group's info. */
+internal class Navigation(
     val onOpenProfile: (String) -> Unit,
+    val onOpenGroup: () -> Unit,
     val onBack: (() -> Unit)?,
 )
 
