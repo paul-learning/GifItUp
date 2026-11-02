@@ -46,9 +46,9 @@ class AppGraph(
 
 /**
  * What the conversation screen needs from the platform (#25): [mediaFetcher] makes a fetcher per conversation flow (one
- * that is `AutoCloseable` is closed with it), [securityPatch] is `null` where the browser updates its own codecs
- * (ADR-0003), [graphemes] counts the characters of a caption. [providerFetcher] makes the fetcher of the GIF provider's API
- * calls (the key is in their URL: never the Ktor JS engine on the web, see `BrowserProviderFetcher`).
+ * that is `AutoCloseable` is closed with it), [graphemes] counts the characters of a caption. [providerFetcher] makes the
+ * fetcher of the GIF provider's API calls (the key is in their URL: never the Ktor JS engine on the web, see
+ * `BrowserProviderFetcher`).
  */
 class ConversationPlatform(
     val mediaFetcher: () -> MediaFetcher,
