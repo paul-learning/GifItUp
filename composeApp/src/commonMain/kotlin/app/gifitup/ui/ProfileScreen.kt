@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.gifitup.GlyphSupport
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
+import app.gifitup.shared.presentation.onboarding.OriginView
 
 /**
  * The user's own profile (#217): the username, which can't be changed yet, and the own key emojis (the same ones the
@@ -31,6 +32,7 @@ import app.gifitup.shared.presentation.contacts.ContactsStateHolder
 @Composable
 internal fun ProfileScreen(
     username: String,
+    server: OriginView,
     holder: ContactsStateHolder,
     glyphs: GlyphSupport,
     onBack: () -> Unit,
@@ -44,6 +46,8 @@ internal fun ProfileScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         AppTopBar(ChatTexts.PROFILE, onBack, modifier = Modifier.padding(bottom = 4.dp))
+        // The server this account is on, called out while it is not the default (ADR-0013): the list shows only a marker.
+        OriginBanner(server)
         CardSurface {
             Column(
                 Modifier.fillMaxWidth(),

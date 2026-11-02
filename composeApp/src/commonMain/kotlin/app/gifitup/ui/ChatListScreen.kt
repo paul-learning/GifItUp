@@ -83,7 +83,11 @@ internal fun ChatListScreen(
             modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AppTopBar(title = ChatTexts.TITLE, onBack = null, trailing = { BurgerMenu(actions.onMenu) })
+            AppTopBar(
+                title = ChatTexts.TITLE,
+                onBack = null,
+                trailing = { TopBarActions(actions.customServer, actions.onMenu) },
+            )
             notice?.invoke()
             FilterRow(state.filter, holder::showOnly)
             if (state.refreshing) {
@@ -119,6 +123,18 @@ internal fun ChatListScreen(
         Box(
             Modifier.align(Alignment.BottomEnd).padding(20.dp),
         ) { PlusButton(ChatTexts.NEW_CHAT, enabled = true, onClick = actions.onNewChat) }
+    }
+}
+
+/** The top bar's right side: a marker while the server is not the default (it opens the Profile), and the burger menu. */
+@Composable
+private fun TopBarActions(
+    customServer: Boolean,
+    menu: MenuActions,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (customServer) IconTile(ChatTexts.CUSTOM_SERVER, menu.onProfile) { WarningIcon(MaterialTheme.colorScheme.tertiary) }
+        BurgerMenu(menu)
     }
 }
 

@@ -65,17 +65,14 @@ fun App(
     }
 }
 
-/** Above the landing list: the server banner while it isn't the default, and a note while some setup is pending. */
+/**
+ * Above the landing list: a note while some setup is pending. The custom-server banner is not here any more (#217, owner
+ * decision 2026-11-02): the list's top bar carries a small marker and the Profile screen shows the server (ADR-0013).
+ */
 @Composable
-private fun HomeNotice(
-    current: OriginView,
-    state: OnboardingState.Done,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (current.custom) OriginBanner(current)
-        if (state.keyPackagesUploaded == false) {
-            Text(ChatTexts.SETUP_PENDING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+private fun HomeNotice(state: OnboardingState.Done) {
+    if (state.keyPackagesUploaded == false) {
+        Text(ChatTexts.SETUP_PENDING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -179,7 +176,7 @@ private fun Navigation(
             val signedIn = state as? OnboardingState.Done
             if (signedIn != null) {
                 // The account is ready: the chat list is the landing screen (#217).
-                ChatHome(model, nav) { HomeNotice(current, signedIn) }
+                ChatHome(model, nav, current.custom) { HomeNotice(signedIn) }
             } else {
                 OnboardingScreen(
                     state,
@@ -197,7 +194,7 @@ private fun Navigation(
                 if (nav.currentDestination?.route == ROUTE_INVITES) nav.popBackStack()
             }
         }
-        chatRoutes(nav, current.origin, services.graph.glyphs)
+        chatRoutes(nav, current, services.graph.glyphs)
         composable(ROUTE_FRIENDS) { entry ->
             val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
             val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
