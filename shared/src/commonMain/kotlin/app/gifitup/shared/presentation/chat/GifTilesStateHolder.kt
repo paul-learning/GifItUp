@@ -19,8 +19,6 @@ import kotlinx.coroutines.sync.withPermit
 
 /** What a GIF bubble shows. The media itself is never kept after the bubble is gone ([GifTilesStateHolder.hide]). */
 sealed interface GifTile {
-    /** Not loaded on its own: this device's codecs are not patched (ADR-0003), so it waits for a tap and says why. */
-
     data object Loading : GifTile
 
     /** [data] passed the scanner; only the platform decoder is given it. */
@@ -38,8 +36,8 @@ sealed interface GifTile {
 /**
  * The media of the GIF bubbles on screen (#25, ADR-0003): a bubble that appears asks to be [show]n, one that leaves
  * [hide]s, so only what is on screen holds bytes. Every device loads on its own (owner decision 2026-11-02, ADR-0003).
- * A GIF that fails waits for a tap to try again. At most [parallel] downloads run at once. An answer for a bubble that has left, or for an
- * older visit, is dropped. Like the other holders it is driven from one thread (the UI's main scope).
+ * A GIF that fails waits for a tap to try again. At most [parallel] downloads run at once. An answer for a bubble that has left,
+ * or for an older visit, is dropped. Like the other holders it is driven from one thread (the UI's main scope).
  */
 class GifTilesStateHolder(
     private val scope: CoroutineScope,
