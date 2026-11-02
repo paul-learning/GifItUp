@@ -1,6 +1,6 @@
 # Visual design draft (#154)
 
-Early drafts by the owner, 2026-10-28. They set the direction, not pixel values: dark purple surfaces, rounded cards, a
+Early drafts by the owner, 2026-10-28 (a dated snapshot: since 2026-11-02 a caption sits under the GIF in the bubble, see `../README.md`). They set the direction, not pixel values: dark purple surfaces, rounded cards, a
 purple primary, an orange accent for "needs your review", initials in circles for people, a square rounded back button.
 
 - `friends-draft.png`: the Friends screen. Own key emojis sit behind the info button on the "Key emojis" card; a friend

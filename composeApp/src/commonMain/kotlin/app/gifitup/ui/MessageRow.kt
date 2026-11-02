@@ -25,7 +25,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -128,14 +127,16 @@ private fun GifBubble(
             shape = MaterialTheme.shapes.large,
             modifier = Modifier.width(minOf(maxWidth * BUBBLE_FRACTION, BUBBLE_MAX_WIDTH)),
         ) {
-            Box {
-                GifTileView(
-                    tile,
-                    body.reference,
-                    ConversationTexts.gifDescription(sender, body.caption),
-                ) { tiles.tap(message.reference, body.reference) }
-                GifChip(Modifier.align(Alignment.TopStart).padding(12.dp))
-                body.caption?.let { CaptionOnGif(it, Modifier.align(Alignment.BottomStart)) }
+            Column {
+                Box {
+                    GifTileView(
+                        tile,
+                        body.reference,
+                        ConversationTexts.gifDescription(sender, body.caption),
+                    ) { tiles.tap(message.reference, body.reference) }
+                    GifChip(Modifier.align(Alignment.TopStart).padding(12.dp))
+                }
+                body.caption?.let { CaptionUnderGif(it, mine) }
             }
         }
     }
@@ -157,29 +158,29 @@ private fun GifChip(modifier: Modifier) {
     )
 }
 
-/** The caption over the lower edge of the GIF, on a dark fade so it reads on any picture; plain text, one line. */
+/**
+ * The caption under the GIF, inside the bubble: its own text on the bubble's colour, so it reads on any picture and a
+ * long one wraps instead of being cut off. Plain text; the height is bounded, so a stack of combining marks can't grow the
+ * bubble.
+ */
 @Composable
-private fun CaptionOnGif(
+private fun CaptionUnderGif(
     caption: String,
-    modifier: Modifier,
+    mine: Boolean,
 ) {
-    Box(
-        modifier
-            .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = CAPTION_SCRIM))))
-            .padding(start = 12.dp, end = 12.dp, top = 20.dp, bottom = 12.dp),
-    ) {
-        // One line, clipped to a bounded height: a stack of combining marks can't grow the bubble.
-        Text(
-            ChatTexts.isolated(caption),
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.heightIn(max = CAPTION_MAX_HEIGHT).clipToBounds(),
-        )
-    }
+    Text(
+        ChatTexts.isolated(caption),
+        style = MaterialTheme.typography.bodyLarge,
+        color = if (mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+        maxLines = CAPTION_MAX_LINES,
+        overflow = TextOverflow.Ellipsis,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .heightIn(max = CAPTION_MAX_HEIGHT)
+                .clipToBounds(),
+    )
 }
 
 /** The GIF itself, or a placeholder of the same shape that says what is going on. */
@@ -269,9 +270,9 @@ private fun Placeholder(
 
 private const val BUBBLE_FRACTION = 0.8f
 private const val CHIP_SCRIM = 0.45f
-private const val CAPTION_SCRIM = 0.65f
+private const val CAPTION_MAX_LINES = 6
 private val SENDER_AVATAR_SIZE = 24.dp
 private val BUBBLE_MAX_WIDTH = 320.dp
-private val CAPTION_MAX_HEIGHT = 28.dp
+private val CAPTION_MAX_HEIGHT = 160.dp
 private const val MIN_RATIO = 0.5f
 private const val MAX_RATIO = 2.5f
