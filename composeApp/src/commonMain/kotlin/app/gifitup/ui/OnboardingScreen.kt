@@ -52,7 +52,7 @@ internal fun OnboardingScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Brand()
-        // On every screen while the server is not the default; on the steps that send to it, always (ADR-0013).
+        // While the server is not the default; on the steps that send to it, always (ADR-0013).
         val shown = originOf(state) ?: current.takeIf { it.custom }
         shown?.let { OriginBanner(it) }
         when (state) {
