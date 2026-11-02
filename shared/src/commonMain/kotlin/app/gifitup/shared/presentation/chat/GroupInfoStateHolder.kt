@@ -123,11 +123,10 @@ class GroupInfoStateHolder(
             return
         }
         running = true
-        val forVisit = visit
         flow.value = current.copy(adding = true, problem = null, notAdded = emptyList())
         scope.launch {
             try {
-                addAll(forVisit, current.selected.sorted())
+                addAll(current.selected.sorted())
             } finally {
                 running = false
             }
@@ -141,26 +140,18 @@ class GroupInfoStateHolder(
         val retryable = current.problem == GroupInfoProblem.NAME_NOT_SENT && !current.adding
         if (running || !retryable || name == null) return
         running = true
-        val forVisit = visit
         flow.value = current.copy(adding = true, problem = null)
         scope.launch {
             try {
                 val sent = sendName(name)
-                if (forVisit ==
-                    visit
-                ) {
-                    flow.value = flow.value.copy(adding = false, problem = if (sent) null else GroupInfoProblem.NAME_NOT_SENT)
-                }
+                flow.value = flow.value.copy(adding = false, problem = if (sent) null else GroupInfoProblem.NAME_NOT_SENT)
             } finally {
                 running = false
             }
         }
     }
 
-    private suspend fun addAll(
-        forVisit: Int,
-        names: List<String>,
-    ) {
+    private suspend fun addAll(names: List<String>) {
         val added = mutableListOf<String>()
         val missed = mutableListOf<String>()
         var failure: GroupInfoProblem? = null
@@ -179,7 +170,6 @@ class GroupInfoStateHolder(
         // The name goes last, once everyone who could be added is in; only if somebody was added, and the group has a name.
         val name = flow.value.name
         val nameSent = added.isEmpty() || name == null || sendName(name)
-        if (forVisit != visit) return
         val current = flow.value
         val members = current.members + added
         flow.value =
@@ -204,7 +194,7 @@ class GroupInfoStateHolder(
         return named is AuthResult.Ok && named.value is SyncOutcome.Sent
     }
 
-    /** The screen closed: an answer that is still on its way is dropped. */
+    /** The screen closed: the state is reset, unless an add is still running (it finishes; the next open makes a new holder). */
     fun leave() {
         if (running) return
         visit++
