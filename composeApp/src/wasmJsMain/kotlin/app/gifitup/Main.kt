@@ -62,7 +62,6 @@ fun main() {
                         ConversationPlatform(
                             { BrowserMediaFetcher() },
                             { BrowserProviderFetcher() },
-                            null,
                             BrowserGraphemeCounter(),
                         ),
                     historyCiphers = { loadWasmHistoryCipherFactory() },

@@ -31,11 +31,8 @@ internal object ConversationTexts {
             "$count stored messages could not be read."
         }
 
-    const val LOAD_GIF = "Load the GIF"
     const val RETRY_GIF = "Try loading the GIF again"
     const val PICK_CHAT = "Choose a chat to read it."
-    const val TAP_TO_LOAD = "Tap to load this GIF"
-    const val TAP_TO_LOAD_WHY = "This phone's security updates are old or can't be read, so GIFs aren't loaded on their own."
     const val LOADING_GIF = "Loading GIF…"
     const val GIF_FAILED_RETRY = "Tap to try again"
     const val GIF_CANT_SHOW = "This GIF can't be shown"

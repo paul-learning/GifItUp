@@ -22,9 +22,7 @@ import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.invite.CreateInvite
 import app.gifitup.shared.domain.invite.ListInvites
 import app.gifitup.shared.domain.invite.RevokeInvite
-import app.gifitup.shared.domain.media.CivilDate
 import app.gifitup.shared.domain.media.LoadGifMedia
-import app.gifitup.shared.domain.media.MediaPolicy
 import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.domain.messages.DeviceHistoryOpener
 import app.gifitup.shared.domain.messages.DeviceHistoryResetter
@@ -124,11 +122,10 @@ internal class OnboardingViewModel(
     // Fetches GIFs straight from the provider (ADR-0003), apart from the server's API client.
     private val mediaFetcher = graph.conversations.mediaFetcher()
 
-    /** The GIFs on the open conversation's screen: loaded on their own or on a tap, by the device's patch level. */
+    /** The GIFs on the open conversation's screen: loaded on their own as they come into view. */
     val tiles =
         GifTilesStateHolder(
             viewModelScope,
-            MediaPolicy(graph.conversations.securityPatch) { CivilDate.ofEpochDays(Clock.System.now().epochSeconds / SECONDS_PER_DAY) },
             LoadGifMedia(mediaFetcher),
         )
     private val captions = CaptionInput(graph.conversations.graphemes)
@@ -138,7 +135,6 @@ internal class OnboardingViewModel(
     val previews =
         GifTilesStateHolder(
             viewModelScope,
-            MediaPolicy(graph.conversations.securityPatch) { CivilDate.ofEpochDays(Clock.System.now().epochSeconds / SECONDS_PER_DAY) },
             LoadGifMedia(mediaFetcher),
         )
 
@@ -215,5 +211,3 @@ internal class OnboardingViewModel(
         engine.close()
     }
 }
-
-private const val SECONDS_PER_DAY = 86_400L
