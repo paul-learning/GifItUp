@@ -158,6 +158,28 @@ internal class MessageReceiver(
         }
     }
 
+    private suspend fun announce(
+        id: KeyBytes,
+        commit: IncomingMessage.Commit,
+    ) {
+        if (commit.added.isEmpty() && commit.removed.isEmpty()) return
+        val change =
+            MembershipChange(
+                id.bytes,
+                commit.epoch,
+                commit.sender.username,
+                commit.added.map { MemberChange(it.username, it.leafIndex) },
+                commit.removed.map { MemberChange(it.username, it.leafIndex) },
+            )
+        try {
+            sink.membership(change)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            halt(SyncOutcome.StorageFailed)
+        }
+    }
+
     private suspend fun commitFailed(
         id: KeyBytes,
         code: MlsErrorCode,
@@ -178,6 +200,8 @@ internal class MessageReceiver(
             if (e.code == MlsErrorCode.Poisoned) halt(SyncOutcome.Poisoned(null))
             store.freeze(id, GroupStatus.FROZEN_COMMIT_REFUSED)
         }
+        // Only a merged commit is told to the sink, before the cursor moves: a crash in between delivers it again, idempotently.
+        announce(id, commit)
         val record = store.recordOf(id)
         // Flags only ever name leaves of the group (at most 50), so keeping those still in the roster bounds the list.
         val present = crate { mls.members(id.bytes) }.map { KeyBytes(it.signatureKey) }.toSet()

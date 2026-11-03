@@ -3,6 +3,7 @@ package app.gifitup.shared.domain.chat
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.HistoryStoreException
+import app.gifitup.shared.domain.messages.MessageBody
 
 /**
  * Which messages the user has seen: the ones up to the newest that was on screen when the conversation was last shown.
@@ -45,7 +46,8 @@ class ReadMarks(
         val mark = current(group)
         val index = messages.indexOfFirst { it.reference == mark }
         val after = if (mark == null || index < 0) messages else messages.subList(index + 1, messages.size)
-        return after.count { it.sender != null }
+        // A membership notice is not a message and never counts as unread.
+        return after.count { it.sender != null && it.body !is MessageBody.Membership }
     }
 
     /** The mark of [group]: from memory, else from the store once (a failed read is tried again next time). */

@@ -66,8 +66,9 @@ internal fun MessageRow(
             is MessageBody.GroupMeta -> Text(ConversationTexts.renamed(body.name), style = MaterialTheme.typography.bodySmall)
             MessageBody.Unavailable -> Text(ConversationTexts.UNAVAILABLE, style = MaterialTheme.typography.bodySmall)
             MessageBody.UpdateNeeded -> Text(ConversationTexts.UPDATE_NEEDED, style = MaterialTheme.typography.bodySmall)
+            is MessageBody.Membership -> Text(ConversationTexts.membership(body), style = MaterialTheme.typography.bodySmall)
         }
-        SenderLine(message, sender, mine)
+        if (message.body !is MessageBody.Membership) SenderLine(message, sender, mine)
     }
 }
 

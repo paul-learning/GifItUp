@@ -30,6 +30,8 @@ class HistoryRecordCodecTest {
                 message(MessageBody.GroupMeta("Friday crew")),
                 message(MessageBody.Unavailable),
                 message(MessageBody.UpdateNeeded),
+                message(assertNotNull(MessageBody.Membership.of(MembershipEvent.ADDED, "carol", "bob"))),
+                message(assertNotNull(MessageBody.Membership.of(MembershipEvent.JOINED, "", "bob", 4))),
                 message(MessageBody.Gif(gif, "mine"), sender = null, state = DeliveryState.FAILED),
             )
         for (stored in all) {
@@ -108,5 +110,19 @@ class HistoryRecordCodecTest {
         assertEquals(3, own[stateByte].toInt())
         val sent = HistoryRecordCodec.encode(message(MessageBody.Unavailable, sender = null, state = DeliveryState.SENT))
         assertEquals(2, sent[stateByte].toInt())
+    }
+
+    @Test
+    fun aMembershipNoticeKeepsItsFieldsAndABadOneIsRefusedAtTheDoor() {
+        val notice = assertNotNull(MessageBody.Membership.of(MembershipEvent.REMOVED, "carol", "bob"))
+        val back = assertIs<MessageBody.Membership>(HistoryRecordCodec.decode(HistoryRecordCodec.encode(message(notice)))!!.message.body)
+        assertEquals(MembershipEvent.REMOVED, back.event)
+        assertEquals("carol", back.subject)
+        assertEquals("bob", back.by)
+        assertNull(MessageBody.Membership.of(MembershipEvent.ADDED, "Carol Smith", "bob"), "a name that breaks the username rule")
+        assertNull(MessageBody.Membership.of(MembershipEvent.ADDED, "carol", "bo b"))
+        assertNull(MessageBody.Membership.of(MembershipEvent.JOINED, "carol", "bob", 3), "a joined notice names nobody")
+        assertNull(MessageBody.Membership.of(MembershipEvent.JOINED, "", "bob", 0), "and has a size")
+        assertNull(MessageBody.Membership.of(MembershipEvent.ADDED, "carol", "bob", 2), "an added notice has no size")
     }
 }

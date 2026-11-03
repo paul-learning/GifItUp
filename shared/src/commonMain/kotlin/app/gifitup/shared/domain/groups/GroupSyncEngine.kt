@@ -38,7 +38,7 @@ class GroupSyncEngine(
     private val live = TrackedClient(mls, flag)
     private val store = SyncStore(live, saver, flag)
     private val messages = MessageReceiver(live, delivery, pinsSource, sink, store)
-    private val welcomes = WelcomeReceiver(live, delivery, pinsSource, store)
+    private val welcomes = WelcomeReceiver(live, delivery, pinsSource, store, sink)
     private val poster = Poster(live, delivery, store)
     private val sender = SendSide(live, store, poster, random)
     private val commits = CommitSide(live, store, poster, messages, random, flag)

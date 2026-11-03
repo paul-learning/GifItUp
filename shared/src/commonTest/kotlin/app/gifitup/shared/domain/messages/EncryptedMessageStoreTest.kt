@@ -500,4 +500,30 @@ class EncryptedMessageStoreTest {
             records.put(to, markOne, sealed)
             assertEquals(1, store().unreadable(id(2)), "a stray record of a wrong name is counted, not shown")
         }
+
+    private fun notice(
+        n: Int,
+        event: MembershipEvent = MembershipEvent.ADDED,
+    ) = ChatMessage(id(1), ref(n), "bob", null, assertNotNull(MessageBody.Membership.of(event, "carol", "bob")), null, 100L + n)
+
+    @Test
+    fun noticesHaveACapOfTheirOwnAndNeverPushOutMoreThanThatManyMessages() =
+        runTest {
+            val s = store(HistoryLimits(maxPerGroup = 100))
+            repeat(20) { assertTrue(s.insert(received(1, it + 1))) }
+            // A member that adds and removes in a loop: far more notices than the cap.
+            repeat(100) { assertTrue(s.insert(notice(100 + it))) }
+            val list = s.messages(id(1))
+            assertEquals(MAX_NOTICES, list.count { it.body is MessageBody.Membership })
+            assertEquals(20, list.count { it.body is MessageBody.Gif }, "the messages are all still there")
+            assertEquals(ref(199), list.last().reference, "the newest notice stays")
+        }
+
+    @Test
+    fun aNoticeIsStoredOnceUnderItsReference() =
+        runTest {
+            val s = store()
+            assertTrue(s.insert(notice(7)))
+            assertFalse(s.insert(notice(7)), "the same change delivered again is the same notice")
+        }
 }

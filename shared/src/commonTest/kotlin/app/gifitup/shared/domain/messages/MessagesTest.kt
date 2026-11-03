@@ -9,6 +9,8 @@ import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.DeliveredMessage
 import app.gifitup.shared.domain.groups.GroupChat
 import app.gifitup.shared.domain.groups.IncomingSink
+import app.gifitup.shared.domain.groups.MemberChange
+import app.gifitup.shared.domain.groups.MembershipChange
 import app.gifitup.shared.domain.groups.SendObserver
 import app.gifitup.shared.domain.groups.SendState
 import app.gifitup.shared.domain.groups.SyncOutcome
@@ -303,4 +305,44 @@ class MessagesTest {
             send.resume(session, group, sink)
             assertEquals(listOf(DeliveryState.SENDING), states(), "nothing could be told apart, so nothing was failed")
         }
+
+    @Test
+    fun aRosterChangeBecomesOneNoticePerLeafAndTheSameChangeTwiceIsOne() =
+        runTest {
+            val change =
+                MembershipChange(
+                    group,
+                    5L,
+                    "bob",
+                    listOf(MemberChange("carol", 2), MemberChange("dave", 3)),
+                    listOf(MemberChange("erin", 1)),
+                )
+            intake.membership(change)
+            intake.membership(change)
+            val notices = store.messages(KeyBytes(group)).map { it.body }.filterIsInstance<MessageBody.Membership>()
+            assertEquals(3, notices.size)
+            assertEquals(listOf(MembershipEvent.ADDED, MembershipEvent.ADDED, MembershipEvent.REMOVED), notices.map { it.event })
+            assertEquals(listOf("carol", "dave", "erin"), notices.map { it.subject })
+            assertTrue(notices.all { it.by == "bob" })
+        }
+
+    @Test
+    fun aJoinIsOneNoticeWithTheSizeAndAChangeWithAnInvalidNameIsDropped() =
+        runTest {
+            intake.membership(MembershipChange(group, 0L, "bob", emptyList(), emptyList(), joined = 4))
+            val joined = store.messages(KeyBytes(group)).single().body
+            assertEquals(4, assertIs<MessageBody.Membership>(joined).count)
+            intake.membership(MembershipChange(group, 6L, "bob", listOf(MemberChange("Not A Name", 2)), emptyList()))
+            assertEquals(1, store.messages(KeyBytes(group)).size, "a name that breaks the username rule makes no notice")
+        }
+
+    @Test
+    fun aNoticeReferenceNeverLooksLikeAMessageReference() {
+        val ref = MessageIntake.noticeRef(MembershipEvent.ADDED, 5L, 2)
+        assertEquals(0xFE.toByte(), ref.bytes[0])
+        assertEquals(32, ref.bytes.size)
+        assertFalse(ref == MessageIntake.noticeRef(MembershipEvent.REMOVED, 5L, 2))
+        assertFalse(ref == MessageIntake.noticeRef(MembershipEvent.ADDED, 6L, 2))
+        assertFalse(ref == MessageIntake.noticeRef(MembershipEvent.ADDED, 5L, 3))
+    }
 }

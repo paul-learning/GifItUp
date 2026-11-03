@@ -100,22 +100,40 @@ internal class HistoryRecords(
         names: MutableSet<String>,
         max: Int,
     ) {
+        // Notices have a cap of their own and evict only notices, so a member who adds and removes in a loop can displace
+        // at most MAX_NOTICES messages (#31).
+        while (items.count { it.message.body is MessageBody.Membership } > MAX_NOTICES) {
+            if (!deleteAt(folder, items, names, items.indexOfFirst { it.message.body is MessageBody.Membership })) return
+        }
         while (items.size > max) {
             val keep = items.indexOfLast { it.message.isSettledName() }
             val index = if (keep == 0) 1 else 0
-            if (index >= items.size) return
-            val oldest = items[index].message
-            val name = hex(cipher.messageName(oldest.groupId.bytes, oldest.reference.bytes))
-            try {
-                records.delete(folder, name)
-            } catch (_: RecordStoreException) {
-                return
-            }
-            items.removeAt(index)
-            names -= name
+            if (index >= items.size || !deleteAt(folder, items, names, index)) return
         }
     }
+
+    /** Deletes the record at [index] and forgets it; `false` if it can't be deleted (it stays for the next insert). */
+    private suspend fun deleteAt(
+        folder: String,
+        items: MutableList<StoredMessage>,
+        names: MutableSet<String>,
+        index: Int,
+    ): Boolean {
+        val oldest = items[index].message
+        val name = hex(cipher.messageName(oldest.groupId.bytes, oldest.reference.bytes))
+        try {
+            records.delete(folder, name)
+        } catch (_: RecordStoreException) {
+            return false
+        }
+        items.removeAt(index)
+        names -= name
+        return true
+    }
 }
+
+/** At most this many membership notices are kept per group; the oldest notice goes first. */
+internal const val MAX_NOTICES = 30
 
 private const val READ_MARK_VERSION: Byte = 1
 private const val READ_MARK_SIZE = 1 + 32

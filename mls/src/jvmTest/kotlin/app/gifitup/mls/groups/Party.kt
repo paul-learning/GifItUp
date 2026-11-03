@@ -11,6 +11,7 @@ import app.gifitup.shared.domain.groups.ContactPinsSource
 import app.gifitup.shared.domain.groups.DeliveredMessage
 import app.gifitup.shared.domain.groups.GroupSyncEngine
 import app.gifitup.shared.domain.groups.IncomingSink
+import app.gifitup.shared.domain.groups.MembershipChange
 import app.gifitup.shared.domain.groups.PinCheck
 import app.gifitup.shared.domain.groups.SnapshotSaver
 import java.security.SecureRandom
@@ -43,6 +44,9 @@ class Party(
 
     /** Where decrypted messages go; the default records them in [received]. */
     var sink: IncomingSink = IncomingSink { received += it }
+
+    /** The roster changes the engine announced (#31). */
+    val membership = mutableListOf<MembershipChange>()
     var engine = newEngine(mls)
 
     fun newEngine(client: MlsClient) =
@@ -55,7 +59,14 @@ class Party(
                 saved = it.copyOf()
                 saves++
             },
-            IncomingSink { sink.deliver(it) },
+            object : IncomingSink {
+                override suspend fun deliver(message: DeliveredMessage) = sink.deliver(message)
+
+                override suspend fun membership(change: MembershipChange) {
+                    membership += change
+                    sink.membership(change)
+                }
+            },
             SecureRandomSource { randomBytes(it) },
         )
 

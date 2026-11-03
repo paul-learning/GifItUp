@@ -92,6 +92,7 @@ private fun bodyText(body: MessageBody): String =
         is MessageBody.GroupMeta -> "group name \"${printable(body.name)}\""
         MessageBody.Unavailable -> "message unavailable"
         MessageBody.UpdateNeeded -> "update needed"
+        is MessageBody.Membership -> "member change ${body.event.name.lowercase()} ${body.subject}"
     }
 
 /** One stored message of `chat-history`: seq (or `-`), sender (or `-` for one this device sent), state (or `-`), the same text. */

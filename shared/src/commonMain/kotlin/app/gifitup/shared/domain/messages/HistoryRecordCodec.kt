@@ -21,8 +21,10 @@ internal class StoredMessage(
  *   ‖ state(1) ‖ at(i64) ‖ body tag(1) ‖ body
  * body: 1 gif  = slug, url (u32 len each) ‖ width(u16) ‖ height(u16) ‖ caption (flag, u32 len + UTF-8)
  *       2 rename = name (u32 len + UTF-8);  3 unavailable;  4 update needed
+ *       5 membership = event(1) ‖ subject (u32 len + UTF-8) ‖ by (flag, u32 len + UTF-8) ‖ count(u16)
  * ```
  */
+@Suppress("TooManyFunctions") // One small function per field kind and body tag of one record layout.
 internal object HistoryRecordCodec {
     private const val VERSION = 1
     const val REFERENCE_BYTES = 32
@@ -37,6 +39,10 @@ internal object HistoryRecordCodec {
     private const val RENAME = 2
     private const val UNAVAILABLE = 3
     private const val UPDATE_NEEDED = 4
+    private const val MEMBERSHIP = 5
+    private const val ADDED = 1
+    private const val REMOVED = 2
+    private const val JOINED = 3
 
     fun encode(stored: StoredMessage): ByteArray {
         val message = stored.message
@@ -107,7 +113,39 @@ internal object HistoryRecordCodec {
             MessageBody.UpdateNeeded -> {
                 out.u8(UPDATE_NEEDED)
             }
+
+            is MessageBody.Membership -> {
+                out.u8(MEMBERSHIP)
+                out.u8(eventCode(body.event))
+                out.blob(body.subject.encodeToByteArray())
+                optionalText(out, body.by)
+                out.u16(body.count)
+            }
         }
+    }
+
+    private fun eventCode(event: MembershipEvent): Int =
+        when (event) {
+            MembershipEvent.ADDED -> ADDED
+            MembershipEvent.REMOVED -> REMOVED
+            MembershipEvent.JOINED -> JOINED
+        }
+
+    private fun eventOf(code: Int): MembershipEvent? =
+        when (code) {
+            ADDED -> MembershipEvent.ADDED
+            REMOVED -> MembershipEvent.REMOVED
+            JOINED -> MembershipEvent.JOINED
+            else -> null
+        }
+
+    private fun readMembership(input: ByteReader): MessageBody? {
+        val event = eventOf(input.u8())
+        val subject = input.blob(MAX_TEXT).decodeToString(throwOnInvalidSequence = true)
+        val by = optionalText(input)
+        val count = input.u16()
+        // Checked again like anything that arrives: the stored bytes are ours, the rules are the same.
+        return event?.let { MessageBody.Membership.of(it, subject, by, count) }
     }
 
     private fun readBody(input: ByteReader): MessageBody? =
@@ -132,6 +170,10 @@ internal object HistoryRecordCodec {
 
             UPDATE_NEEDED -> {
                 MessageBody.UpdateNeeded
+            }
+
+            MEMBERSHIP -> {
+                readMembership(input)
             }
 
             else -> {

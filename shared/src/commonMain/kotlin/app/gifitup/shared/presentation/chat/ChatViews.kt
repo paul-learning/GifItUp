@@ -125,4 +125,5 @@ internal fun previewOf(last: ChatMessage?): Preview =
         is MessageBody.GroupMeta -> Preview.Renamed(body.name)
         MessageBody.Unavailable -> Preview.Unavailable
         MessageBody.UpdateNeeded -> Preview.UpdateNeeded
+        is MessageBody.Membership -> Preview.Nothing
     }

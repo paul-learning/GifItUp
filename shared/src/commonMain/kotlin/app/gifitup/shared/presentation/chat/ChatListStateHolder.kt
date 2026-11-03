@@ -11,6 +11,7 @@ import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.HistoryStoreException
+import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.domain.messages.ResetResult
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
@@ -235,7 +236,8 @@ class ChatListStateHolder(
                 unreadable = 1,
             )
         }
-        val last = messages.lastOrNull()
+        // A membership notice is not a message: the row's line and time are those of the last real one.
+        val last = messages.lastOrNull { it.body !is MessageBody.Membership }
         return ConversationSummary(
             info = info,
             title = titleOf(info, messages),

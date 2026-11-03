@@ -3,8 +3,10 @@ package app.gifitup.shared.domain.groups
 import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
+import app.gifitup.shared.data.crypto.WelcomeInfo
 import app.gifitup.shared.data.network.PendingWelcomeEntry
 import app.gifitup.shared.domain.contacts.KeyBytes
+import kotlinx.coroutines.CancellationException
 
 /**
  * Handles the welcomes waiting for this device (ADR-0016): look up everything that needs the network or the contact book,
@@ -16,6 +18,7 @@ internal class WelcomeReceiver(
     private val delivery: DeliveryPort,
     private val pinsSource: ContactPinsSource,
     private val store: SyncStore,
+    private val sink: IncomingSink,
 ) {
     suspend fun process(results: MutableList<WelcomeOutcome>): SyncOutcome {
         val pins = pinsSource.load() ?: halt(SyncOutcome.LookupIncomplete)
@@ -68,25 +71,40 @@ internal class WelcomeReceiver(
             rejected(welcome.id, null, RejectReason.CONTACT_MISMATCH)
         } else {
             val unverified = CommitJudge.unverifiedKeys(info.members.map { it to pins.check(it.username, it.signatureKey) }, emptyList())
-            joined(welcome, info.token, joinPoint, unverified)
+            joined(welcome, info, joinPoint, unverified)
         }
     }
 
     private suspend fun joined(
         welcome: PendingWelcomeEntry,
-        token: Int,
+        info: WelcomeInfo,
         joinPoint: Long,
         unverified: List<KeyBytes>,
     ): WelcomeOutcome {
         try {
-            mls.joinWelcome(token)
+            mls.joinWelcome(info.token)
         } catch (e: MlsException) {
             return rejected(welcome.id, e.code, RejectReason.UNUSABLE)
         }
+        announceJoin(welcome.groupId, info)
         store.put(KeyBytes(welcome.groupId), GroupRecord.joinedAt(joinPoint, unverified))
         store.persist()
         drop(welcome.id)
         return WelcomeOutcome.Joined(welcome.groupId)
+    }
+
+    /** "You joined": the roster size and the welcome's authenticated sender, told to the sink once the join succeeded. */
+    private suspend fun announceJoin(
+        groupId: ByteArray,
+        info: WelcomeInfo,
+    ) {
+        try {
+            sink.membership(MembershipChange(groupId, 0L, info.sender.username, emptyList(), emptyList(), info.members.size))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            // The notice is only a convenience: a failure here must not undo a join that is done.
+        }
     }
 
     private suspend fun rejected(
