@@ -56,6 +56,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The Friends screen's logic (ADR-0014): saved keys only, a review bound to what it showed, no blind trust. */
+@Suppress("LargeClass") // One screen's table of cases over a shared fixture.
 class ContactsStateHolderTest {
     private val server = FakeAuthServer()
     private val identities = InMemoryIdentityStore()
@@ -586,7 +587,7 @@ class ContactsStateHolderTest {
             assertEquals(emptyList(), cara.devices, "a listed key is still not shown as saved")
             assertEquals(emojisOf(key(3)), cara.chatKey)
             assertTrue(cara.canSaveKey)
-            holder.saveKey(cara.ref, confirmed = true)
+            holder.saveKey(cara.ref, checkNotNull(cara.chatKey), confirmed = true)
             idle(holder)
             val saved =
                 holder.state.value.friends
@@ -602,12 +603,10 @@ class ContactsStateHolderTest {
             chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3)))
             val holder = listedCara()
             openOn(holder)
-            holder.saveKey(
+            val cara =
                 holder.state.value.friends
                     .single()
-                    .ref,
-                confirmed = false,
-            )
+            holder.saveKey(cara.ref, checkNotNull(cara.chatKey), confirmed = false)
             idle(holder)
             assertEquals(
                 FriendStatus.NOT_SAVED,
@@ -628,7 +627,7 @@ class ContactsStateHolderTest {
                     .single()
             assertEquals(KeyNote.LIST_DIFFERS, cara.keyNote)
             assertFalse(cara.canSaveKey)
-            holder.saveKey(cara.ref, confirmed = true)
+            holder.saveKey(cara.ref, checkNotNull(cara.chatKey), confirmed = true)
             idle(holder)
             assertEquals(
                 FriendStatus.NOT_SAVED,
@@ -710,7 +709,7 @@ class ContactsStateHolderTest {
                     .ref
             // A commit swapped the leaf's key after the user looked at the emojis.
             chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 4)))
-            holder.saveKey(ref, confirmed = true)
+            holder.saveKey(ref, emojisOf(key(3)), confirmed = true)
             idle(holder)
             assertEquals(FriendsProblem.LOOK_AGAIN, holder.state.value.problem)
             assertEquals(
@@ -732,6 +731,39 @@ class ContactsStateHolderTest {
             assertNull(cara.chatKey)
             assertNull(cara.keyNote)
             assertFalse(cara.canSaveKey)
+        }
+
+    @Test
+    fun theSavedKeyIsTheOneBehindTheEmojisTheUserComparedNotWhateverIsShownLater() =
+        runTest {
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3)))
+            server.on("/members", members(member(3, "cara", 3)))
+            val holder = holder()
+            openOn(holder)
+            val ref =
+                holder.state.value.friends
+                    .single()
+                    .ref
+            val compared =
+                checkNotNull(
+                    holder.state.value.friends
+                        .single()
+                        .chatKey,
+                )
+            // The dialog was open on key 3's emojis; the roster and the list moved to key 4 and the screen refreshed.
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 4)))
+            server.on("/members", members(member(3, "cara", 4)))
+            holder.refresh()
+            idle(holder)
+            holder.saveKey(ref, compared, confirmed = true)
+            idle(holder)
+            assertEquals(FriendsProblem.LOOK_AGAIN, holder.state.value.problem)
+            assertEquals(
+                FriendStatus.NOT_SAVED,
+                holder.state.value.friends
+                    .single()
+                    .status,
+            )
         }
 }
 

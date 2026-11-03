@@ -49,7 +49,7 @@ internal fun ContactProfileScreen(
                 glyphs,
                 canReview = !state.busy,
                 onReview = { holder.review(friend.ref) },
-                onSaveKey = { holder.saveKey(friend.ref, it) },
+                onSaveKey = { compared, confirmed -> holder.saveKey(friend.ref, compared, confirmed) },
             )
             if (friend.knownSince > 0) {
                 Text(

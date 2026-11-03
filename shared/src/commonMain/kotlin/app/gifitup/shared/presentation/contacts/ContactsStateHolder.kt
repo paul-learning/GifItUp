@@ -273,14 +273,28 @@ class ContactsStateHolder(
     /**
      * Saves the key the chat uses for [ref] after the user compared its emojis (#31). The roster is read again first: the
      * key must still be the one that was shown, still saveable, or nothing is pinned and the user is asked to look again.
+     * [compared] are the emojis the dialog captured when it opened: the key behind them must be the one about to be pinned.
      * The book re-checks every rule inside one update.
      */
     fun saveKey(
         ref: String,
+        compared: List<FingerprintEmoji>,
         confirmed: Boolean,
     ) = act { forVisit ->
         val shown = rosterShown[ref]
-        if (shown != null && confirmed) saveRosterKey(forVisit, shown)
+        // The emojis the user compared are the ones the dialog captured; a key behind them that is not the same is not saved.
+        if (shown != null && confirmed &&
+            known[shown.key] == compared
+        ) {
+            saveRosterKey(forVisit, shown)
+        } else if (confirmed) {
+            lookAgain(forVisit)
+        }
+    }
+
+    private suspend fun lookAgain(forVisit: Int) {
+        show(forVisit, contacts.access.read())
+        change(forVisit) { it.copy(problem = FriendsProblem.LOOK_AGAIN) }
     }
 
     private suspend fun saveRosterKey(
@@ -290,8 +304,7 @@ class ContactsStateHolder(
         val book = (contacts.access.read() as? ContactLoad.Book)?.book
         val now = book?.contacts?.get(shown.accountId)?.let { checkRoster(it, groupsNow()) } as? RosterCheck.Key
         if (now == null || !now.saveable || now.key != shown.key) {
-            show(forVisit, contacts.access.read())
-            change(forVisit) { it.copy(problem = FriendsProblem.LOOK_AGAIN) }
+            lookAgain(forVisit)
             return
         }
         when (val outcome = contacts.accept.fromRoster(shown)) {

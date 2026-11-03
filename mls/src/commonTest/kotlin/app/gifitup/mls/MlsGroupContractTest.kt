@@ -78,6 +78,26 @@ class MlsGroupContractTest {
         }
 
     @Test
+    fun aMembersLeafKeyIsTheKeyOfItsIdentitySoTheOwnEmojisMatchWhatTheOthersSee() =
+        runTest {
+            withPair { alice, bob, groupId ->
+                // #31: the emojis a user reads out ("Your emojis", from the identity key) are the ones a friend's chat shows.
+                assertContentEquals(
+                    alice.publicIdentity().signaturePublicKey,
+                    alice.members(groupId).single { it.username == "alice" }.signatureKey,
+                )
+                assertContentEquals(
+                    bob.publicIdentity().signaturePublicKey,
+                    alice.members(groupId).single { it.username == "bob" }.signatureKey,
+                )
+                assertContentEquals(
+                    bob.publicIdentity().signaturePublicKey,
+                    bob.members(groupId).single { it.username == "bob" }.signatureKey,
+                )
+            }
+        }
+
+    @Test
     fun anApplicationMessageNamesItsSenderAndHasTheSameReferenceOnBothSides() =
         runTest {
             withPair { alice, bob, groupId ->

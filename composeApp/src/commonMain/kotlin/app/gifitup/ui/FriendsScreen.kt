@@ -74,7 +74,7 @@ internal fun FriendsScreen(
                 glyphs,
                 canReview = !state.busy,
                 onReview = { holder.review(friend.ref) },
-                onSaveKey = { holder.saveKey(friend.ref, it) },
+                onSaveKey = { compared, confirmed -> holder.saveKey(friend.ref, compared, confirmed) },
             )
         }
     }
@@ -126,7 +126,7 @@ internal fun Friend(
     glyphs: GlyphSupport,
     canReview: Boolean,
     onReview: () -> Unit,
-    onSaveKey: ((Boolean) -> Unit)? = null,
+    onSaveKey: ((List<FingerprintEmoji>, Boolean) -> Unit)? = null,
 ) {
     var expanded by remember(friend.ref) { mutableStateOf(false) }
     val changed = friend.status == FriendStatus.CHANGED
@@ -184,20 +184,30 @@ private fun ChatKey(
     friend: FriendView,
     glyphs: GlyphSupport,
     enabled: Boolean,
-    onSaveKey: ((Boolean) -> Unit)?,
+    onSaveKey: ((List<FingerprintEmoji>, Boolean) -> Unit)?,
 ) {
-    var saving by remember(friend.ref) { mutableStateOf(false) }
+    // The emojis on show when the user pressed the button: the dialog and the save are about these, whatever a refresh does.
+    var comparing by remember(friend.ref) { mutableStateOf<List<FingerprintEmoji>?>(null) }
     friend.keyNote?.let { Text(FriendTexts.keyNote(it), color = MaterialTheme.colorScheme.error) }
     val cells = friend.chatKey ?: return
     Text(FriendTexts.chatKeyTitle(friend.username), style = MaterialTheme.typography.titleSmall)
     EmojiBlock(cells, glyphs)
     if (friend.canSaveKey && onSaveKey != null) {
-        Button(onClick = { saving = true }, enabled = enabled, shape = MaterialTheme.shapes.medium) { Text(FriendTexts.SAVE_KEY) }
+        Button(onClick = { comparing = cells }, enabled = enabled, shape = MaterialTheme.shapes.medium) { Text(FriendTexts.SAVE_KEY) }
     }
-    if (saving && onSaveKey != null) {
-        SaveKeyDialog(cells, glyphs, enabled, onDismiss = { saving = false }) { confirmed ->
-            saving = false
-            onSaveKey(confirmed)
+    val captured = comparing
+    // The dialog goes away when the key on show is no longer the captured one, or can no longer be saved.
+    LaunchedEffect(friend.chatKey, friend.canSaveKey) {
+        if (captured != null &&
+            (friend.chatKey != captured || !friend.canSaveKey)
+        ) {
+            comparing = null
+        }
+    }
+    if (captured != null && onSaveKey != null) {
+        SaveKeyDialog(captured, glyphs, enabled, onDismiss = { comparing = null }) { confirmed ->
+            comparing = null
+            onSaveKey(captured, confirmed)
         }
     }
 }
@@ -210,7 +220,7 @@ private fun SaveKeyDialog(
     onDismiss: () -> Unit,
     onSave: (Boolean) -> Unit,
 ) {
-    var confirmed by remember { mutableStateOf(false) }
+    var confirmed by remember(cells) { mutableStateOf(false) }
     val allGlyphs = cells.all { glyphs.supports(it.emoji) == true }
     AlertDialog(
         onDismissRequest = onDismiss,
