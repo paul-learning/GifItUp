@@ -1,5 +1,6 @@
 package app.gifitup.shared.presentation.contacts
 
+import app.gifitup.shared.data.content.GifReference
 import app.gifitup.shared.data.crypto.FingerprintEmojis
 import app.gifitup.shared.data.network.Base64Url
 import app.gifitup.shared.data.network.FakeAuthServer
@@ -17,6 +18,7 @@ import app.gifitup.shared.domain.auth.InMemoryKeyStore
 import app.gifitup.shared.domain.auth.LogIn
 import app.gifitup.shared.domain.auth.RegisterDevice
 import app.gifitup.shared.domain.auth.unguarded
+import app.gifitup.shared.domain.chat.ChatPort
 import app.gifitup.shared.domain.contacts.AcceptContact
 import app.gifitup.shared.domain.contacts.Contact
 import app.gifitup.shared.domain.contacts.ContactBook
@@ -30,6 +32,13 @@ import app.gifitup.shared.domain.contacts.ShowFingerprints
 import app.gifitup.shared.domain.contacts.Sighting
 import app.gifitup.shared.domain.contacts.TrustConflict
 import app.gifitup.shared.domain.contacts.Verdict
+import app.gifitup.shared.domain.groups.GroupCreation
+import app.gifitup.shared.domain.groups.GroupInfo
+import app.gifitup.shared.domain.groups.GroupList
+import app.gifitup.shared.domain.groups.GroupStatus
+import app.gifitup.shared.domain.groups.RosterLeaf
+import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.groups.WelcomesReport
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -47,6 +56,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The Friends screen's logic (ADR-0014): saved keys only, a review bound to what it showed, no blind trust. */
+@Suppress("LargeClass") // One screen's table of cases over a shared fixture.
 class ContactsStateHolderTest {
     private val server = FakeAuthServer()
     private val identities = InMemoryIdentityStore()
@@ -61,6 +71,69 @@ class ContactsStateHolderTest {
             ShowFingerprints(server.api().endpoint.origin, unguarded(), identities, keys, lock),
             AcceptContact(access),
         )
+
+    /** The groups on this device, as the chat engine would list them; nothing else of the port is used here. */
+    private class FakeChat : ChatPort {
+        var groups = listOf<GroupInfo>()
+
+        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("ann", groups))
+
+        override suspend fun welcomes(session: Session) = AuthResult.Ok(WelcomesReport(emptyList(), null))
+
+        override suspend fun sync(
+            session: Session,
+            groupId: KeyBytes,
+        ) = AuthResult.Ok<SyncOutcome>(SyncOutcome.CaughtUp(0))
+
+        override suspend fun create(
+            session: Session,
+            target: String,
+        ): AuthResult<GroupCreation> = error("not used")
+
+        override suspend fun add(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
+        ): AuthResult<SyncOutcome> = error("not used")
+
+        override suspend fun addToNewGroup(
+            session: Session,
+            groupId: KeyBytes,
+            target: String,
+        ): AuthResult<SyncOutcome> = error("not used")
+
+        override suspend fun rename(
+            session: Session,
+            groupId: KeyBytes,
+            name: String,
+        ): AuthResult<SyncOutcome> = error("not used")
+
+        override suspend fun sendGif(
+            session: Session,
+            groupId: KeyBytes,
+            reference: GifReference,
+            caption: String?,
+        ): AuthResult<SyncOutcome> = error("not used")
+
+        override suspend fun resume(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> = error("not used")
+    }
+
+    private val chat = FakeChat()
+
+    private fun group(
+        n: Int,
+        status: GroupStatus = GroupStatus.ACTIVE,
+        vararg leaves: RosterLeaf,
+    ) = GroupInfo(KeyBytes(byteArrayOf(n.toByte())), status, leaves.map { it.username }.distinct(), leaves.toList())
+
+    private fun leaf(
+        name: String,
+        keyNumber: Int,
+        unverified: Boolean = false,
+    ) = RosterLeaf(name, key(keyNumber), unverified)
 
     private fun id(n: Int) = "00000000-0000-4000-8000-" + n.toString().padStart(12, '0')
 
@@ -108,7 +181,7 @@ class ContactsStateHolderTest {
 
     private suspend fun TestScope.holder(): ContactsStateHolder {
         val session = registered()
-        return ContactsStateHolder(this, SessionHolder({ AuthResult.Ok(session) }, this) { 0L }, useCases)
+        return ContactsStateHolder(this, SessionHolder({ AuthResult.Ok(session) }, this) { 0L }, useCases, chat)
     }
 
     /** The requests run on the HTTP client's own threads: run the test scheduler, then wait in real time until the action is done. */
@@ -487,6 +560,209 @@ class ContactsStateHolderTest {
                 pending.username,
                 holder.state.value.review
                     ?.observedUsername,
+            )
+        }
+
+    private suspend fun TestScope.listedCara(): ContactsStateHolder {
+        val holder = holder()
+        server.on("/members", members(member(3, "cara", 3)))
+        return holder
+    }
+
+    private suspend fun TestScope.openOn(holder: ContactsStateHolder) {
+        holder.open()
+        idle(holder)
+    }
+
+    @Test
+    fun theKeyOfAChatIsShownForAListedFriendAndSavedAfterTheUserComparedIt() =
+        runTest {
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3)))
+            val holder = listedCara()
+            openOn(holder)
+            val cara =
+                holder.state.value.friends
+                    .single()
+            assertEquals(FriendStatus.NOT_SAVED, cara.status)
+            assertEquals(emptyList(), cara.devices, "a listed key is still not shown as saved")
+            assertEquals(emojisOf(key(3)), cara.chatKey)
+            assertTrue(cara.canSaveKey)
+            holder.saveKey(cara.ref, checkNotNull(cara.chatKey), confirmed = true)
+            idle(holder)
+            val saved =
+                holder.state.value.friends
+                    .single()
+            assertEquals(FriendStatus.SAVED, saved.status)
+            assertEquals(listOf(emojisOf(key(3))), saved.devices, "the emojis after saving are the ones shown before")
+            assertNull(saved.chatKey)
+        }
+
+    @Test
+    fun nothingIsSavedWithoutTheConfirmation() =
+        runTest {
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3)))
+            val holder = listedCara()
+            openOn(holder)
+            val cara =
+                holder.state.value.friends
+                    .single()
+            holder.saveKey(cara.ref, checkNotNull(cara.chatKey), confirmed = false)
+            idle(holder)
+            assertEquals(
+                FriendStatus.NOT_SAVED,
+                holder.state.value.friends
+                    .single()
+                    .status,
+            )
+        }
+
+    @Test
+    fun aListThatShowsAnotherKeyThanTheChatGivesAWarningAndNoButton() =
+        runTest {
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 4)))
+            val holder = listedCara()
+            openOn(holder)
+            val cara =
+                holder.state.value.friends
+                    .single()
+            assertEquals(KeyNote.LIST_DIFFERS, cara.keyNote)
+            assertFalse(cara.canSaveKey)
+            holder.saveKey(cara.ref, checkNotNull(cara.chatKey), confirmed = true)
+            idle(holder)
+            assertEquals(
+                FriendStatus.NOT_SAVED,
+                holder.state.value.friends
+                    .single()
+                    .status,
+            )
+        }
+
+    @Test
+    fun onlyGroupsInNormalStateCountAsASource() =
+        runTest {
+            chat.groups =
+                listOf(
+                    group(1, GroupStatus.FROZEN_ENVELOPE_MISMATCH, leaf("cara", 3)),
+                    group(2, GroupStatus.REMOVED, leaf("cara", 3)),
+                    group(3, GroupStatus.READ_ONLY_ROLLBACK, leaf("cara", 3)),
+                )
+            val holder = listedCara()
+            openOn(holder)
+            val cara =
+                holder.state.value.friends
+                    .single()
+            assertNull(cara.chatKey)
+            assertFalse(cara.canSaveKey)
+        }
+
+    @Test
+    fun moreThanOneKeyOrAnUnverifiedLeafUnderTheNameOffersNothing() =
+        runTest {
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3)), group(2, GroupStatus.ACTIVE, leaf("cara", 4)))
+            val two = listedCara()
+            openOn(two)
+            assertEquals(
+                KeyNote.MORE_THAN_ONE_KEY,
+                two.state.value.friends
+                    .single()
+                    .keyNote,
+            )
+            assertNull(
+                two.state.value.friends
+                    .single()
+                    .chatKey,
+            )
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3), leaf("cara", 4)))
+            val twoLeaves = listedCara()
+            openOn(twoLeaves)
+            assertEquals(
+                KeyNote.MORE_THAN_ONE_KEY,
+                twoLeaves.state.value.friends
+                    .single()
+                    .keyNote,
+            )
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3, unverified = true)))
+            val unverified = listedCara()
+            openOn(unverified)
+            assertEquals(
+                KeyNote.UNVERIFIED_DEVICE,
+                unverified.state.value.friends
+                    .single()
+                    .keyNote,
+            )
+            assertFalse(
+                unverified.state.value.friends
+                    .single()
+                    .canSaveKey,
+            )
+        }
+
+    @Test
+    fun aKeyThatChangedAfterItWasShownIsNotSaved() =
+        runTest {
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3)))
+            val holder = listedCara()
+            openOn(holder)
+            val ref =
+                holder.state.value.friends
+                    .single()
+                    .ref
+            // A commit swapped the leaf's key after the user looked at the emojis.
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 4)))
+            holder.saveKey(ref, emojisOf(key(3)), confirmed = true)
+            idle(holder)
+            assertEquals(FriendsProblem.LOOK_AGAIN, holder.state.value.problem)
+            assertEquals(
+                FriendStatus.NOT_SAVED,
+                holder.state.value.friends
+                    .single()
+                    .status,
+            )
+        }
+
+    @Test
+    fun aFriendWithNoChatShowsNoKeyAsBefore() =
+        runTest {
+            val holder = listedCara()
+            openOn(holder)
+            val cara =
+                holder.state.value.friends
+                    .single()
+            assertNull(cara.chatKey)
+            assertNull(cara.keyNote)
+            assertFalse(cara.canSaveKey)
+        }
+
+    @Test
+    fun theSavedKeyIsTheOneBehindTheEmojisTheUserComparedNotWhateverIsShownLater() =
+        runTest {
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 3)))
+            server.on("/members", members(member(3, "cara", 3)))
+            val holder = holder()
+            openOn(holder)
+            val ref =
+                holder.state.value.friends
+                    .single()
+                    .ref
+            val compared =
+                checkNotNull(
+                    holder.state.value.friends
+                        .single()
+                        .chatKey,
+                )
+            // The dialog was open on key 3's emojis; the roster and the list moved to key 4 and the screen refreshed.
+            chat.groups = listOf(group(1, GroupStatus.ACTIVE, leaf("cara", 4)))
+            server.on("/members", members(member(3, "cara", 4)))
+            holder.refresh()
+            idle(holder)
+            holder.saveKey(ref, compared, confirmed = true)
+            idle(holder)
+            assertEquals(FriendsProblem.LOOK_AGAIN, holder.state.value.problem)
+            assertEquals(
+                FriendStatus.NOT_SAVED,
+                holder.state.value.friends
+                    .single()
+                    .status,
             )
         }
 }

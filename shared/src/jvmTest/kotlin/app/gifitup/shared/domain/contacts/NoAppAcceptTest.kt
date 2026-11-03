@@ -28,7 +28,7 @@ class NoAppAcceptTest {
     private val unblock =
         Regex(
             "ContactBookAccess|ContactStore|RecordContactStore|ContactRecordCodec|AcceptContact|AcceptResult|" +
-                "ReviewedObservation|BlindAcceptForDevCli|acceptContact|\\.blindly\\(|\\.accept\\(",
+                "ReviewedObservation|RosterObservation|saveListed|fromRoster|BlindAcceptForDevCli|acceptContact|\\.blindly\\(|\\.accept\\(",
         )
 
     @Test

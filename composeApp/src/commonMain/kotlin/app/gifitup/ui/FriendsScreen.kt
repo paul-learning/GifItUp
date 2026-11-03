@@ -68,7 +68,15 @@ internal fun FriendsScreen(
         // The user's own emojis are one tap away, behind the info button: they are for reading out on a call.
         state.own?.let { OwnEmojisCard(onShow = { showOwn = true }) }
         if (state.loaded && state.friends.isEmpty()) Text(FriendTexts.NO_FRIENDS, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        state.friends.forEach { friend -> Friend(friend, glyphs, canReview = !state.busy, onReview = { holder.review(friend.ref) }) }
+        state.friends.forEach { friend ->
+            Friend(
+                friend,
+                glyphs,
+                canReview = !state.busy,
+                onReview = { holder.review(friend.ref) },
+                onSaveKey = { compared, confirmed -> holder.saveKey(friend.ref, compared, confirmed) },
+            )
+        }
     }
     state.own?.takeIf { showOwn }?.let { own -> OwnEmojisDialog(own, glyphs) { showOwn = false } }
     state.review?.let { Review(it, glyphs, state.busy, holder) }
@@ -118,6 +126,7 @@ internal fun Friend(
     glyphs: GlyphSupport,
     canReview: Boolean,
     onReview: () -> Unit,
+    onSaveKey: ((List<FingerprintEmoji>, Boolean) -> Unit)? = null,
 ) {
     var expanded by remember(friend.ref) { mutableStateOf(false) }
     val changed = friend.status == FriendStatus.CHANGED
@@ -161,8 +170,75 @@ internal fun Friend(
             Text(FriendTexts.status(friend.status), style = MaterialTheme.typography.bodyMedium)
             friend.reason?.let { Text(FriendTexts.reviewTitle(it), color = colors.tertiary) }
             friend.devices.forEach { EmojiBlock(it, glyphs) }
+            ChatKey(friend, glyphs, canReview, onSaveKey)
         }
     }
+}
+
+/**
+ * The key a chat uses for a friend who is only listed (#31): its emojis, labelled as not saved yet, and "Save this key" when
+ * the holder says it may be saved. A note says why not otherwise. The confirmation is the same comparison as for a review.
+ */
+@Composable
+private fun ChatKey(
+    friend: FriendView,
+    glyphs: GlyphSupport,
+    enabled: Boolean,
+    onSaveKey: ((List<FingerprintEmoji>, Boolean) -> Unit)?,
+) {
+    // The emojis on show when the user pressed the button: the dialog and the save are about these, whatever a refresh does.
+    var comparing by remember(friend.ref) { mutableStateOf<List<FingerprintEmoji>?>(null) }
+    friend.keyNote?.let { Text(FriendTexts.keyNote(it), color = MaterialTheme.colorScheme.error) }
+    val cells = friend.chatKey ?: return
+    Text(FriendTexts.chatKeyTitle(friend.username), style = MaterialTheme.typography.titleSmall)
+    EmojiBlock(cells, glyphs)
+    if (friend.canSaveKey && onSaveKey != null) {
+        Button(onClick = { comparing = cells }, enabled = enabled, shape = MaterialTheme.shapes.medium) { Text(FriendTexts.SAVE_KEY) }
+    }
+    val captured = comparing
+    // The dialog goes away when the key on show is no longer the captured one, or can no longer be saved.
+    LaunchedEffect(friend.chatKey, friend.canSaveKey) {
+        if (captured != null &&
+            (friend.chatKey != captured || !friend.canSaveKey)
+        ) {
+            comparing = null
+        }
+    }
+    if (captured != null && onSaveKey != null) {
+        SaveKeyDialog(captured, glyphs, enabled, onDismiss = { comparing = null }) { confirmed ->
+            comparing = null
+            onSaveKey(captured, confirmed)
+        }
+    }
+}
+
+@Composable
+private fun SaveKeyDialog(
+    cells: List<FingerprintEmoji>,
+    glyphs: GlyphSupport,
+    enabled: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (Boolean) -> Unit,
+) {
+    var confirmed by remember(cells) { mutableStateOf(false) }
+    val allGlyphs = cells.all { glyphs.supports(it.emoji) == true }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(FriendTexts.SAVE_KEY_TITLE) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(FriendTexts.SAVE_KEY_BODY)
+                EmojiBlock(cells, glyphs)
+                Text(FriendTexts.allTwelve(allGlyphs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = confirmed, onCheckedChange = { confirmed = it })
+                    Text(FriendTexts.confirmation(allGlyphs))
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(confirmed) }, enabled = confirmed && enabled) { Text(FriendTexts.SAVE_KEY) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /**

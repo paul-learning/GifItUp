@@ -44,7 +44,13 @@ internal fun ContactProfileScreen(
         if (state.busy || !state.loaded) CircularProgressIndicator()
         state.problem?.let { Text(FriendTexts.problem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
         if (friend != null) {
-            Friend(friend, glyphs, canReview = !state.busy, onReview = { holder.review(friend.ref) })
+            Friend(
+                friend,
+                glyphs,
+                canReview = !state.busy,
+                onReview = { holder.review(friend.ref) },
+                onSaveKey = { compared, confirmed -> holder.saveKey(friend.ref, compared, confirmed) },
+            )
             if (friend.knownSince > 0) {
                 Text(
                     ProfileTexts.knownSince(dateOf(friend.knownSince)),
