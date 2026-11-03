@@ -4,6 +4,7 @@ import app.gifitup.shared.data.crypto.FingerprintEmoji
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.chat.ChatPort
 import app.gifitup.shared.domain.contacts.AcceptOutcome
 import app.gifitup.shared.domain.contacts.AcceptResult
 import app.gifitup.shared.domain.contacts.Contact
@@ -15,7 +16,9 @@ import app.gifitup.shared.domain.contacts.Fingerprints
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.contacts.Observation
 import app.gifitup.shared.domain.contacts.ReviewedObservation
+import app.gifitup.shared.domain.contacts.RosterObservation
 import app.gifitup.shared.domain.contacts.TrustConflict
+import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +47,9 @@ enum class FriendsProblem {
     /** The book refused the trust (the observation can't be pinned). */
     TRUST_REFUSED,
 
+    /** The key the chat uses changed or can't be saved any more since it was shown: look again (#31). */
+    LOOK_AGAIN,
+
     FAILED,
 }
 
@@ -51,6 +57,7 @@ enum class FriendsProblem {
  * One friend. [ref] is opaque: the screen hands it back to [ContactsStateHolder.review] and never shows it. [devices]
  * are the emojis of the keys the app has saved (one list per device); empty for [FriendStatus.NOT_SAVED].
  */
+@Suppress("LongParameterList") // One friend as the screen renders it; grouping the fields would only rename them.
 class FriendView(
     val ref: String,
     val username: String,
@@ -59,6 +66,15 @@ class FriendView(
     val devices: List<List<FingerprintEmoji>>,
     /** When this device first saw the friend, seconds since the epoch by its own clock (the server sends no time). */
     val knownSince: Long = 0L,
+    /**
+     * For a friend who is only listed but is a member of a chat with this device (#31): the emojis of the key that chat
+     * uses ("not yet saved"), `null` where there is none or it is unclear ([keyNote]). Never the list's word.
+     */
+    val chatKey: List<FingerprintEmoji>? = null,
+    /** Why [chatKey] can't be saved, or why there is none to show. */
+    val keyNote: KeyNote? = null,
+    /** "Save key" is offered: one key in every chat, and the list agrees on name and key. */
+    val canSaveKey: Boolean = false,
 )
 
 /**
@@ -108,6 +124,7 @@ class ContactsStateHolder(
     private val scope: CoroutineScope,
     private val sessions: SessionHolder,
     private val contacts: ContactsUseCases,
+    private val chat: ChatPort,
 ) {
     private val flow = MutableStateFlow(FriendsState())
     val state: StateFlow<FriendsState> = flow.asStateFlow()
@@ -118,6 +135,9 @@ class ContactsStateHolder(
     /** The emojis computed in this visit (public data derived from public keys), so a key is worked out once (SEC-52). */
     private var known = mapOf<KeyBytes, List<FingerprintEmoji>>()
     private var ownEmojis: List<FingerprintEmoji>? = null
+
+    /** The keys "Save key" may pin, by friend; rebuilt with every update of the list, dropped with the visit. */
+    private var rosterShown = mapOf<String, RosterObservation>()
 
     /** Every distinct pending observation seen per friend in this visit: the count of changes survives cancel and reopen (SEC-51). */
     private val seen = mutableMapOf<String, MutableSet<Observation>>()
@@ -148,6 +168,7 @@ class ContactsStateHolder(
         visit++
         known = emptyMap()
         ownEmojis = null
+        rosterShown = emptyMap()
         seen.clear()
         flow.value = FriendsState()
     }
@@ -197,27 +218,90 @@ class ContactsStateHolder(
             }
 
             is ContactLoad.Book -> {
-                val saved =
+                note(loaded.book)
+                val checks = rosterChecks(loaded.book)
+                val keys =
                     loaded.book.contacts.values
                         .filter { it.status != ContactStatus.UNCONFIRMED }
-                note(loaded.book)
-                when (val fingerprints = fingerprintsFor(saved.flatMap { it.devices.keys }.toSet())) {
+                        .flatMap { it.devices.keys }
+                        .toSet() + checks.values.filterIsInstance<RosterCheck.Key>().map { it.key }
+                when (val fingerprints = fingerprintsFor(keys)) {
                     is AuthResult.Ok -> {
                         val friends =
                             loaded.book.contacts.values
-                                .map { it.toView(fingerprints.value) }
+                                .map { it.toView(fingerprints.value, checks[it.accountId]) }
+                        rosterShown = rosterObservations(loaded.book, checks, fingerprints.value)
                         change(forVisit) { it.copy(loaded = true, own = fingerprints.value.own, friends = order(friends)) }
                     }
 
                     is AuthResult.Failed -> {
+                        rosterShown = emptyMap()
                         val friends =
                             loaded.book.contacts.values
-                                .map { it.toView(null) }
+                                .map { it.toView(null, null) }
                         change(forVisit) {
                             it.copy(loaded = true, own = null, friends = order(friends), problem = FriendsProblem.EMOJIS_FAILED)
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /** What the groups on this device say about each friend who is only listed (#31); none if the groups can't be read. */
+    private suspend fun rosterChecks(book: ContactBook): Map<String, RosterCheck> {
+        val groups = groupsNow()
+        return book.contacts.values.associate { it.accountId to checkRoster(it, groups) }
+    }
+
+    private suspend fun groupsNow(): List<GroupInfo> =
+        (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.value?.groups.orEmpty()
+
+    /** The observations "Save key" may pin: only for a friend whose key is shown and saveable. Built here, nowhere else. */
+    private fun rosterObservations(
+        book: ContactBook,
+        checks: Map<String, RosterCheck>,
+        fingerprints: Fingerprints,
+    ): Map<String, RosterObservation> =
+        checks
+            .mapNotNull { (ref, check) ->
+                val contact = book.contacts[ref]
+                val key = (check as? RosterCheck.Key)?.takeIf { it.saveable && fingerprints.of(it.key) != null }?.key
+                if (contact != null && key != null) ref to RosterObservation(ref, contact.username, key) else null
+            }.toMap()
+
+    /**
+     * Saves the key the chat uses for [ref] after the user compared its emojis (#31). The roster is read again first: the
+     * key must still be the one that was shown, still saveable, or nothing is pinned and the user is asked to look again.
+     * The book re-checks every rule inside one update.
+     */
+    fun saveKey(
+        ref: String,
+        confirmed: Boolean,
+    ) = act { forVisit ->
+        val shown = rosterShown[ref]
+        if (shown != null && confirmed) saveRosterKey(forVisit, shown)
+    }
+
+    private suspend fun saveRosterKey(
+        forVisit: Int,
+        shown: RosterObservation,
+    ) {
+        val book = (contacts.access.read() as? ContactLoad.Book)?.book
+        val now = book?.contacts?.get(shown.accountId)?.let { checkRoster(it, groupsNow()) } as? RosterCheck.Key
+        if (now == null || !now.saveable || now.key != shown.key) {
+            show(forVisit, contacts.access.read())
+            change(forVisit) { it.copy(problem = FriendsProblem.LOOK_AGAIN) }
+            return
+        }
+        when (val outcome = contacts.accept.fromRoster(shown)) {
+            is AcceptOutcome.Result -> {
+                show(forVisit, contacts.access.read())
+                if (outcome.result != AcceptResult.Accepted) change(forVisit) { it.copy(problem = FriendsProblem.TRUST_REFUSED) }
+            }
+
+            AcceptOutcome.Unavailable -> {
+                change(forVisit) { it.copy(problem = FriendsProblem.BOOK_UNAVAILABLE) }
             }
         }
     }
@@ -295,7 +379,10 @@ class ContactsStateHolder(
         fingerprints: Fingerprints,
     ): List<List<FingerprintEmoji>> = devices.entries.sortedBy { it.value }.mapNotNull { fingerprints.of(it.key) }
 
-    private fun Contact.toView(fingerprints: Fingerprints?): FriendView =
+    private fun Contact.toView(
+        fingerprints: Fingerprints?,
+        check: RosterCheck?,
+    ): FriendView =
         FriendView(
             ref = accountId,
             username = username,
@@ -309,6 +396,9 @@ class ContactsStateHolder(
             reason = pending?.reason,
             devices = if (status == ContactStatus.UNCONFIRMED || fingerprints == null) emptyList() else cells(devices, fingerprints),
             knownSince = firstSeen,
+            chatKey = (check as? RosterCheck.Key)?.key?.let { fingerprints?.of(it) },
+            keyNote = (check as? RosterCheck.Key)?.note ?: (check as? RosterCheck.Unclear)?.note,
+            canSaveKey = check is RosterCheck.Key && check.saveable && fingerprints?.of(check.key) != null,
         )
 
     private fun order(friends: List<FriendView>): List<FriendView> =

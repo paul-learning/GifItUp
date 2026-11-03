@@ -144,6 +144,34 @@ class ContactBook(
         }
     }
 
+    /**
+     * Pins the one key the server's list showed for an `UNCONFIRMED` [accountId], by a user action (#31): the entry must
+     * carry exactly [username] and exactly [key] as its only device, no live account may hold that name or that key
+     * (rules 5 and 6), and the book must have room. Anything else is [AcceptResult.Refused] and changes nothing.
+     */
+    internal fun saveListed(
+        accountId: String,
+        username: String,
+        key: KeyBytes,
+        now: Long,
+    ): Pair<ContactBook, AcceptResult> {
+        val contact = contacts[accountId]
+        return if (contact != null && mayPinListed(contact, username, key)) {
+            with(contact.copy(status = ContactStatus.OK, lastSeen = now)) to AcceptResult.Accepted
+        } else {
+            this to AcceptResult.Refused
+        }
+    }
+
+    private fun mayPinListed(
+        contact: Contact,
+        username: String,
+        key: KeyBytes,
+    ): Boolean =
+        contact.status == ContactStatus.UNCONFIRMED && contact.username == username &&
+            contact.devices.keys == setOf(key) && pinCount < MAX_PINS &&
+            !keyHeldByOther(setOf(key), contact.accountId) && holderOfName(username, contact.accountId) == null
+
     /** The observation replaces the pins of the devices it names (by id) and keeps the others: a claim shows only usable ones. */
     private fun accepted(
         contact: Contact,

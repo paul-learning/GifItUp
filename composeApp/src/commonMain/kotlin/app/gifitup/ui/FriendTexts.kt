@@ -3,6 +3,7 @@ package app.gifitup.ui
 import app.gifitup.shared.domain.contacts.TrustConflict
 import app.gifitup.shared.presentation.contacts.FriendStatus
 import app.gifitup.shared.presentation.contacts.FriendsProblem
+import app.gifitup.shared.presentation.contacts.KeyNote
 
 /**
  * The Friends screen's fixed texts (ADR-0014). Words the app may not use: "verified", "safe", "secure". What the app
@@ -48,10 +49,22 @@ internal object FriendTexts {
 
     fun status(status: FriendStatus): String =
         when (status) {
-            FriendStatus.SAVED -> "Saved. These are the emojis the app has saved for them. To check, ask your friend to read theirs."
-            FriendStatus.NOT_SAVED -> "Not saved yet. The server lists them, but this device has not saved a key for them."
-            FriendStatus.CHANGED -> "Something changed. Review it before you trust this friend."
-            FriendStatus.GONE -> "Not in your list any more. The saved key is kept."
+            FriendStatus.SAVED -> {
+                "Saved. These are the emojis the app has saved for them. To check, ask your friend to read theirs."
+            }
+
+            FriendStatus.NOT_SAVED -> {
+                "Not saved yet. The server lists them, but this device has not saved a key for them. " +
+                    "If you are in a chat with them, the key that chat uses is shown below, and you can save it after you compare."
+            }
+
+            FriendStatus.CHANGED -> {
+                "Something changed. Review it before you trust this friend."
+            }
+
+            FriendStatus.GONE -> {
+                "Not in your list any more. The saved key is kept."
+            }
         }
 
     fun problem(problem: FriendsProblem): String =
@@ -60,6 +73,7 @@ internal object FriendTexts {
             FriendsProblem.EMOJIS_FAILED -> "The emojis couldn't be worked out, so nothing can be trusted right now."
             FriendsProblem.OFFLINE -> "No answer from the server. The list below is what this device has saved."
             FriendsProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
+            FriendsProblem.LOOK_AGAIN -> "The key changed while you were looking, or can't be saved any more. Look at it again."
             FriendsProblem.TRUST_REFUSED -> "That can't be trusted: its key belongs to another friend, or its name is taken."
             FriendsProblem.FAILED -> "Something went wrong. Try again."
         }
@@ -119,6 +133,21 @@ internal object FriendTexts {
             "I compared all 12 emojis and names with my friend, on a call or in person, not in a chat."
         } else {
             "I compared all 12 names with my friend, on a call or in person, not in a chat."
+        }
+
+    fun chatKeyTitle(name: String): String = "The key your chat with ${ChatTexts.isolated(name)} uses. Not saved yet."
+
+    const val SAVE_KEY = "Save this key"
+    const val SAVE_KEY_TITLE = "Save this key?"
+    const val SAVE_KEY_BODY =
+        "Ask your friend to read the emojis their own phone shows under \"Your emojis\", on a call or in person, not in a chat. " +
+            "They must match the ones here."
+
+    fun keyNote(note: KeyNote): String =
+        when (note) {
+            KeyNote.MORE_THAN_ONE_KEY -> "Your chats show more than one key or phone under this name, so it can't be saved here."
+            KeyNote.UNVERIFIED_DEVICE -> "A phone with this name in your chats is new and unverified, so it can't be saved here."
+            KeyNote.LIST_DIFFERS -> "The server lists another key than your chat uses. Don't save it; ask your friend."
         }
 
     const val CHANGED_NOTE = "This changed while you were looking. The emojis below are new. Compare them again."

@@ -289,6 +289,52 @@ class ContactBookTest {
         assertEquals(ContactBook.MAX_PINS, full.pinCount)
         assertIs<Verdict.Usable>(full.claim(seen(10, "user0", 10), NOW).second)
     }
+
+    private fun listed(vararg sightings: Sighting): ContactBook = ContactBook().list(sightings.toList(), complete = true, now = NOW)
+
+    @Test
+    fun theListedKeyOfAnUnconfirmedAccountIsPinnedByTheUserAction() {
+        val book = listed(seen(3, "cara", 3))
+        assertEquals(ContactStatus.UNCONFIRMED, book.contacts.getValue(id(3)).status)
+        val (saved, result) = book.saveListed(id(3), "cara", key(3), NOW)
+        assertEquals(AcceptResult.Accepted, result)
+        assertEquals(ContactStatus.OK, saved.contacts.getValue(id(3)).status)
+        assertEquals(
+            setOf(key(3)),
+            saved.contacts
+                .getValue(id(3))
+                .devices.keys,
+        )
+        assertEquals(1, saved.pinCount)
+    }
+
+    @Test
+    fun savingTheListedKeyChecksNameKeyAndStatus() {
+        val book = listed(seen(3, "cara", 3))
+        assertEquals(AcceptResult.Refused, book.saveListed(id(3), "carl", key(3), NOW).second, "another name")
+        assertEquals(AcceptResult.Refused, book.saveListed(id(3), "cara", key(4), NOW).second, "another key")
+        assertEquals(AcceptResult.Refused, book.saveListed(id(99), "cara", key(3), NOW).second, "an unknown account")
+        assertEquals(AcceptResult.Refused, pinnedAlice.saveListed(id(1), "alice", key(1), NOW).second, "already pinned")
+        val two = listed(seen(3, "cara", 3, 4))
+        assertEquals(AcceptResult.Refused, two.saveListed(id(3), "cara", key(3), NOW).second, "the list shows two keys")
+    }
+
+    @Test
+    fun savingTheListedKeyNeverTakesAKeyOrNameOfAnotherPinnedAccount() {
+        val keyTaken = listed(seen(3, "cara", 3)).claimOk(seen(5, "dave", 3))
+        assertEquals(AcceptResult.Refused, keyTaken.saveListed(id(3), "cara", key(3), NOW).second, "key pinned to another account")
+        val nameTaken = listed(seen(3, "cara", 3)).claimOk(seen(6, "cara", 6))
+        assertEquals(AcceptResult.Refused, nameTaken.saveListed(id(3), "cara", key(3), NOW).second, "name held by a live account")
+    }
+
+    @Test
+    fun savingTheListedKeyAtThePinCapIsRefused() {
+        var book = ContactBook()
+        repeat(ContactBook.MAX_PINS) { book = book.claimOk(seen(it + 10, "user$it", it + 10)) }
+        val full = book.list(listOf(seen(5000, "late", 5000)), complete = true, now = NOW)
+        assertEquals(AcceptResult.Refused, full.saveListed(id(5000), "late", key(5000), NOW).second)
+        assertEquals(ContactBook.MAX_PINS, full.pinCount)
+    }
 }
 
 private const val NOW = 1_000L

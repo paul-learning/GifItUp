@@ -141,7 +141,22 @@ class ChatActions(
         sink: IncomingSink,
     ): AuthResult<GroupList> =
         engineAs(session, sink) { engine, client, own ->
-            GroupList(own, engine.statuses().map { (id, status) -> GroupInfo(id, status, client.otherMembers(id, own)) })
+            GroupList(
+                own,
+                engine.statuses().map { (id, status) ->
+                    val leaves =
+                        client.otherLeaves(
+                            id,
+                            own,
+                            engine
+                                .recordOf(id.bytes)
+                                ?.unverified
+                                .orEmpty()
+                                .toSet(),
+                        )
+                    GroupInfo(id, status, leaves.map { it.username }.distinct().sorted(), leaves)
+                },
+            )
         }
 
     private suspend fun <T> engine(
@@ -179,6 +194,15 @@ class GroupInfo(
     val id: KeyBytes,
     val status: GroupStatus,
     val others: List<String>,
+    /** The other leaves of the group's MLS roster, with the keys (empty where the roster is gone), for key checks (#31). */
+    val leaves: List<RosterLeaf> = emptyList(),
+)
+
+/** One other leaf of a group: its username and signature key from the MLS roster; [unverified] if the engine flagged it. */
+class RosterLeaf(
+    val username: String,
+    val key: KeyBytes,
+    val unverified: Boolean,
 )
 
 class GroupList(
@@ -186,17 +210,16 @@ class GroupList(
     val groups: List<GroupInfo>,
 )
 
-/** The usernames of the other members, or none for a group whose MLS state is gone (removed, read-only). */
-private fun MlsClient.otherMembers(
+/** The other leaves of the roster, or none for a group whose MLS state is gone (removed, read-only). */
+private fun MlsClient.otherLeaves(
     groupId: KeyBytes,
     own: String,
-): List<String> =
+    unverified: Set<KeyBytes>,
+): List<RosterLeaf> =
     try {
         members(groupId.bytes)
-            .map { it.username }
-            .filter { it != own }
-            .distinct()
-            .sorted()
+            .filter { it.username != own }
+            .map { RosterLeaf(it.username, KeyBytes(it.signatureKey), KeyBytes(it.signatureKey) in unverified) }
     } catch (e: MlsException) {
         if (e.code != MlsErrorCode.UnknownGroup) throw e
         emptyList()

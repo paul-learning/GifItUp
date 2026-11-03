@@ -22,6 +22,17 @@ class ReviewedObservation internal constructor(
 )
 
 /**
+ * The key of a chat member that the user compared and wants to save (#31): the account the server's list names, its
+ * username and the one key (the same in the chat's MLS roster and in the list). Only the Friends screen's holder can make
+ * one (internal constructor), after it showed the key's emojis.
+ */
+class RosterObservation internal constructor(
+    internal val accountId: String,
+    internal val username: String,
+    internal val key: KeyBytes,
+)
+
+/**
  * Trusts a blocked contact's new observation, exactly the one that was shown (ADR-0014): [reviewed] takes a
  * [ReviewedObservation] and is internal to `:shared`; [blindly] is for the dev CLI and test accounts and needs an
  * explicit opt-in, so an app screen can't call either by accident (a test also keeps the names out of the app modules).
@@ -30,6 +41,13 @@ class AcceptContact(
     private val access: ContactBookAccess,
 ) {
     internal suspend fun reviewed(shown: ReviewedObservation): AcceptOutcome = accept(shown.accountId, shown.observation)
+
+    /** Saves the one key of an `UNCONFIRMED` friend that the chat and the list agree on (#31); the book re-checks every rule. */
+    internal suspend fun fromRoster(shown: RosterObservation): AcceptOutcome =
+        when (val updated = access.update { book, now -> book.saveListed(shown.accountId, shown.username, shown.key, now) }) {
+            is BookUpdate.Done -> AcceptOutcome.Result(updated.value)
+            BookUpdate.Unavailable, BookUpdate.NotSaved -> AcceptOutcome.Unavailable
+        }
 
     @BlindAcceptForDevCli
     suspend fun blindly(

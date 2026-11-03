@@ -109,9 +109,9 @@ internal class OnboardingViewModel(
         CreateInviteStateHolder(viewModelScope, sessions, CreateInvite(api), ListInvites(api), RevokeInvite(api), graph.clipboard)
 
     /** The Friends screen's logic, over the same session, API and engine (ADR-0014). */
-    val contacts = ContactsStateHolder(viewModelScope, sessions, auth.contacts)
-
     private val chatService = ChatService(auth.chat, history) { Clock.System.now().epochSeconds }
+
+    val contacts = ContactsStateHolder(viewModelScope, sessions, auth.contacts, chatService)
 
     /** The chat list's logic (#25), over the same session, API and engine. */
     val chats = ChatListStateHolder(viewModelScope, sessions, chatService, history, marks)
