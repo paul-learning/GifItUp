@@ -88,10 +88,29 @@ internal fun messageLine(message: DeliveredMessage): String? {
 
 private fun bodyText(body: MessageBody): String =
     when (body) {
-        is MessageBody.Gif -> "gif ${body.reference.slug}" + (body.caption?.let { " \"${printable(it)}\"" } ?: "")
-        is MessageBody.GroupMeta -> "group name \"${printable(body.name)}\""
-        MessageBody.Unavailable -> "message unavailable"
-        MessageBody.UpdateNeeded -> "update needed"
+        is MessageBody.Gif -> {
+            "gif ${body.reference.slug}" + (body.caption?.let { " \"${printable(it)}\"" } ?: "")
+        }
+
+        is MessageBody.GroupMeta -> {
+            "group name \"${printable(body.name)}\""
+        }
+
+        MessageBody.Unavailable -> {
+            "message unavailable"
+        }
+
+        MessageBody.UpdateNeeded -> {
+            "update needed"
+        }
+
+        is MessageBody.Membership -> {
+            listOf(
+                "member change",
+                body.event.name.lowercase(),
+                body.subject,
+            ).filter { it.isNotEmpty() }.joinToString(" ")
+        }
     }
 
 /** One stored message of `chat-history`: seq (or `-`), sender (or `-` for one this device sent), state (or `-`), the same text. */

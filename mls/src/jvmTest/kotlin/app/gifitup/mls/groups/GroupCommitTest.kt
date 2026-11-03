@@ -265,4 +265,47 @@ class GroupCommitTest {
             )
             assertEquals(last, ds.lastSeq(groupId))
         }
+
+    @Test
+    fun aMergedCommitIsAnnouncedWithItsAuthenticatedSenderAndAJoinIsAnnouncedWithTheSize() =
+        runTest {
+            val (alice, bob, groupId) = aliceAndBob()
+            assertEquals(
+                listOf(2),
+                bob.membership.map { it.joined },
+                "Bob joined a group of two (the welcome lists every member, himself included)",
+            )
+            assertEquals("alice", bob.membership.single().by)
+            val carol = party("carol")
+            alice.engine.addMembers(groupId, listOf(member(carol)))
+            join(carol)
+            bob.engine.sync(groupId)
+            val added = bob.membership.last()
+            assertEquals("alice", added.by, "the sender is the MLS leaf that committed, not the envelope")
+            assertEquals(listOf("carol"), added.added.map { it.username })
+            assertEquals(emptyList(), added.removed.map { it.username })
+            assertEquals(3, carol.membership.single().joined)
+            alice.engine.removeMembers(groupId, listOf(target(carol)))
+            bob.engine.sync(groupId)
+            assertEquals(
+                listOf("carol"),
+                bob.membership
+                    .last()
+                    .removed
+                    .map { it.username },
+            )
+            assertEquals("alice", bob.membership.last().by)
+        }
+
+    @Test
+    fun aCommitThatIsNotMergedIsNotAnnounced() =
+        runTest {
+            val (alice, bob, groupId) = aliceAndBob()
+            val before = bob.membership.size
+            val carol = party("carol")
+            // The envelope lies about the numbers, so the commit is discarded and the group frozen (ADR-0016).
+            alice.addWithEnvelope(groupId, carol, extraDevice = "dev-ghost")
+            assertIs<SyncOutcome.Stopped>(bob.engine.sync(groupId))
+            assertEquals(before, bob.membership.size)
+        }
 }

@@ -595,7 +595,9 @@ class EndToEndTest {
             ok(milo, "chat-sync", "--group", group),
             "nothing is read twice",
         )
-        val shown = listOf("stored 2 e2e_lena -: $gif", "stored 3 e2e_lena -: $named")
+        // The joiner's history starts with the notice of its own join (#31), the welcome's sender being the creator.
+        val joined = "stored - e2e_lena -: member change joined"
+        val shown = listOf(joined, "stored 2 e2e_lena -: $gif", "stored 3 e2e_lena -: $named")
         assertEquals(shown, ok(milo, "chat-history", "--group", group), "a later process shows the message once")
 
         // On disk: records with keyed names and no plaintext; the history key is a secret like the others.

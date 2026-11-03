@@ -72,7 +72,34 @@ fun interface ContactPinsSource {
  */
 fun interface IncomingSink {
     suspend fun deliver(message: DeliveredMessage)
+
+    /**
+     * A commit this device **merged** changed the roster (never one that was discarded or held), or this device joined from
+     * a welcome. Durable when it returns, and idempotent for the same change (#31). The default ignores it.
+     */
+    suspend fun membership(change: MembershipChange) {}
 }
+
+/**
+ * The roster change of one processed commit or welcome. [by] is the MLS-authenticated sender of the commit (or of the
+ * welcome); [added] and [removed] are the usernames of the leaves it changed, and [joined] the roster size when this
+ * device joined (then both lists are empty). Never taken from the server's envelope.
+ */
+class MembershipChange(
+    val groupId: ByteArray,
+    val epoch: Long,
+    val by: String,
+    val added: List<MemberChange>,
+    val removed: List<MemberChange>,
+    val joined: Int = 0,
+) {
+    override fun toString(): String = "MembershipChange(epoch=$epoch, added=${added.size}, removed=${removed.size})"
+}
+
+class MemberChange(
+    val username: String,
+    val leafIndex: Int,
+)
 
 class DeliveredMessage(
     val groupId: ByteArray,

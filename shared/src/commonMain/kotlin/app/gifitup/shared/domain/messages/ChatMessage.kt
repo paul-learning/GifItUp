@@ -17,12 +17,49 @@ sealed interface MessageBody {
         val name: String,
     ) : MessageBody
 
+    /**
+     * A change of the group's members that this device processed (#31): [subject] was added or removed by [by], or this
+     * device joined (then [subject] is empty and [count] is the roster size). [MembershipEvent.CHANGED] says only that the
+     * members changed, for a change with a name that breaks the username rule (nothing is shown that could not be
+     * checked). Derived from the accepted commit or welcome and stored locally; never sent. Usernames are the MLS
+     * credentials' and pass the username rule again here.
+     */
+    class Membership private constructor(
+        val event: MembershipEvent,
+        val subject: String,
+        val by: String?,
+        val count: Int,
+    ) : MessageBody {
+        companion object {
+            private val USERNAME = Regex("^[a-z0-9_]{3,32}$")
+            const val MAX_COUNT = 50
+
+            /** `null` if a name breaks the username rule, a joined notice names a subject, or the count is out of range. */
+            fun of(
+                event: MembershipEvent,
+                subject: String,
+                by: String?,
+                count: Int = 0,
+            ): Membership? {
+                val joined = event == MembershipEvent.JOINED
+                // JOINED and CHANGED name nobody; CHANGED is the fixed-text notice for a change whose names could not be shown.
+                val nameless = joined || event == MembershipEvent.CHANGED
+                val subjectOk = if (nameless) subject.isEmpty() else USERNAME.matches(subject)
+                val countOk = if (joined) count in 1..MAX_COUNT else count == 0
+                return Membership(event, subject, by, count).takeIf { subjectOk && countOk && (by == null || USERNAME.matches(by)) }
+            }
+        }
+    }
+
     /** "Message unavailable": malformed, too big or a failed check. */
     data object Unavailable : MessageBody
 
     /** "Update the app": a newer content version or an unknown type. */
     data object UpdateNeeded : MessageBody
 }
+
+/** What a [MessageBody.Membership] notice says happened. */
+enum class MembershipEvent { ADDED, REMOVED, JOINED, CHANGED }
 
 /** Where one of our own messages stands. A received message has none. */
 enum class DeliveryState {
