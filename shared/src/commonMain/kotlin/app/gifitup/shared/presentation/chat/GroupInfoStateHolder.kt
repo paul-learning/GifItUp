@@ -48,6 +48,8 @@ data class GroupInfoState(
     val adding: Boolean = false,
     val notAdded: List<String> = emptyList(),
     val problem: GroupInfoProblem? = null,
+    /** How each member stands with the saved friends (by key, #31); empty until the screen has read the contact book. */
+    val standing: Map<String, MemberStanding> = emptyMap(),
 ) {
     val canSubmit: Boolean get() = canAdd && !adding && selected.isNotEmpty()
 }
@@ -71,6 +73,9 @@ class GroupInfoStateHolder(
     private var visit = 0
     private var running = false
 
+    /** The group's other leaves with their keys: from the list that opened the screen, read again after an add. */
+    private var leaves = group.leaves
+
     /** Shows what this device knows, then reads the server's member list into the contact book and shows the result. */
     fun open() =
         scope.launch {
@@ -87,6 +92,7 @@ class GroupInfoStateHolder(
         val names = friends.names()
         val name = nameOf()
         val allowed = AddPolicy(store).allows(group)
+        val pinned = friends.pinned()
         if (forVisit != visit) return
         val current = flow.value
         flow.value =
@@ -94,6 +100,7 @@ class GroupInfoStateHolder(
                 name = name,
                 loaded = true,
                 canAdd = allowed,
+                standing = pinned?.let { standingsOf(current.members, leaves, it) }.orEmpty(),
                 candidates = names.orEmpty().filter { it !in current.members }.sorted(),
                 selected = current.selected.filter { it in names.orEmpty() && it !in current.members }.toSet(),
                 problem = problem ?: GroupInfoProblem.FRIENDS_UNAVAILABLE.takeIf { names == null } ?: current.problem,
@@ -170,8 +177,9 @@ class GroupInfoStateHolder(
         // The name goes last, once everyone who could be added is in; only if somebody was added, and the group has a name.
         val name = flow.value.name
         val nameSent = added.isEmpty() || name == null || sendName(name)
+        val now = if (added.isEmpty()) null else rereadMembers()
         val current = flow.value
-        val members = current.members + added
+        val members = now ?: (current.members + added)
         flow.value =
             current.copy(
                 members = members,
@@ -187,6 +195,15 @@ class GroupInfoStateHolder(
                         else -> null
                     },
             )
+    }
+
+    /** The members and leaves as the engine holds them after an add; `null` if they can't be read (the names added are used). */
+    private suspend fun rereadMembers(): List<String>? {
+        val info =
+            (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.value?.groups?.firstOrNull { it.id == group.id }
+                ?: return null
+        leaves = info.leaves
+        return info.others
     }
 
     private suspend fun sendName(name: String): Boolean {

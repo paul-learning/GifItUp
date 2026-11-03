@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import app.gifitup.shared.presentation.chat.GroupInfoProblem
 import app.gifitup.shared.presentation.chat.GroupInfoState
 import app.gifitup.shared.presentation.chat.GroupInfoStateHolder
+import app.gifitup.shared.presentation.chat.MemberStanding
 
 /**
  * A group's info (#217 part 4b): its name, its members and, for a group, the friends who can be added. Renders the
@@ -43,16 +44,25 @@ internal fun GroupInfoScreen(
         AppTopBar(state.name?.let { ChatTexts.isolated(it) } ?: GroupInfoTexts.TITLE, onBack, backEnabled = !state.adding)
         if (!state.loaded) CircularProgressIndicator()
         Text(GroupInfoTexts.MEMBERS, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
-        state.members.forEach { MemberRow(it) }
+        state.members.forEach { MemberRow(it, state.standing[it]) }
         if (state.loaded && state.canAdd) AddSection(state, holder)
     }
 }
 
 @Composable
-private fun MemberRow(name: String) {
+private fun MemberRow(
+    name: String,
+    standing: MemberStanding?,
+) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Avatar(name)
-        Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column {
+            Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            // By key against the saved pin, never by name alone: a stranger can carry a friend's name (#31).
+            GroupInfoTexts.standing(standing, name)?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+            }
+        }
     }
 }
 
@@ -81,6 +91,17 @@ internal object GroupInfoTexts {
     const val ADD_BUTTON = "Add to the group"
     const val NOBODY_TO_ADD = "All your friends are in this group already."
     const val NOT_ADDED = "Not added: "
+
+    /** The note under a member who is not a saved friend; `null` for a friend or while it isn't known. */
+    fun standing(
+        standing: MemberStanding?,
+        name: String,
+    ): String? =
+        when (standing) {
+            MemberStanding.NOT_SAVED -> "Not in your friends"
+            MemberStanding.OTHER_KEY -> "Not the ${ChatTexts.isolated(name)} you saved: another key"
+            MemberStanding.FRIEND, null -> null
+        }
 
     fun problem(problem: GroupInfoProblem): String =
         when (problem) {

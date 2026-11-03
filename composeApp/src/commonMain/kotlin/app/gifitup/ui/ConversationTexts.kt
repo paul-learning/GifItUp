@@ -77,7 +77,7 @@ internal object ConversationTexts {
     fun membership(notice: MessageBody.Membership): String =
         when (notice.event) {
             MembershipEvent.ADDED -> {
-                "${who(notice.by)} added ${ChatTexts.isolated(notice.subject)}"
+                "${whoUpper(notice.by)} added ${ChatTexts.isolated(notice.subject)}"
             }
 
             MembershipEvent.REMOVED -> {
@@ -97,6 +97,8 @@ internal object ConversationTexts {
     private fun others(count: Int): String = if (count == 1) "1 other" else "$count others"
 
     private fun who(name: String?): String = name?.let(ChatTexts::isolated) ?: YOU
+
+    private fun whoUpper(name: String?): String = name?.let(ChatTexts::isolated) ?: YOU.replaceFirstChar { it.uppercase() }
 
     fun renamed(name: String): String = "The chat was renamed to ${ChatTexts.isolated(name)}"
 

@@ -176,7 +176,11 @@ internal class CommitSide(
             val stopped = receiver.readAhead(id, seq - 1)
             if (stopped != null) return stopped
         }
+        // The roster before and after the merge says who this commit added and removed (a creation is not announced).
+        val epoch = pending.epoch?.takeIf { it != 0L }
+        val before = if (epoch != null) crate { mls.members(id.bytes) } else emptyList()
         crate { mls.mergePending(id.bytes) }
+        if (epoch != null) receiver.announcer.own(id, epoch, before, crate { mls.members(id.bytes) })
         poster.recordSent(id, pending, seq)
         return SyncOutcome.Sent(seq)
     }

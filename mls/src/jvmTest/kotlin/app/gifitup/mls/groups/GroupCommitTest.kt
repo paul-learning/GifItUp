@@ -308,4 +308,28 @@ class GroupCommitTest {
             assertIs<SyncOutcome.Stopped>(bob.engine.sync(groupId))
             assertEquals(before, bob.membership.size)
         }
+
+    @Test
+    fun aCommitThisDeviceMadeIsAnnouncedWithNoSenderAndACreationIsNot() =
+        runTest {
+            val alice = party("alice")
+            val bob = party("bob")
+            val created = alice.engine.createGroup(listOf(member(bob)))
+            val groupId = assertNotNull(created.groupId)
+            assertEquals(emptyList(), alice.membership, "creating the chat is not announced")
+            val carol = party("carol")
+            assertIs<SyncOutcome.Sent>(alice.engine.addMembers(groupId, listOf(member(carol))))
+            val added = alice.membership.single()
+            assertNull(added.by, "ours: no sender")
+            assertEquals(listOf("carol"), added.added.map { it.username })
+            assertIs<SyncOutcome.Sent>(alice.engine.removeMembers(groupId, listOf(target(carol))))
+            assertEquals(
+                listOf("carol"),
+                alice.membership
+                    .last()
+                    .removed
+                    .map { it.username },
+            )
+            assertNull(alice.membership.last().by)
+        }
 }

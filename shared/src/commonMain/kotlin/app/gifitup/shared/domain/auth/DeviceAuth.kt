@@ -20,6 +20,7 @@ import app.gifitup.shared.domain.contacts.ContactBookAccess
 import app.gifitup.shared.domain.contacts.ContactLoad
 import app.gifitup.shared.domain.contacts.ContactStatus
 import app.gifitup.shared.domain.contacts.ContactsUseCases
+import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.contacts.RefreshContacts
 import app.gifitup.shared.domain.contacts.ShowFingerprints
 import app.gifitup.shared.domain.groups.ChatActions
@@ -152,6 +153,14 @@ class DeviceAuth(
                         null
                     }
                 }
+
+            override suspend fun pinned(): Map<String, Set<KeyBytes>>? =
+                (book.read() as? ContactLoad.Book)
+                    ?.book
+                    ?.contacts
+                    ?.values
+                    ?.filter { it.status == ContactStatus.OK }
+                    ?.associate { it.username to it.devices.keys }
 
             override suspend fun refresh(session: Session): AuthResult<Unit> =
                 when (val refreshed = contacts.refresh(session)) {

@@ -56,8 +56,16 @@ class MessageIntake(
     ): ChatMessage {
         // A name that breaks the username rule is never shown: the notice says only that the members changed (SEC-11).
         val body = MessageBody.Membership.of(event, subject, change.by) ?: fallback(change)
-        return ChatMessage(group, noticeRef(event, change.epoch, leaf), change.by, null, body, null, nowEpochSeconds())
+        return notice(group, noticeRef(event, change.epoch, leaf), change.by, body)
     }
+
+    /** Ours (no sender) carry a delivery state like our messages do (the record layout needs it); a received one has a sender. */
+    private fun notice(
+        group: KeyBytes,
+        reference: KeyBytes,
+        by: String?,
+        body: MessageBody.Membership,
+    ) = ChatMessage(group, reference, by, null, body, if (by == null) DeliveryState.SENT else null, nowEpochSeconds())
 
     private fun fallback(change: MembershipChange): MessageBody.Membership =
         checkNotNull(

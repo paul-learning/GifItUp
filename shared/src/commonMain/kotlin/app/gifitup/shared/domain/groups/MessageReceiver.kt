@@ -23,6 +23,9 @@ internal class MessageReceiver(
     private val sink: IncomingSink,
     private val store: SyncStore,
 ) {
+    /** Tells the sink about roster changes: of merged commits here, of this device's own ones through [CommitSide]. */
+    val announcer = MembershipAnnouncer(sink)
+
     /** Applies the log up to [upTo] (everything by default); a committer reads what came before its commit this way. */
     suspend fun sync(
         id: KeyBytes,
@@ -158,28 +161,6 @@ internal class MessageReceiver(
         }
     }
 
-    private suspend fun announce(
-        id: KeyBytes,
-        commit: IncomingMessage.Commit,
-    ) {
-        if (commit.added.isEmpty() && commit.removed.isEmpty()) return
-        val change =
-            MembershipChange(
-                id.bytes,
-                commit.epoch,
-                commit.sender.username,
-                commit.added.map { MemberChange(it.username, it.leafIndex) },
-                commit.removed.map { MemberChange(it.username, it.leafIndex) },
-            )
-        try {
-            sink.membership(change)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (ignored: Exception) {
-            halt(SyncOutcome.StorageFailed)
-        }
-    }
-
     private suspend fun commitFailed(
         id: KeyBytes,
         code: MlsErrorCode,
@@ -201,7 +182,7 @@ internal class MessageReceiver(
             store.freeze(id, GroupStatus.FROZEN_COMMIT_REFUSED)
         }
         // Only a merged commit is told to the sink, before the cursor moves: a crash in between delivers it again, idempotently.
-        announce(id, commit)
+        announcer.merged(id, commit)
         val record = store.recordOf(id)
         // Flags only ever name leaves of the group (at most 50), so keeping those still in the roster bounds the list.
         val present = crate { mls.members(id.bytes) }.map { KeyBytes(it.signatureKey) }.toSet()
