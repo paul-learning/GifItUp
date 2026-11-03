@@ -16,20 +16,22 @@ enum class MemberStanding {
 }
 
 /**
- * The standing of each name in [leaves] against [pinned] (saved friends' usernames with their saved keys). A name without
- * leaves (a member just added, not read back yet) is a friend only if the contact book has it saved.
+ * The standing of each name in [leaves] against [pinned] (saved friends' usernames with their saved keys). A name
+ * **without a leaf** (the roster could not be read back) gets no standing at all: it is never a friend by its name.
  */
 internal fun standingsOf(
     names: List<String>,
     leaves: List<RosterLeaf>,
     pinned: Map<String, Set<KeyBytes>>,
 ): Map<String, MemberStanding> =
-    names.associateWith { name ->
-        val keys = pinned[name]
-        val own = leaves.filter { it.username == name }
-        when {
-            keys == null -> MemberStanding.NOT_SAVED
-            own.any { it.key !in keys } -> MemberStanding.OTHER_KEY
-            else -> MemberStanding.FRIEND
-        }
-    }
+    names
+        .mapNotNull { name ->
+            val keys = pinned[name]
+            val own = leaves.filter { it.username == name }
+            when {
+                own.isEmpty() -> null
+                keys == null -> name to MemberStanding.NOT_SAVED
+                own.any { it.key !in keys } -> name to MemberStanding.OTHER_KEY
+                else -> name to MemberStanding.FRIEND
+            }
+        }.toMap()

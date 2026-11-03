@@ -261,6 +261,17 @@ class GroupInfoStateTest {
         runTest {
             named("Weekend")
             pins = null
+            val state = opened("bob", "carol").state.value
+            assertEquals(emptyMap(), state.standing)
+            assertTrue(state.standingUnknown, "the screen is told, not left silent")
+        }
+
+    @Test
+    fun aNameWithoutALeafIsNeverAFriendByItsName() =
+        runTest {
+            named("Weekend")
+            pins = mapOf("bob" to setOf(key(1)))
+            // The roster could not be read back: bob is a saved friend's name, but no leaf proves it.
             assertEquals(emptyMap(), opened("bob", "carol").state.value.standing)
         }
 }

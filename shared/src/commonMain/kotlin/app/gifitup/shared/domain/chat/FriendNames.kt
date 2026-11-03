@@ -9,8 +9,9 @@ interface FriendNames {
     suspend fun names(): List<String>?
 
     /**
-     * The saved friends (status `OK`) with the signature keys saved for them, by username, or `null` if the contact book
-     * can't be read. Used to tell a member who is a saved friend from one who only has a friend's name (#31).
+     * The friends this device saved a key for (every status but a merely listed one, so a friend whose key changed still
+     * counts as saved) with those keys, by username, or `null` if the contact book can't be read. Used to tell a member
+     * who is a saved friend from one who only has a friend's name (#31).
      */
     suspend fun pinned(): Map<String, Set<KeyBytes>>? = emptyMap()
 

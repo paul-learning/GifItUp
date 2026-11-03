@@ -44,6 +44,13 @@ internal fun GroupInfoScreen(
         AppTopBar(state.name?.let { ChatTexts.isolated(it) } ?: GroupInfoTexts.TITLE, onBack, backEnabled = !state.adding)
         if (!state.loaded) CircularProgressIndicator()
         Text(GroupInfoTexts.MEMBERS, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
+        if (state.standingUnknown) {
+            Text(
+                GroupInfoTexts.STANDING_UNKNOWN,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.polite(),
+            )
+        }
         state.members.forEach { MemberRow(it, state.standing[it]) }
         if (state.loaded && state.canAdd) AddSection(state, holder)
     }
@@ -90,6 +97,7 @@ internal object GroupInfoTexts {
     const val ADD = "Add friends"
     const val ADD_BUTTON = "Add to the group"
     const val NOBODY_TO_ADD = "All your friends are in this group already."
+    const val STANDING_UNKNOWN = "This device can't tell right now which members are your friends."
     const val NOT_ADDED = "Not added: "
 
     /** The note under a member who is not a saved friend; `null` for a friend or while it isn't known. */

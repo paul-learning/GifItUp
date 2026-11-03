@@ -159,7 +159,7 @@ class DeviceAuth(
                     ?.book
                     ?.contacts
                     ?.values
-                    ?.filter { it.status == ContactStatus.OK }
+                    ?.filter { it.status != ContactStatus.UNCONFIRMED }
                     ?.associate { it.username to it.devices.keys }
 
             override suspend fun refresh(session: Session): AuthResult<Unit> =

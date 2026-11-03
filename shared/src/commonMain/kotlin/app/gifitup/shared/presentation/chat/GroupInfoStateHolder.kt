@@ -50,6 +50,8 @@ data class GroupInfoState(
     val problem: GroupInfoProblem? = null,
     /** How each member stands with the saved friends (by key, #31); empty until the screen has read the contact book. */
     val standing: Map<String, MemberStanding> = emptyMap(),
+    /** The contact book can't be read: no member is marked, and the screen says so instead of showing nothing (#240). */
+    val standingUnknown: Boolean = false,
 ) {
     val canSubmit: Boolean get() = canAdd && !adding && selected.isNotEmpty()
 }
@@ -101,6 +103,7 @@ class GroupInfoStateHolder(
                 loaded = true,
                 canAdd = allowed,
                 standing = pinned?.let { standingsOf(current.members, leaves, it) }.orEmpty(),
+                standingUnknown = pinned == null,
                 candidates = names.orEmpty().filter { it !in current.members }.sorted(),
                 selected = current.selected.filter { it in names.orEmpty() && it !in current.members }.toSet(),
                 problem = problem ?: GroupInfoProblem.FRIENDS_UNAVAILABLE.takeIf { names == null } ?: current.problem,
