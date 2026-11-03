@@ -41,8 +41,8 @@ class MessageIntake(
     override suspend fun membership(change: MembershipChange) {
         val group = KeyBytes(change.groupId)
         val notices =
-            change.added.mapNotNull { notice(group, change, MembershipEvent.ADDED, it.username, it.leafIndex) } +
-                change.removed.mapNotNull { notice(group, change, MembershipEvent.REMOVED, it.username, it.leafIndex) } +
+            change.added.map { notice(group, change, MembershipEvent.ADDED, it.username, it.leafIndex) } +
+                change.removed.map { notice(group, change, MembershipEvent.REMOVED, it.username, it.leafIndex) } +
                 listOfNotNull(change.joined.takeIf { it > 0 }?.let { joined(group, change, it) })
         notices.forEach { store.insert(it) }
     }
@@ -53,19 +53,39 @@ class MessageIntake(
         event: MembershipEvent,
         subject: String,
         leaf: Int,
-    ): ChatMessage? =
-        MessageBody.Membership.of(event, subject, change.by)?.let {
-            ChatMessage(group, noticeRef(event, change.epoch, leaf), change.by, null, it, null, nowEpochSeconds())
-        }
+    ): ChatMessage {
+        // A name that breaks the username rule is never shown: the notice says only that the members changed (SEC-11).
+        val body = MessageBody.Membership.of(event, subject, change.by) ?: fallback(change)
+        return ChatMessage(group, noticeRef(event, change.epoch, leaf), change.by, null, body, null, nowEpochSeconds())
+    }
+
+    private fun fallback(change: MembershipChange): MessageBody.Membership =
+        checkNotNull(
+            MessageBody.Membership.of(MembershipEvent.CHANGED, "", change.by)
+                ?: MessageBody.Membership.of(MembershipEvent.CHANGED, "", null),
+        )
 
     private fun joined(
         group: KeyBytes,
         change: MembershipChange,
         count: Int,
-    ): ChatMessage? =
-        MessageBody.Membership.of(MembershipEvent.JOINED, "", change.by, count)?.let {
-            ChatMessage(group, noticeRef(MembershipEvent.JOINED, change.epoch, 0), change.by, null, it, null, nowEpochSeconds())
+    ): ChatMessage? {
+        val body =
+            MessageBody.Membership.of(MembershipEvent.JOINED, "", change.by, count)
+                ?: MessageBody.Membership.of(MembershipEvent.JOINED, "", null, count)
+        // The epoch field of a join is the join point (the seq this device joined at): a later re-add is a new notice (SEC-13).
+        return body?.let {
+            ChatMessage(
+                group,
+                noticeRef(MembershipEvent.JOINED, change.epoch, 0),
+                change.by,
+                null,
+                it,
+                null,
+                nowEpochSeconds(),
+            )
         }
+    }
 
     companion object {
         private const val NOTICE_MARK: Byte = 0xFE.toByte()

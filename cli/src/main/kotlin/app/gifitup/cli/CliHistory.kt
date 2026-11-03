@@ -9,6 +9,7 @@ import app.gifitup.shared.domain.auth.OpenHistoryKey
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.DeliveredMessage
 import app.gifitup.shared.domain.groups.IncomingSink
+import app.gifitup.shared.domain.groups.MembershipChange
 import app.gifitup.shared.domain.messages.EncryptedMessageStore
 import app.gifitup.shared.domain.messages.HistoryLimits
 import app.gifitup.shared.domain.messages.HistoryStoreException
@@ -97,6 +98,9 @@ internal class StoringSink(
         intake.deliver(message)
         messageLine(message)?.let(out::println)
     }
+
+    /** A roster change is stored as a notice (shown by `chat-history`), not printed as it happens (#31). */
+    override suspend fun membership(change: MembershipChange) = intake.membership(change)
 }
 
 /** The fixed line for a history that fails while a command reads it. */

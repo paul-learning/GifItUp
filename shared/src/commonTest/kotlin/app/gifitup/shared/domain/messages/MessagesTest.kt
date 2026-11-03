@@ -327,13 +327,28 @@ class MessagesTest {
         }
 
     @Test
-    fun aJoinIsOneNoticeWithTheSizeAndAChangeWithAnInvalidNameIsDropped() =
+    fun aJoinIsOneNoticeWithTheSizeAndAnInvalidNameBecomesAFixedTextNoticeNotASilentDrop() =
         runTest {
             intake.membership(MembershipChange(group, 0L, "bob", emptyList(), emptyList(), joined = 4))
             val joined = store.messages(KeyBytes(group)).single().body
             assertEquals(4, assertIs<MessageBody.Membership>(joined).count)
             intake.membership(MembershipChange(group, 6L, "bob", listOf(MemberChange("Not A Name", 2)), emptyList()))
-            assertEquals(1, store.messages(KeyBytes(group)).size, "a name that breaks the username rule makes no notice")
+            val all = store.messages(KeyBytes(group)).map { it.body }.filterIsInstance<MessageBody.Membership>()
+            assertEquals(
+                listOf(MembershipEvent.JOINED, MembershipEvent.CHANGED),
+                all.map { it.event },
+                "the change is still shown, without the name",
+            )
+            assertEquals("", all.last().subject)
+            // The sender's name is invalid too: the notice names nobody at all.
+            intake.membership(MembershipChange(group, 7L, "Bad Name", listOf(MemberChange("carol", 2)), emptyList()))
+            val last = store.messages(KeyBytes(group)).last().body as MessageBody.Membership
+            assertEquals(MembershipEvent.CHANGED, last.event)
+            assertNull(last.by)
+            // The same join delivered again is one notice; a join at a later join point (a re-add) is a new one.
+            intake.membership(MembershipChange(group, 0L, "bob", emptyList(), emptyList(), joined = 3))
+            intake.membership(MembershipChange(group, 12L, "bob", emptyList(), emptyList(), joined = 3))
+            assertEquals(2, store.messages(KeyBytes(group)).count { (it.body as? MessageBody.Membership)?.event == MembershipEvent.JOINED })
         }
 
     @Test

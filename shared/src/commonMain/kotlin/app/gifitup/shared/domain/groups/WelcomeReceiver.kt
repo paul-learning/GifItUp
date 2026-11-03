@@ -86,7 +86,7 @@ internal class WelcomeReceiver(
         } catch (e: MlsException) {
             return rejected(welcome.id, e.code, RejectReason.UNUSABLE)
         }
-        announceJoin(welcome.groupId, info)
+        announceJoin(welcome.groupId, info, joinPoint)
         store.put(KeyBytes(welcome.groupId), GroupRecord.joinedAt(joinPoint, unverified))
         store.persist()
         drop(welcome.id)
@@ -97,9 +97,10 @@ internal class WelcomeReceiver(
     private suspend fun announceJoin(
         groupId: ByteArray,
         info: WelcomeInfo,
+        joinPoint: Long,
     ) {
         try {
-            sink.membership(MembershipChange(groupId, 0L, info.sender.username, emptyList(), emptyList(), info.members.size))
+            sink.membership(MembershipChange(groupId, joinPoint, info.sender.username, emptyList(), emptyList(), info.members.size))
         } catch (e: CancellationException) {
             throw e
         } catch (ignored: Exception) {

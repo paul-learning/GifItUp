@@ -7,6 +7,7 @@ import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.presentation.chat.SendProblem
 
 /** The fixed words of the conversation screen (#25); a friend's text is isolated like in [ChatTexts]. */
+@Suppress("TooManyFunctions") // One small text function per message of the conversation screen.
 internal object ConversationTexts {
     const val SEND_GIF = "Send"
     const val OPEN_GROUP = "Group info"
@@ -83,11 +84,17 @@ internal object ConversationTexts {
                 "${ChatTexts.isolated(notice.subject)} was removed by ${who(notice.by)}"
             }
 
+            MembershipEvent.CHANGED -> {
+                "The members of this chat changed"
+            }
+
             MembershipEvent.JOINED -> {
-                "You joined this chat with ${notice.count - 1} others" +
+                "You joined this chat with ${others(notice.count - 1)}" +
                     (notice.by?.let { ", added by ${ChatTexts.isolated(it)}" } ?: "")
             }
         }
+
+    private fun others(count: Int): String = if (count == 1) "1 other" else "$count others"
 
     private fun who(name: String?): String = name?.let(ChatTexts::isolated) ?: YOU
 

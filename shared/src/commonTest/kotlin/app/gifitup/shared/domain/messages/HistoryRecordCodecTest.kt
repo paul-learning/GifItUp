@@ -32,6 +32,7 @@ class HistoryRecordCodecTest {
                 message(MessageBody.UpdateNeeded),
                 message(assertNotNull(MessageBody.Membership.of(MembershipEvent.ADDED, "carol", "bob"))),
                 message(assertNotNull(MessageBody.Membership.of(MembershipEvent.JOINED, "", "bob", 4))),
+                message(assertNotNull(MessageBody.Membership.of(MembershipEvent.CHANGED, "", null))),
                 message(MessageBody.Gif(gif, "mine"), sender = null, state = DeliveryState.FAILED),
             )
         for (stored in all) {

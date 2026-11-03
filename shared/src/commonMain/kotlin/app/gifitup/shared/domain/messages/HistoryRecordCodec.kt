@@ -43,6 +43,7 @@ internal object HistoryRecordCodec {
     private const val ADDED = 1
     private const val REMOVED = 2
     private const val JOINED = 3
+    private const val CHANGED = 4
 
     fun encode(stored: StoredMessage): ByteArray {
         val message = stored.message
@@ -129,6 +130,7 @@ internal object HistoryRecordCodec {
             MembershipEvent.ADDED -> ADDED
             MembershipEvent.REMOVED -> REMOVED
             MembershipEvent.JOINED -> JOINED
+            MembershipEvent.CHANGED -> CHANGED
         }
 
     private fun eventOf(code: Int): MembershipEvent? =
@@ -136,6 +138,7 @@ internal object HistoryRecordCodec {
             ADDED -> MembershipEvent.ADDED
             REMOVED -> MembershipEvent.REMOVED
             JOINED -> MembershipEvent.JOINED
+            CHANGED -> MembershipEvent.CHANGED
             else -> null
         }
 
