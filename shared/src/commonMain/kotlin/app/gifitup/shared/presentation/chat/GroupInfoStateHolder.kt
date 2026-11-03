@@ -183,20 +183,16 @@ class GroupInfoStateHolder(
         val now = if (added.isEmpty()) null else rereadMembers()
         val current = flow.value
         val members = now ?: (current.members + added)
+        val standing = friends.pinned()?.let { standingsOf(members, leaves, it) }.orEmpty()
         flow.value =
             current.copy(
                 members = members,
+                standing = standing,
                 candidates = current.candidates.filter { it !in added },
                 selected = current.selected - added.toSet(),
                 adding = false,
                 notAdded = missed,
-                problem =
-                    when {
-                        failure != null -> failure
-                        missed.isNotEmpty() -> GroupInfoProblem.PARTLY
-                        !nameSent -> GroupInfoProblem.NAME_NOT_SENT
-                        else -> null
-                    },
+                problem = problemOf(failure, missed, nameSent),
             )
     }
 
@@ -227,4 +223,16 @@ private fun ChatProblem.toInfoProblem(): GroupInfoProblem =
         ChatProblem.OFFLINE -> GroupInfoProblem.OFFLINE
         ChatProblem.NOT_SIGNED_IN -> GroupInfoProblem.NOT_SIGNED_IN
         ChatProblem.FAILED, ChatProblem.HISTORY -> GroupInfoProblem.FAILED
+    }
+
+private fun problemOf(
+    failure: GroupInfoProblem?,
+    missed: List<String>,
+    nameSent: Boolean,
+): GroupInfoProblem? =
+    when {
+        failure != null -> failure
+        missed.isNotEmpty() -> GroupInfoProblem.PARTLY
+        !nameSent -> GroupInfoProblem.NAME_NOT_SENT
+        else -> null
     }

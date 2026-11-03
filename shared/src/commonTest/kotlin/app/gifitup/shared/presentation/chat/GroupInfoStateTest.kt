@@ -40,7 +40,9 @@ class GroupInfoStateTest {
         var addOutcome: (String) -> AuthResult<SyncOutcome> = { AuthResult.Ok(SyncOutcome.Sent(2)) }
         var renameOutcome: AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.Sent(3))
 
-        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("me", emptyList()))
+        var listed = listOf<GroupInfo>()
+
+        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("me", listed))
 
         override suspend fun welcomes(session: Session) = AuthResult.Ok(WelcomesReport(emptyList(), null))
 
@@ -273,5 +275,38 @@ class GroupInfoStateTest {
             pins = mapOf("bob" to setOf(key(1)))
             // The roster could not be read back: bob is a saved friend's name, but no leaf proves it.
             assertEquals(emptyMap(), opened("bob", "carol").state.value.standing)
+        }
+
+    @Test
+    fun afterAnAddTheMembersAndTheirStandingAreReadBackFromTheEngine() =
+        runTest {
+            named("Weekend")
+            pins = mapOf("bob" to setOf(key(1)))
+            val before = listOf(RosterLeaf("bob", key(1), false), RosterLeaf("carol", key(2), false))
+            val holder = opened("bob", "carol", leaves = before)
+            chat.listed =
+                listOf(
+                    GroupInfo(groupId, GroupStatus.ACTIVE, listOf("bob", "carol", "dave"), before + RosterLeaf("dave", key(4), false)),
+                )
+            holder.toggle("dave")
+            holder.add()
+            advanceUntilIdle()
+            val state = holder.state.value
+            assertEquals(listOf("bob", "carol", "dave"), state.members)
+            assertEquals(MemberStanding.NOT_SAVED, state.standing["dave"])
+            assertEquals(MemberStanding.FRIEND, state.standing["bob"])
+        }
+
+    @Test
+    fun whenTheReadBackFailsTheAddedNameIsListedButHasNoStanding() =
+        runTest {
+            named("Weekend")
+            pins = mapOf("dave" to setOf(key(4)))
+            val holder = opened("bob", "carol", leaves = listOf(RosterLeaf("bob", key(1), false), RosterLeaf("carol", key(2), false)))
+            holder.toggle("dave")
+            holder.add()
+            advanceUntilIdle()
+            assertEquals(listOf("bob", "carol", "dave"), holder.state.value.members)
+            assertNull(holder.state.value.standing["dave"], "a saved name without a leaf is not a friend by its name")
         }
 }

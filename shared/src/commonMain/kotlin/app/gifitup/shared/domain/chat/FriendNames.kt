@@ -13,7 +13,7 @@ interface FriendNames {
      * counts as saved) with those keys, by username, or `null` if the contact book can't be read. Used to tell a member
      * who is a saved friend from one who only has a friend's name (#31).
      */
-    suspend fun pinned(): Map<String, Set<KeyBytes>>? = emptyMap()
+    suspend fun pinned(): Map<String, Set<KeyBytes>>? = null
 
     /** Reads the server's member list into the contact book, so the people the user was invited by or invited show up. */
     suspend fun refresh(session: Session): AuthResult<Unit>
