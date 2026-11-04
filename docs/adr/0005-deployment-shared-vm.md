@@ -20,7 +20,7 @@ Container isolation on the host:
 ## Decision
 - GifItUp runs as its own Compose project `gifitup` (`deploy/docker-compose.yml`): `server` and its own Postgres 18 (digest-pinned).
 - Only `server` joins the external `proxy` network, under the alias `gifitup-server`. Postgres is only on an `internal: true` network. No host ports are published.
-- The existing Caddy gets the site block from `deploy/caddy/gifitup.caddy`: security headers, 1 MB body limit, and no access log (CLAUDE.md, security rule 4). The real hostname is set on the VM, not in the repo, as hygiene only: it is not secret (certificate transparency lists it, and from #27 the app and the web page contain it), and nothing relies on it staying unknown. Since #27 the site block also routes the web app (`gifitup-web`, the static files in their own container) and sets a Content-Security-Policy for it; the API keeps its own.
+- The existing Caddy gets the site block from `deploy/caddy/gifitup.caddy`: security headers, 1 MB body limit, and no access log (CLAUDE.md, security rule 4). The real hostname lives only on the VM.
 - Secrets (the Postgres password) are files in `/opt/gifitup/deploy/secrets/` on the VM, passed in as Compose secrets. Nothing is committed.
 - A `deploy` user owns `/opt/gifitup`. It's in the `docker` group, so CI can run `docker compose`. CI's SSH key is limited to one deploy script (#7).
 - Backups: nightly `pg_dump` via a systemd timer, kept 14 days, on the VM only for now (owner decision). Revisit before the friends alpha (#27). The dumps are unencrypted, so a row deleted by a retention rule stays readable in the dumps taken before its deletion for about 15 to 16 days (and with no limit while the backup job fails) (threat model, *Known metadata*; SEC-M0-8, #55).

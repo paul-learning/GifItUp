@@ -177,7 +177,10 @@ jobs:
           curl -sf -o /dev/null http://localhost:8000/health
 
       - name: Headers
-        run: bash scripts/check-web-headers.sh http://localhost:8000
+        run: |
+          bash scripts/check-web-headers.sh http://localhost:8000
+          # The check itself must refuse a broken edge (#249 CR-3).
+          bash scripts/test-check-web-headers.sh
 
       - name: No eval in the bundle
         run: |

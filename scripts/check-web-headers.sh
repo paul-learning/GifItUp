@@ -2,7 +2,7 @@
 # Checks what a browser gets from the GifItUp edge (#27 SEC-7, SEC-8, SEC-9, SEC-12): exactly one Content-Security-Policy
 # per answer and the right one for the API and for the web app, the cache policy of the invite page, and the content type
 # of the wasm file. Used by CI against a local copy of the edge (.github/workflows/ci.yml, job web-edge) and by the owner
-# against the real host (docs/ops/alpha-checklist.md). Reads headers only; sends no cookies and no credentials.
+# against the real host (the owner checklist of #27). Reads headers only; sends no cookies and no credentials.
 #   bash scripts/check-web-headers.sh <base url> [--assetlinks <sha256 fingerprint of the release certificate>]
 set -euo pipefail
 
@@ -45,7 +45,9 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$base/invite")
 
 # Browsers need application/wasm to compile a module while it streams.
 wasm=$(curl -sS --max-time 20 "$base/composeApp.js" | grep -oE '[A-Za-z0-9_.-]+\.wasm' | head -n 1 || true)
-if [ -n "$wasm" ]; then
+if [ -z "$wasm" ]; then
+  fail "no .wasm file is named in /composeApp.js, so its content type could not be checked"
+else
   type=$(headers "/$wasm" | sed -n 's/^content-type: //p')
   case "$type" in application/wasm*) ;; *) fail "/$wasm is served as '$type', expected application/wasm" ;; esac
 fi
