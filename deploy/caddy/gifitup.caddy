@@ -44,11 +44,12 @@ gifitup.example.com {
 	}
 	# The web app (#27): files only from its own origin, the wasm module, images from the GIF provider's hosts and blobs
 	# (decoded GIFs), and the API over https and wss at this host ({host} is the site's own host name, so no name is
-	# written here). No 'unsafe-inline' for scripts or style elements and no 'unsafe-eval'. Style attributes are allowed (style-src-attr): the
+	# written here). No 'unsafe-inline' for scripts or style elements (one inline <style> of the Compose Web runtime is allowed by its hash, which
+	# CI's headless Chrome step fails on when a Compose update changes it) and no 'unsafe-eval'. Style attributes are allowed (style-src-attr): the
 	# Compose Web runtime sets some (found by CI's headless-Chrome step, #27); they run no code. 'wasm-unsafe-eval' only compiles WebAssembly.
 	# The Klipy hosts are the ones the app loads GIFs and calls from (ADR-0003).
 	handle {
-		header Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' blob: https://static.klipy.com https://static1.klipy.com https://static2.klipy.com https://static3.klipy.com; connect-src 'self' https://{host} wss://{host} https://api.klipy.com; font-src 'self'; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		header Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'sha256-2DtT88WYuzB8DiHdoLqEYkONEwxf9gqsOdTY44QuLA4='; style-src-attr 'unsafe-inline'; img-src 'self' blob: https://static.klipy.com https://static1.klipy.com https://static2.klipy.com https://static3.klipy.com; connect-src 'self' https://{host} wss://{host} https://api.klipy.com; font-src 'self'; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 		reverse_proxy gifitup-web:8080
 	}
 }
