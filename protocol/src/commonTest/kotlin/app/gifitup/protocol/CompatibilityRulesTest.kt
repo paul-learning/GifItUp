@@ -70,12 +70,11 @@ class CompatibilityRulesTest {
 
     @Test
     fun nonStringTypeFailsWithIllegalArgument() {
-        // Not a SerializationException: codec boundaries must catch IllegalArgumentException too (ADR-0006 B5).
-        val error =
-            assertFailsWith<IllegalArgumentException> {
-                sealedJson.decodeFromString<Event>("""{"type":{},"member":"m"}""")
-            }
-        assertFalse(error is SerializationException)
+        // A codec boundary must catch IllegalArgumentException (ADR-0006 B5): SerializationException is one, and before
+        // kotlinx-serialization 1.12 this input threw a plain IllegalArgumentException that is not a SerializationException.
+        assertFailsWith<IllegalArgumentException> {
+            sealedJson.decodeFromString<Event>("""{"type":{},"member":"m"}""")
+        }
     }
 
     @Test
