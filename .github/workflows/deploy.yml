@@ -108,6 +108,10 @@ jobs:
         run: |
           [[ "$ORIGIN" =~ ^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[1-9][0-9]{0,4})?$ ]] \
             || { echo "::error::GIFITUP_PUBLIC_URL is not a canonical https origin"; exit 1; }
+          port=$(sed -nE 's#^https://[^:/]+:([0-9]+)$#\1#p' <<<"$ORIGIN")
+          if [ -n "$port" ] && { [ "$port" -gt 65535 ] || [ "$port" = 443 ]; }; then
+            echo "::error::GIFITUP_PUBLIC_URL has a port above 65535 or :443 (not canonical)"; exit 1
+          fi
           ./gradlew --no-build-cache --no-configuration-cache "-Pgifitup.defaultOrigin=$ORIGIN" :composeApp:wasmJsBrowserDistribution
 
       # Same scans as CI on what ships (ADR-0007, #67, #79).
