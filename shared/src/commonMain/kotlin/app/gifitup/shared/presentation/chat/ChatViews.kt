@@ -65,6 +65,15 @@ enum class ConversationProblem {
     /** Missing messages, a broken commit or a mismatching key: it has to be joined again. */
     STOPPED,
 
+    /**
+     * A commit's member changes did not match what the server announced for it (ADR-0016). Names nobody: a server can forge
+     * a mismatch to frame a member (#31).
+     */
+    MEMBERS_MISMATCH,
+
+    /** A commit would add a key for a friend that is not the key saved for them (ADR-0014). Names nobody either. */
+    CONTACT_KEY_MISMATCH,
+
     /** This device's state is older than something the server accepted: read-only until it is joined again. */
     READ_ONLY,
 
@@ -102,6 +111,8 @@ internal fun GroupStatus.toProblem(): ConversationProblem? =
         GroupStatus.ACTIVE -> null
         GroupStatus.READ_ONLY_ROLLBACK -> ConversationProblem.READ_ONLY
         GroupStatus.REMOVED -> ConversationProblem.GONE
+        GroupStatus.FROZEN_ENVELOPE_MISMATCH -> ConversationProblem.MEMBERS_MISMATCH
+        GroupStatus.FROZEN_CONTACT_MISMATCH -> ConversationProblem.CONTACT_KEY_MISMATCH
         else -> ConversationProblem.STOPPED
     }
 

@@ -97,9 +97,25 @@ internal object ChatTexts {
 
     fun problem(problem: ConversationProblem): String =
         when (problem) {
-            ConversationProblem.STOPPED -> "Stopped: messages are missing or a change did not fit. This chat has to be started again."
-            ConversationProblem.READ_ONLY -> "Read-only: this device is behind what the server holds."
-            ConversationProblem.GONE -> "You are no longer in this chat."
+            ConversationProblem.STOPPED -> {
+                "Stopped: messages are missing or a change did not fit. This chat has to be started again."
+            }
+
+            ConversationProblem.MEMBERS_MISMATCH -> {
+                "Stopped: this chat's member data does not match. The server may be wrong or lying. This chat has to be started again."
+            }
+
+            ConversationProblem.CONTACT_KEY_MISMATCH -> {
+                "Stopped: a change would give a friend another key than the one you saved. This chat has to be started again."
+            }
+
+            ConversationProblem.READ_ONLY -> {
+                "Read-only: this device is behind what the server holds."
+            }
+
+            ConversationProblem.GONE -> {
+                "You are no longer in this chat."
+            }
         }
 
     fun listProblem(problem: ChatProblem): String =

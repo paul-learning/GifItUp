@@ -360,4 +360,15 @@ class MessagesTest {
         assertFalse(ref == MessageIntake.noticeRef(MembershipEvent.ADDED, 6L, 2))
         assertFalse(ref == MessageIntake.noticeRef(MembershipEvent.ADDED, 5L, 3))
     }
+
+    @Test
+    fun aChangeThisDeviceMadeIsANoticeOfOursWithNoSender() =
+        runTest {
+            intake.membership(MembershipChange(group, 3L, null, listOf(MemberChange("carol", 0)), listOf(MemberChange("erin", 0))))
+            val own = store.messages(KeyBytes(group))
+            assertEquals(2, own.size)
+            assertTrue(own.all { it.sender == null && it.state == DeliveryState.SENT })
+            assertEquals(listOf(MembershipEvent.ADDED, MembershipEvent.REMOVED), own.map { (it.body as MessageBody.Membership).event })
+            assertNull((own.first().body as MessageBody.Membership).by)
+        }
 }

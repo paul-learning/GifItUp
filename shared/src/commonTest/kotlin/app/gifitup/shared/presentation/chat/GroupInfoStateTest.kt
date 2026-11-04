@@ -13,6 +13,7 @@ import app.gifitup.shared.domain.groups.GroupCreation
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.GroupList
 import app.gifitup.shared.domain.groups.GroupStatus
+import app.gifitup.shared.domain.groups.RosterLeaf
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomesReport
 import app.gifitup.shared.domain.messages.ChatMessage
@@ -39,7 +40,9 @@ class GroupInfoStateTest {
         var addOutcome: (String) -> AuthResult<SyncOutcome> = { AuthResult.Ok(SyncOutcome.Sent(2)) }
         var renameOutcome: AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.Sent(3))
 
-        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("me", emptyList()))
+        var listed = listOf<GroupInfo>()
+
+        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("me", listed))
 
         override suspend fun welcomes(session: Session) = AuthResult.Ok(WelcomesReport(emptyList(), null))
 
@@ -92,25 +95,33 @@ class GroupInfoStateTest {
 
     private val chat = FakeChat()
     private val session = Session("d", "t", Long.MAX_VALUE, checkNotNull(ApiEndpoint.forOrigin("https://chat.example.test")))
+    private var pins: Map<String, Set<KeyBytes>>? = emptyMap()
     private val names =
         object : FriendNames {
             override suspend fun names(): List<String>? = friendNames
 
+            override suspend fun pinned(): Map<String, Set<KeyBytes>>? = pins
+
             override suspend fun refresh(session: Session): AuthResult<Unit> = AuthResult.Ok(Unit)
         }
 
-    private fun TestScope.holder(vararg others: String) =
-        GroupInfoStateHolder(
-            this,
-            SessionHolder({ AuthResult.Ok(session) }, this) { 0L },
-            chat,
-            names,
-            store,
-            GroupInfo(groupId, GroupStatus.ACTIVE, others.toList()),
-        )
+    private fun TestScope.holder(
+        vararg others: String,
+        leaves: List<RosterLeaf> = emptyList(),
+    ) = GroupInfoStateHolder(
+        this,
+        SessionHolder({ AuthResult.Ok(session) }, this) { 0L },
+        chat,
+        names,
+        store,
+        GroupInfo(groupId, GroupStatus.ACTIVE, others.toList(), leaves),
+    )
 
-    private suspend fun TestScope.opened(vararg others: String): GroupInfoStateHolder =
-        holder(*others).also {
+    private suspend fun TestScope.opened(
+        vararg others: String,
+        leaves: List<RosterLeaf> = emptyList(),
+    ): GroupInfoStateHolder =
+        holder(*others, leaves = leaves).also {
             it.open()
             advanceUntilIdle()
         }
@@ -231,5 +242,71 @@ class GroupInfoStateTest {
             named("Weekend")
             friendNames = null
             assertEquals(GroupInfoProblem.FRIENDS_UNAVAILABLE, opened("bob", "carol").state.value.problem)
+        }
+
+    private fun key(n: Int) = KeyBytes(ByteArray(32) { n.toByte() })
+
+    @Test
+    fun aMemberIsAFriendOnlyIfTheChatKeyIsTheSavedOneNotByNameAlone() =
+        runTest {
+            named("Weekend")
+            pins = mapOf("bob" to setOf(key(1)), "carol" to setOf(key(2)))
+            val leaves = listOf(RosterLeaf("bob", key(1), false), RosterLeaf("carol", key(9), false), RosterLeaf("dave", key(4), false))
+            val standing = opened("bob", "carol", "dave", leaves = leaves).state.value.standing
+            assertEquals(MemberStanding.FRIEND, standing["bob"])
+            assertEquals(MemberStanding.OTHER_KEY, standing["carol"], "carol is a saved friend's name with another key")
+            assertEquals(MemberStanding.NOT_SAVED, standing["dave"])
+        }
+
+    @Test
+    fun anUnreadableContactBookGivesNoStandingAtAll() =
+        runTest {
+            named("Weekend")
+            pins = null
+            val state = opened("bob", "carol").state.value
+            assertEquals(emptyMap(), state.standing)
+            assertTrue(state.standingUnknown, "the screen is told, not left silent")
+        }
+
+    @Test
+    fun aNameWithoutALeafIsNeverAFriendByItsName() =
+        runTest {
+            named("Weekend")
+            pins = mapOf("bob" to setOf(key(1)))
+            // The roster could not be read back: bob is a saved friend's name, but no leaf proves it.
+            assertEquals(emptyMap(), opened("bob", "carol").state.value.standing)
+        }
+
+    @Test
+    fun afterAnAddTheMembersAndTheirStandingAreReadBackFromTheEngine() =
+        runTest {
+            named("Weekend")
+            pins = mapOf("bob" to setOf(key(1)))
+            val before = listOf(RosterLeaf("bob", key(1), false), RosterLeaf("carol", key(2), false))
+            val holder = opened("bob", "carol", leaves = before)
+            chat.listed =
+                listOf(
+                    GroupInfo(groupId, GroupStatus.ACTIVE, listOf("bob", "carol", "dave"), before + RosterLeaf("dave", key(4), false)),
+                )
+            holder.toggle("dave")
+            holder.add()
+            advanceUntilIdle()
+            val state = holder.state.value
+            assertEquals(listOf("bob", "carol", "dave"), state.members)
+            assertEquals(MemberStanding.NOT_SAVED, state.standing["dave"])
+            assertEquals(MemberStanding.FRIEND, state.standing["bob"])
+        }
+
+    @Test
+    fun whenTheReadBackFailsTheAddedNameIsListedButHasNoStanding() =
+        runTest {
+            named("Weekend")
+            pins = mapOf("dave" to setOf(key(4)))
+            val holder = opened("bob", "carol", leaves = listOf(RosterLeaf("bob", key(1), false), RosterLeaf("carol", key(2), false)))
+            holder.toggle("dave")
+            holder.add()
+            advanceUntilIdle()
+            assertEquals(listOf("bob", "carol", "dave"), holder.state.value.members)
+            assertNull(holder.state.value.standing["dave"], "a saved name without a leaf is not a friend by its name")
         }
 }

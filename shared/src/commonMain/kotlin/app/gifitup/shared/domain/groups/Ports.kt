@@ -82,13 +82,14 @@ fun interface IncomingSink {
 
 /**
  * The roster change of one processed commit or welcome. [by] is the MLS-authenticated sender of the commit (or of the
- * welcome); [added] and [removed] are the usernames of the leaves it changed, and [joined] the roster size when this
- * device joined (then both lists are empty). Never taken from the server's envelope.
+ * welcome), `null` for a commit this device made itself; [added] and [removed] are the usernames of the leaves it
+ * changed, and [joined] the roster size when this device joined (then both lists are empty). Never taken from the
+ * server's envelope.
  */
 class MembershipChange(
     val groupId: ByteArray,
     val epoch: Long,
-    val by: String,
+    val by: String?,
     val added: List<MemberChange>,
     val removed: List<MemberChange>,
     val joined: Int = 0,

@@ -31,6 +31,7 @@ import kotlin.test.fail
  * the test never sees. On a failure the test prints that output with all of it redacted, which is what CI's log shows
  * (#79 round-0 SEC-9, #104 SEC-1..SEC-3).
  */
+@Suppress("LargeClass") // One scenario after another over one running stack; splitting it would start the stack again.
 class EndToEndTest {
     private val cliHome = Path.of(System.getProperty("e2e.cli"))
     private val serverLib = Path.of(System.getProperty("e2e.server")).resolve("lib")
@@ -515,6 +516,20 @@ class EndToEndTest {
         )
         refused(kim, "chat-sync", EXIT_REFUSED, "this group is no longer available", "--group", group)
         assertTrue(ok(kim, "chat-groups").single().startsWith("group $group removed"), "a removed member still lists the group, as removed")
+
+        // The roster changes are notices in the history (#31, #240): the adder's own commits have no sender, jack's are iris's.
+        val addedLine = "member change added e2e_kim"
+        val removedLine = "member change removed e2e_kim"
+        val mine = ok(iris, "chat-history", "--group", group)
+        assertTrue(
+            mine.indexOf("stored - - sent: $addedLine") in 0 until mine.indexOf("stored - - sent: $removedLine"),
+            "iris: her own add, then her own removal",
+        )
+        val theirs = ok(jack, "chat-history", "--group", group)
+        assertTrue(
+            theirs.indexOf("stored - e2e_iris -: $addedLine") in 0 until theirs.indexOf("stored - e2e_iris -: $removedLine"),
+            "jack: iris added, then removed",
+        )
     }
 
     /**

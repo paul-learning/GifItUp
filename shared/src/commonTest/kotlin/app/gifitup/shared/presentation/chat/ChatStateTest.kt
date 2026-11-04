@@ -746,4 +746,12 @@ class ChatStateTest {
             advanceUntilIdle()
             assertFalse(holder.state.value.canResetHistory, "the history is healthy again; the offer is gone though the groups call failed")
         }
+
+    @Test
+    fun aFrozenChatSaysWhyInWordsThatNameNobody() {
+        assertEquals(ConversationProblem.MEMBERS_MISMATCH, GroupStatus.FROZEN_ENVELOPE_MISMATCH.toProblem())
+        assertEquals(ConversationProblem.CONTACT_KEY_MISMATCH, GroupStatus.FROZEN_CONTACT_MISMATCH.toProblem())
+        assertEquals(ConversationProblem.STOPPED, GroupStatus.FROZEN_GAP.toProblem())
+        assertEquals(ConversationProblem.STOPPED, GroupStatus.FROZEN_COMMIT_REFUSED.toProblem())
+    }
 }
