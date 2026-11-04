@@ -1,3 +1,6 @@
-# Docker build context = repo root, but the server image only needs the Gradle install output (server/Dockerfile).
+# Docker build context = repo root. The server image needs only the Gradle install output (server/Dockerfile), the web
+# image only its Caddyfile and the production bundle (deploy/web/Dockerfile).
 *
 !server/build/install/
+!deploy/web/Caddyfile
+!composeApp/build/dist/wasmJs/productionExecutable/

@@ -119,5 +119,19 @@ elif grep -E '[=,]runtimeClasspath(,|$)' cli/gradle.lockfile | grep -vE "$cli_ru
   fail "cli's runtime classpath has an artifact outside the allowlist (no slf4j provider but slf4j-nop, #79 SEC-9)"
 fi
 
+# The VM's Caddy sends a request to the server only when its path is in the site block's API list (#27 SEC-8); everything
+# else is the web app. A route the server gains without being listed would be answered by the web app's fallback, so
+# every route prefix in the server's *_PATH constants must appear in the list.
+caddy=deploy/caddy/gifitup.caddy
+api_line=$(grep -E '^[[:space:]]*@api path ' "$caddy" || true)
+[ -n "$api_line" ] || fail "$caddy has no '@api path' matcher (#27 SEC-8)"
+while read -r route; do
+  [ -n "$route" ] || continue
+  case " $api_line " in
+    *" $route "* | *" $route/* "*) ;;
+    *) fail "server route prefix $route is not in the @api list of $caddy (#27 SEC-8)" ;;
+  esac
+done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+' server/src/main --include='*.kt' | sed -E 's/.*"//' | sort -u)
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

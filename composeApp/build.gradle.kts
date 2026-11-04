@@ -29,6 +29,17 @@ val generateBuildDefaults by tasks.registering {
     }
 }
 
+// A web bundle that is served to people must know its server (#27 SEC-6): the production webpack build refuses to run
+// without an explicit `-Pgifitup.defaultOrigin`, so a bundle can't ship with the placeholder origin. Development runs
+// and tests keep the placeholder. The value must equal the server's GIFITUP_PUBLIC_URL (ADR-0009); the deploy workflow
+// takes both from the same variable.
+val requireExplicitOrigin by tasks.registering {
+    val explicit = providers.gradleProperty("gifitup.defaultOrigin")
+    doLast {
+        require(explicit.isPresent) { "A production web bundle needs -Pgifitup.defaultOrigin=https://<host> (canonical origin)" }
+    }
+}
+
 kotlin {
     jvmToolchain(21)
 
@@ -77,6 +88,7 @@ tasks
     .withType<org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpack>()
     .configureEach {
         dependsOn(":mls:syncWasmPackage")
+        if (name.contains("Production")) dependsOn(requireExplicitOrigin)
         inputs
             .dir(rootProject.layout.buildDirectory.dir("wasm/node_modules/gifitup-crypto"))
             .withPropertyName("cryptoPackage")
