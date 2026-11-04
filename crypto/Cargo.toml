@@ -22,7 +22,7 @@ bindgen = ["uniffi/cli"]
 test-panic = []
 
 [dependencies]
-openmls = "0.9.1"
+openmls = "0.9.2"
 openmls_rust_crypto = "0.6.0"
 openmls_basic_credential = "0.6.0"
 openmls_memory_storage = "0.6.0"
