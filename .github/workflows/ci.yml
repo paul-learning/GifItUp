@@ -206,7 +206,11 @@ jobs:
           if grep -iE "Content Security Policy|Refused to (load|connect|execute|apply|create)" chrome.log; then
             echo "::error::the app triggered a Content-Security-Policy violation"; exit 1
           fi
-          grep -qi '<canvas' dom.html || { echo "::error::the app did not start (no canvas)"; exit 1; }
+          head -c 1500 dom.html; echo
+          # The app adds its elements to an empty <body> (Compose may keep the canvas in a shadow root, which a DOM dump
+          # does not show), so a body with content, or a WebGL context in Chrome's log, means the bundle ran.
+          body=$(tr -d '\n' < dom.html | sed -E 's/.*<body[^>]*>(.*)<\/body>.*/\1/' | tr -d '[:space:]')
+          if [ -z "$body" ] && ! grep -q "WebGL" chrome.log; then echo "::error::the app did not start"; exit 1; fi
 
       - name: Container logs on failure
         if: failure()
