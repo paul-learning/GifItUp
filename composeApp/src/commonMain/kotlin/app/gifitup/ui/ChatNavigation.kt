@@ -123,7 +123,16 @@ internal fun NavGraphBuilder.chatRoutes(
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
         val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
         val leave = { if (nav.currentDestination?.route == ROUTE_NEW_CHAT) nav.popBackStack() }
-        NewChatScreen(model.newChat, onDone = { leave() }, onBack = { leave() })
+        NewChatScreen(
+            model.newChat,
+            onDone = { leave() },
+            onBack = { leave() },
+            onOpenExisting = { info ->
+                leave()
+                model.openConversation(info)
+                nav.navigate(ROUTE_CONVERSATION)
+            },
+        )
     }
     composable(ROUTE_CONVERSATION) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }

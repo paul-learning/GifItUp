@@ -2,11 +2,18 @@ package app.gifitup.shared.presentation.chat
 
 import app.gifitup.shared.data.content.ContentCodec
 import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.chat.ChatKind
 import app.gifitup.shared.domain.chat.ChatPort
 import app.gifitup.shared.domain.chat.FriendNames
+import app.gifitup.shared.domain.chat.chatKind
+import app.gifitup.shared.domain.chat.settledName
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupCreation
+import app.gifitup.shared.domain.groups.GroupInfo
+import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.messages.HistoryAccess
+import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +65,10 @@ data class NewChatState(
     val created: KeyBytes? = null,
     val notAdded: List<String> = emptyList(),
     val problem: NewChatProblem? = null,
+    /** The friends this device already has a usable direct chat with: a second one is never made (#217). */
+    val directWith: Set<String> = emptySet(),
+    /** Set when "start chat" found the direct chat with the chosen friend already there: the screen opens it. */
+    val existing: GroupInfo? = null,
 ) {
     val canCreate: Boolean
         get() =
@@ -79,11 +90,15 @@ class NewChatStateHolder(
     private val sessions: SessionHolder,
     private val chat: ChatPort,
     private val friends: FriendNames,
+    private val store: HistoryAccess,
 ) {
     private val flow = MutableStateFlow(NewChatState())
     val state: StateFlow<NewChatState> = flow.asStateFlow()
     private var visit = 0
     private var running = false
+
+    /** The usable direct chats by the friend's name (#217), read when the screen opens. */
+    private var directs = mapOf<String, GroupInfo>()
 
     /** The last create ended with a problem and no group: its message survives a refresh of the friends list. */
     private var createFailed = false
@@ -92,9 +107,26 @@ class NewChatStateHolder(
     fun open() =
         scope.launch {
             val forVisit = visit
+            directs = directChats()
             show(forVisit, null)
             val refreshed = sessions.withSessionResult { friends.refresh(it) }
             show(forVisit, (refreshed as? AuthResult.Failed)?.error?.toNewChatProblem())
+        }
+
+    /**
+     * The usable direct chats of this device by the friend's name: active, one other member, no settled name, history
+     * readable ([chatKind]). A frozen, removed or unreadable chat doesn't count, so a fresh one can still be made.
+     */
+    private suspend fun directChats(): Map<String, GroupInfo> {
+        val listed = (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.value?.groups.orEmpty()
+        return listed.filter { it.status == GroupStatus.ACTIVE && isDirect(it) }.associateBy { it.others.single() }
+    }
+
+    private suspend fun isDirect(info: GroupInfo): Boolean =
+        try {
+            chatKind(info.others.size, settledName(store.messages(info.id)) != null, store.unreadable(info.id)) == ChatKind.DIRECT
+        } catch (_: HistoryStoreException) {
+            false
         }
 
     private suspend fun show(
@@ -111,6 +143,7 @@ class NewChatStateHolder(
             } else {
                 current.copy(
                     loaded = true,
+                    directWith = directs.keys,
                     friends = names.sorted(),
                     selected = current.selected.filter { it in names }.toSet(),
                     problem =
@@ -151,7 +184,7 @@ class NewChatStateHolder(
     fun create() {
         val current = flow.value
         // A create that is still going (the screen was left and opened again) shows as `creating` and is never doubled.
-        if (running) return
+        if (running || openExisting(current)) return
         if (!current.canCreate) {
             val problem =
                 when {
@@ -173,6 +206,14 @@ class NewChatStateHolder(
                 if (forVisit == visit) flow.value = flow.value.copy(creating = false)
             }
         }
+    }
+
+    /** One direct chat per friend (#217): a chat that is already there is opened, never made again. */
+    private fun openExisting(current: NewChatState): Boolean {
+        val already = current.selected.singleOrNull()?.let(directs::get)
+        if (current.mode != NewChatMode.DIRECT || already == null || !current.canCreate) return false
+        flow.value = current.copy(existing = already, problem = null)
+        return true
     }
 
     /**

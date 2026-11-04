@@ -10,9 +10,14 @@ import app.gifitup.shared.domain.chat.ChatPort
 import app.gifitup.shared.domain.chat.FriendNames
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupCreation
+import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.GroupList
+import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomesReport
+import app.gifitup.shared.domain.messages.ChatMessage
+import app.gifitup.shared.domain.messages.InMemoryMessageStore
+import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
@@ -40,7 +45,9 @@ class NewChatStateTest {
         var createOutcome: AuthResult<GroupCreation> = AuthResult.Ok(GroupCreation(byteArrayOf(7), SyncOutcome.Sent(1)))
         var addOutcome: (String) -> SyncOutcome = { SyncOutcome.Sent(2) }
 
-        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("me", emptyList()))
+        var listed = listOf<GroupInfo>()
+
+        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("me", listed))
 
         override suspend fun welcomes(session: Session) = AuthResult.Ok(WelcomesReport(emptyList(), null))
 
@@ -100,6 +107,7 @@ class NewChatStateTest {
     }
 
     private val chat = FakeChat()
+    private val store = InMemoryMessageStore()
     private val session = Session("d", "t", Long.MAX_VALUE, checkNotNull(ApiEndpoint.forOrigin("https://chat.example.test")))
     private var friends: List<String>? = listOf("carol", "bob", "dave")
 
@@ -116,7 +124,7 @@ class NewChatStateTest {
             }
         }
 
-    private fun TestScope.holder() = NewChatStateHolder(this, SessionHolder({ AuthResult.Ok(session) }, this) { 0L }, chat, names)
+    private fun TestScope.holder() = NewChatStateHolder(this, SessionHolder({ AuthResult.Ok(session) }, this) { 0L }, chat, names, store)
 
     private fun NewChatStateHolder.group(name: String) {
         setMode(NewChatMode.GROUP)
@@ -444,4 +452,64 @@ class NewChatStateTest {
         assertEquals(1, assertIs<Ago.Days>(Ago.of(1_000 + 86_400, 1_000)).count)
         assertEquals(999, assertIs<Ago.Days>(Ago.of(1_000 + 86_400L * 5_000, 1_000)).count)
     }
+
+    private fun direct(
+        n: Int,
+        with: String,
+        status: GroupStatus = GroupStatus.ACTIVE,
+    ) = GroupInfo(KeyBytes(byteArrayOf(n.toByte())), status, listOf(with))
+
+    @Test
+    fun aFriendWithADirectChatAlreadyThereOpensItAndNothingIsMade() =
+        runTest {
+            chat.listed = listOf(direct(1, "bob"))
+            val holder = opened()
+            assertEquals(setOf("bob"), holder.state.value.directWith)
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(
+                KeyBytes(byteArrayOf(1)),
+                holder.state.value.existing
+                    ?.id,
+            )
+            assertEquals(emptyList(), chat.created, "no second chat is made")
+            assertNull(holder.state.value.created)
+        }
+
+    @Test
+    fun onlyAUsableDirectChatCounts() =
+        runTest {
+            // A group of three, a frozen chat, a removed one and a one-to-one that has a settled name are not "the chat".
+            store.insert(
+                ChatMessage(KeyBytes(byteArrayOf(4)), KeyBytes(ByteArray(32) { 4 }), "dave", 1, MessageBody.GroupMeta("Duo"), null, 10),
+            )
+            chat.listed =
+                listOf(
+                    GroupInfo(KeyBytes(byteArrayOf(2)), GroupStatus.ACTIVE, listOf("bob", "carol")),
+                    direct(3, "carol", GroupStatus.FROZEN_GAP),
+                    direct(5, "erin", GroupStatus.REMOVED),
+                    direct(4, "dave"),
+                )
+            val holder = opened()
+            assertEquals(emptySet(), holder.state.value.directWith)
+            holder.toggle("carol")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(listOf("carol"), chat.created, "a fresh chat is made where no usable one exists")
+            assertNull(holder.state.value.existing)
+        }
+
+    @Test
+    fun aGroupIsStillMadeWithAFriendWhoHasADirectChat() =
+        runTest {
+            chat.listed = listOf(direct(1, "bob"))
+            val holder = opened()
+            holder.group("Weekend")
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertNull(holder.state.value.existing)
+            assertEquals(listOf("bob"), chat.created)
+        }
 }
