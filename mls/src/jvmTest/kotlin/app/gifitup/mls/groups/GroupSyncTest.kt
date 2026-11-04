@@ -209,11 +209,13 @@ class GroupSyncTest {
         }
 
     /**
-     * A damaged message fails once; its generation is then used up, so the second try is a replay and the message is
-     * skipped for good while the ones behind it flow.
+     * A damaged message fails, and since OpenMLS 0.9.2 a failed decryption no longer consumes its generation (the sender
+     * ratchet only moves once the message processed): the engine counts each failed attempt and skips the message on the
+     * third, while the ones behind it flow. (With 0.9.1 the first failure used the generation up, so the second try was a
+     * replay and the message was skipped at once.)
      */
     @Test
-    fun aDamagedMessageFailsOnceThenIsSkippedAndTheRestFlows() =
+    fun aDamagedMessageFailsThreeTimesThenIsSkippedAndTheRestFlows() =
         runTest {
             val (alice, bob, groupId) = joinedPair()
             val bad = alice.say(groupId, "bad")
@@ -221,9 +223,33 @@ class GroupSyncTest {
             ds.tamper(groupId, bad) { it.copyOf().also { b -> b[b.size - 1] = (b[b.size - 1].toInt() xor 1).toByte() } }
             assertEquals(SyncOutcome.Retry(bad), bob.engine.sync(groupId))
             assertEquals(mapOf(bad to 1), bob.engine.recordOf(groupId)?.failures)
+            assertEquals(SyncOutcome.Retry(bad), bob.engine.sync(groupId))
+            assertEquals(mapOf(bad to 2), bob.engine.recordOf(groupId)?.failures)
             assertEquals(SyncOutcome.CaughtUp(2), bob.engine.sync(groupId))
             assertEquals(listOf("good"), bob.received.map { it.plaintext.decodeToString() })
             assertEquals(listOf(bad), bob.engine.recordOf(groupId)?.quarantined)
+        }
+
+    /**
+     * The reason 0.9.2 matters for an untrusted server: one damaged copy of a message does not burn the real one. When the
+     * genuine message is served again after a failed attempt, it is delivered (with 0.9.1 it was lost for good). The limit:
+     * three damaged copies in a row still quarantine it (the count is per sequence number, the server picks the bytes).
+     */
+    @Test
+    fun aDamagedCopyDoesNotBurnTheGenuineMessage() =
+        runTest {
+            val (alice, bob, groupId) = joinedPair()
+            val bad = alice.say(groupId, "real")
+            var genuine = ByteArray(0)
+            ds.tamper(groupId, bad) {
+                genuine = it.copyOf()
+                it.copyOf().also { b -> b[b.size - 1] = (b[b.size - 1].toInt() xor 1).toByte() }
+            }
+            assertEquals(SyncOutcome.Retry(bad), bob.engine.sync(groupId))
+            ds.tamper(groupId, bad) { genuine }
+            assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
+            assertEquals(listOf("real"), bob.received.map { it.plaintext.decodeToString() })
+            assertEquals(emptyList(), bob.engine.recordOf(groupId)?.quarantined)
         }
 
     /** Three failed attempts quarantine a message even when each fails differently (counted across restarts). */
