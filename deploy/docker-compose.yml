@@ -48,6 +48,26 @@ services:
         aliases: [gifitup-server]
       backend: {}
 
+  # The web app's static files (#27, deploy/web/Dockerfile). Reachable only from the VM's Caddy over the `proxy` network;
+  # it has no secrets, no database and nothing mounted from the host. Pinned by digest in .env like the server image.
+  web:
+    <<: *hardening
+    # Behind a profile until deploy.sh deploys the web image too (#27 PR 1b): a plain `up` doesn't start it, so this
+    # file keeps working with a deploy.sh that knows only the server image.
+    profiles: [web]
+    image: ${GIFITUP_WEB_IMAGE:-gifitup-web:not-deployed}
+    user: "10001:10001"
+    # The only places Caddy writes (its state directories); the files under /srv are never writable.
+    tmpfs: [/tmp, /data, /config]
+    environment:
+      XDG_DATA_HOME: /data
+      XDG_CONFIG_HOME: /config
+    mem_limit: 128m
+    pids_limit: 64
+    networks:
+      proxy:
+        aliases: [gifitup-web]
+
   # One-shot schema migration (ADR-0008), run by deploy.sh before the server starts:
   #   docker compose --profile migrate run --rm migrate
   # Same image as the server, different entry point. The only container with the superuser password. It creates the

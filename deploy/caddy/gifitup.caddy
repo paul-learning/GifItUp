@@ -1,5 +1,7 @@
 # GifItUp site block for the VM's existing Caddyfile (docs/ops/vm-setup.md, ADR-0005).
-# Replace gifitup.example.com with the real hostname on the VM only: the domain is not committed (public repo).
+# Replace gifitup.example.com with the real hostname on the VM. The name is kept out of the repo as hygiene only: it is
+# not secret (certificate transparency lists it, and the app's APK and web page contain it, #27), and nothing here may
+# rely on it staying unknown.
 gifitup.example.com {
 	# No access log on purpose: logs must not map users to IPs (AGENTS.md, security rule 4).
 	log_skip
@@ -7,12 +9,12 @@ gifitup.example.com {
 	request_body {
 		max_size 1MB
 	}
+	# Headers every answer carries. The Content-Security-Policy differs between the API and the web app, so each
+	# handle below sets its own: a site-wide one here would be a second policy on every answer (a browser applies both).
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
-		# API only for now; the web app (#27) needs its own CSP.
-		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
 		X-Frame-Options "DENY"
 		Cross-Origin-Resource-Policy "same-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
@@ -28,12 +30,24 @@ gifitup.example.com {
 		header Cache-Control "public, max-age=3600"
 		respond `[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"app.gifitup","sha256_cert_fingerprints":["REPLACE_WITH_RELEASE_SHA256"]}}]` 200
 	}
-	handle {
+	# The server's routes: every prefix in server/src/main (scripts/check-repo-hygiene.sh keeps this list complete). An
+	# unknown path is not the API: it falls to the web app below, whose single-page fallback answers it.
+	@api path /health /ws /auth/* /accounts /accounts/* /devices /devices/* /groups /groups/* /welcomes/* /key-packages /key-packages/* /invites /invites/* /members /members/* /config/*
+	handle @api {
+		header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
 		# /ws is a WebSocket (ADR-0015): reverse_proxy upgrades it by default and sets no idle timeout of its own (the
 		# server pings every 25 s). stream_close_delay keeps open sockets across a Caddy config reload of the shared VM
 		# (the default closes them at once); clients reconnect anyway, so this only avoids a needless burst.
 		reverse_proxy gifitup-server:8080 {
 			stream_close_delay 5m
 		}
+	}
+	# The web app (#27): files only from its own origin, the wasm module, images from the GIF provider's hosts and blobs
+	# (decoded GIFs), and the API over https and wss at this host ({host} is the site's own host name, so no name is
+	# written here). No 'unsafe-inline' and no 'unsafe-eval'. 'wasm-unsafe-eval' only compiles WebAssembly.
+	# The Klipy hosts are the ones the app loads GIFs and calls from (ADR-0003).
+	handle {
+		header Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: https://static.klipy.com https://static1.klipy.com https://static2.klipy.com https://static3.klipy.com; connect-src 'self' https://{host} wss://{host} https://api.klipy.com; font-src 'self'; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		reverse_proxy gifitup-web:8080
 	}
 }

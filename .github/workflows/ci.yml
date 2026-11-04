@@ -89,6 +89,7 @@ jobs:
       - name: Check, wasmJs production bundle
         run: >-
           ./gradlew --continue
+          -Pgifitup.defaultOrigin=https://ci.gifitup.example
           check
           :composeApp:wasmJsBrowserDistribution
 
@@ -111,6 +112,15 @@ jobs:
           python3 scripts/scan-artifact.py --control "app.gifitup" \
             --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli" --forbid "app.gifitup.cli" "$dist"
 
+      # The bundle the web-edge job serves through the real Caddy site block (#27).
+      - name: Upload web bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: composeApp/build/dist/wasmJs/productionExecutable/
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Upload test and lint reports
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -121,6 +131,73 @@ jobs:
             build/reports/
             */build/reports/
           retention-days: 7
+
+  # The web app behind the edge (#27 SEC-7, SEC-8, SEC-9): the real bundle, served by the web image's Caddyfile behind
+  # the committed site block (host swapped for localhost), opened in headless Chrome. The policy is only worth
+  # something if the app starts under it, so any CSP violation fails the job. No secrets, read-only token.
+  web-edge:
+    name: Web bundle behind the edge
+    needs: gradle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download web bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-dist
+          path: composeApp/build/dist/wasmJs/productionExecutable/
+
+      - name: Start the edge
+        run: |
+          image=$(sed -n 's/^FROM \(caddy:[^ ]*\).*/\1/p' deploy/web/Dockerfile)
+          [ -n "$image" ] || { echo "::error::no caddy base image in deploy/web/Dockerfile"; exit 1; }
+          docker build --file deploy/web/Dockerfile --tag web-under-test .
+          docker network create edge
+          docker run -d --name gifitup-web --network edge --network-alias gifitup-web web-under-test
+          # Stand-in for the server: the edge only needs something to answer at its address.
+          mkdir stub
+          printf ':8080 {\n\trespond 200\n}\n' > stub/Caddyfile
+          docker run -d --name gifitup-server --network edge --network-alias gifitup-server \
+            -v "$PWD/stub/Caddyfile:/etc/caddy/Caddyfile:ro" "$image"
+          # The committed site block with its host swapped for a local plain-http address.
+          sed 's/^gifitup\.example\.com {/http:\/\/localhost:8000 {/' deploy/caddy/gifitup.caddy > stub/edge.caddy
+          grep -q '^http://localhost:8000 {' stub/edge.caddy
+          printf '{\n\tadmin off\n}\nimport /etc/caddy/edge.caddy\n' > stub/Caddyfile.edge
+          docker run -d --name edge --network edge -p 8000:8000 \
+            -v "$PWD/stub/Caddyfile.edge:/etc/caddy/Caddyfile:ro" -v "$PWD/stub/edge.caddy:/etc/caddy/edge.caddy:ro" "$image"
+          for _ in $(seq 1 30); do curl -sf -o /dev/null http://localhost:8000/health && break; sleep 1; done
+          curl -sf -o /dev/null http://localhost:8000/health
+
+      - name: Headers
+        run: bash scripts/check-web-headers.sh http://localhost:8000
+
+      - name: No eval in the bundle
+        run: |
+          # 'unsafe-eval' stays out of the policy, so the bundle must not need it (SEC-7). grep: 1 = none found.
+          rc=0; grep -rEl --include='*.js' '(^|[^A-Za-z0-9_.$])eval\(|new Function\(' composeApp/build/dist/wasmJs/productionExecutable || rc=$?
+          [ "$rc" -eq 1 ] || { echo "::error::eval or new Function in the web bundle (or scan error $rc)"; exit 1; }
+
+      # Chrome prints "Refused to ..." for every CSP violation. The app draws into a canvas, so a canvas in the dumped
+      # page means the bundle ran.
+      - name: Open the app in headless Chrome
+        run: |
+          rc=0
+          google-chrome --headless=new --no-sandbox --disable-gpu --enable-logging=stderr --v=0 \
+            --virtual-time-budget=30000 --dump-dom http://localhost:8000/ > dom.html 2> chrome.log || rc=$?
+          echo "chrome exit $rc"
+          if grep -iE "Content Security Policy|Refused to (load|connect|execute|apply|create)" chrome.log; then
+            echo "::error::the app triggered a Content-Security-Policy violation"; exit 1
+          fi
+          grep -qi '<canvas' dom.html || { echo "::error::the app did not start (no canvas)"; exit 1; }
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs edge | tail -n 50; docker logs gifitup-web | tail -n 50; tail -n 50 chrome.log
 
   # deploy/deploy.sh runs as a forced command on the VM and deploy.yml holds deploy credentials (#48).
   # Prebuilt release binaries, verified against pinned SHA-256 digests (the ones GitHub lists for the release asset).
