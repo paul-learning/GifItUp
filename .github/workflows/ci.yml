@@ -195,29 +195,14 @@ jobs:
             echo "::error::eval or new Function in the web bundle"; exit 1
           fi
 
-      # Chrome prints "Refused to ..." for every CSP violation. The app draws into a canvas, so a canvas in the dumped
-      # page means the bundle ran.
+      # Drives Chrome over its DevTools port: waits for the app's canvas and fails on any Content-Security-Policy
+      # violation the browser reports (scripts/check-web-app-starts.py).
       - name: Open the app in headless Chrome
-        run: |
-          rc=0
-          google-chrome --headless=new --no-sandbox --disable-gpu --enable-logging=stderr --v=0 \
-            --virtual-time-budget=90000 --run-all-compositor-stages-before-draw --enable-unsafe-swiftshader --use-gl=angle --use-angle=swiftshader --dump-dom http://localhost:8000/ > dom.html 2> chrome.log || rc=$?
-          echo "chrome exit $rc"
-          if grep -iE "Content Security Policy|Refused to (load|connect|execute|apply|create)" chrome.log; then
-            echo "::error::the app triggered a Content-Security-Policy violation"; exit 1
-          fi
-          head -c 1500 dom.html; echo
-          # The app adds its elements to an empty <body> (Compose may keep the canvas in a shadow root, which a DOM dump
-          # does not show), so a body with content, or a WebGL context in Chrome's log, means the bundle ran.
-          body=$(tr -d '\n' < dom.html | sed -E 's/.*<body[^>]*>(.*)<\/body>.*/\1/' | tr -d '[:space:]')
-          if [ -z "$body" ] && ! grep -q "WebGL" chrome.log; then
-            grep "CONSOLE" chrome.log | cut -c1-400 | head -n 30
-            echo "::error::the app did not start"; exit 1
-          fi
+        run: python3 -I scripts/check-web-app-starts.py "$(command -v google-chrome)" http://localhost:8000/ 90
 
       - name: Container logs on failure
         if: failure()
-        run: docker logs edge | tail -n 50; docker logs gifitup-web | tail -n 50; tail -n 50 chrome.log
+        run: docker logs edge | tail -n 50; docker logs gifitup-web | tail -n 50
 
   # deploy/deploy.sh runs as a forced command on the VM and deploy.yml holds deploy credentials (#48).
   # Prebuilt release binaries, verified against pinned SHA-256 digests (the ones GitHub lists for the release asset).
