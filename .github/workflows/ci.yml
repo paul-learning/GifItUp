@@ -185,10 +185,15 @@ jobs:
       - name: No eval in the bundle
         run: |
           # 'unsafe-eval' stays out of the policy, so the bundle must not need it (SEC-7). grep: 1 = none found.
-          rc=0; grep -rEo --include='*.js' '.{0,50}(^|[^A-Za-z0-9_.$])(eval\(|new Function\().{0,50}' composeApp/build/dist/wasmJs/productionExecutable | head -n 20 || rc=$?
-          # grep: 1 = none found; the pipeline's status is head's, so look again for the plain answer.
-          rc=0; grep -rqE --include='*.js' '(^|[^A-Za-z0-9_.$])eval\(|new Function\(' composeApp/build/dist/wasmJs/productionExecutable || rc=$?
-          [ "$rc" -eq 1 ] || { echo "::error::eval or new Function in the web bundle (or scan error $rc)"; exit 1; }
+          # One known use is allowed: webpack's globalThis shim `this||new Function("return this")()` in a try block. It
+          # runs only when `this` is unset, and a refusal is caught; the Chrome step below fails if it ever fires.
+          rc=0
+          grep -rEoh --include='*.js' '(^|[^A-Za-z0-9_.$])(eval\(|new Function\([^)]*\))' composeApp/build/dist/wasmJs/productionExecutable > evals.txt || rc=$?
+          [ "$rc" -le 1 ] || { echo "::error::scan error $rc"; exit 1; }
+          sed -E 's/^[^en]*//' evals.txt | grep -vxF 'new Function("return this")' || true
+          if sed -E 's/^[^en]*//' evals.txt | grep -qvxF 'new Function("return this")'; then
+            echo "::error::eval or new Function in the web bundle"; exit 1
+          fi
 
       # Chrome prints "Refused to ..." for every CSP violation. The app draws into a canvas, so a canvas in the dumped
       # page means the bundle ran.
