@@ -58,7 +58,7 @@ services:
     image: ${GIFITUP_WEB_IMAGE:-gifitup-web:not-deployed}
     user: "10001:10001"
     # The only places Caddy writes (its state directories); the files under /srv are never writable.
-    tmpfs: [/tmp, /data, /config]
+    tmpfs: [/tmp, "/data:uid=10001,gid=10001", "/config:uid=10001,gid=10001"]
     environment:
       XDG_DATA_HOME: /data
       XDG_CONFIG_HOME: /config
