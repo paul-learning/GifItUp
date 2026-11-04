@@ -31,14 +31,15 @@ if [ -f "$daemon" ] && grep -nE "^[[:space:]]*toolchainUrl" "$daemon"; then
   fail "$daemon contains toolchainUrl entries; it is hand-maintained, see its header"
 fi
 
-# Pins that must match (#37 CR-3): wasm-bindgen crate (exact) = Cargo.lock = CLI pinned in ci.yml.
+# Pins that must match (#37 CR-3): wasm-bindgen crate (exact) = Cargo.lock = CLI pinned in ci.yml and deploy.yml.
 toml=$(sed -nE 's/^wasm-bindgen = "=([0-9.]+)".*/\1/p' crypto/Cargo.toml)
 lock=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print }' crypto/Cargo.lock)
 cli=$(sed -nE 's/^ *WASM_BINDGEN_VERSION: *([0-9.]+).*/\1/p' .github/workflows/ci.yml)
+deploy_wb=$(sed -nE 's/^ *WASM_BINDGEN_VERSION: *([0-9.]+).*/\1/p' .github/workflows/deploy.yml)
 if [ -z "$toml" ]; then
   fail "crypto/Cargo.toml: wasm-bindgen must be an exact pin (\"=x.y.z\")"
-elif [ "$toml" != "$lock" ] || [ "$toml" != "$cli" ]; then
-  fail "wasm-bindgen versions differ: Cargo.toml=$toml Cargo.lock=$lock ci.yml WASM_BINDGEN_VERSION=$cli"
+elif [ "$toml" != "$lock" ] || [ "$toml" != "$cli" ] || [ "$toml" != "$deploy_wb" ]; then
+  fail "wasm-bindgen versions differ: Cargo.toml=$toml Cargo.lock=$lock ci.yml=$cli deploy.yml=$deploy_wb"
 fi
 
 # Server never sees message content (ADR-0006): the encrypted content schema lives in :shared, so neither :server nor

@@ -13,6 +13,7 @@ state_file=$home/deploy-state   # "<commit> <digest>" of the last successful dep
 # Overridable for local tests only; an SSH client can't set it (sshd passes no client env to forced commands
 # except LANG/LC_*).
 image_repo=${GIFITUP_IMAGE_REPO:-ghcr.io/paul-learning/gifitup-server}
+web_repo=${GIFITUP_WEB_IMAGE_REPO:-ghcr.io/paul-learning/gifitup-web}
 health_timeout=${GIFITUP_HEALTH_TIMEOUT:-90}
 
 say() { echo "gifitup-deploy: $*"; }
@@ -62,37 +63,69 @@ env_file=$compose_dir/.env
 [ -f "$env_file" ] || reject ".env missing in $compose_dir"
 # Reads one key from .env without sourcing it.
 env_value() { sed -n "s/^$1=//p" "$env_file" | head -n 1; }
-# Replaces only the GIFITUP_SERVER_IMAGE line, atomically, keeping the file private.
-set_image() {
+# Replaces only the line of one image variable, atomically, keeping the file private.
+set_env() {
   local tmp
   tmp=$(mktemp "$env_file.XXXXXX")
-  grep -v '^GIFITUP_SERVER_IMAGE=' "$env_file" > "$tmp" || true
-  printf 'GIFITUP_SERVER_IMAGE=%s\n' "$1" >> "$tmp"
+  grep -v "^$1=" "$env_file" > "$tmp" || true
+  printf '%s=%s\n' "$1" "$2" >> "$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$env_file"
 }
+set_image() { set_env GIFITUP_SERVER_IMAGE "$1"; }
 
 public_url=$(env_value GIFITUP_PUBLIC_URL)
 [[ "$public_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || reject "GIFITUP_PUBLIC_URL in .env is missing or invalid"
 
 compose() { docker compose --project-directory "$compose_dir" "$@"; }
 
-# Healthy = the server container runs exactly this image and /health answers 200 through Caddy.
+# Healthy = the server container runs exactly this image and /health answers 200 through Caddy, and the web container
+# (when the release has one) runs its image and answers.
 healthy() {
-  local want=$1 deadline=$((SECONDS + health_timeout)) cid image code
+  local want=$1 want_web=${2:-} deadline=$((SECONDS + health_timeout)) cid image code
   while [ "$SECONDS" -lt "$deadline" ]; do
     cid=$(compose ps -q server 2>/dev/null || true)
     image=$([ -n "$cid" ] && docker inspect --format '{{.Config.Image}}' "$cid" 2>/dev/null || true)
     if [ "$image" = "$want" ]; then
       code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 --proto =https "$public_url/health" 2>/dev/null || true)
-      [ "$code" = 200 ] && return 0
+      [ "$code" = 200 ] && web_healthy "$want_web" && return 0
     fi
     sleep 3
   done
   return 1
 }
 
-start() { quiet compose pull server && quiet compose up -d server; }
+# The web image that belongs to a server image (#27): the release workflow puts "<repo>@sha256:<digest>" into the server
+# image's label before attesting it, so the one verified digest names both. Prints nothing unless the label is exactly a
+# digest of our own web repository (a release without a web image, or any other value, means no web).
+web_for() {
+  local ref
+  ref=$(docker image inspect --format '{{ index .Config.Labels "app.gifitup.web-image" }}' "$1" 2>/dev/null || true)
+  if [ "${ref%@*}" = "$web_repo" ] && [[ "${ref#*@}" =~ ^sha256:[0-9a-f]{64}$ ]]; then printf '%s' "$ref"; fi
+}
+
+# Starts the server image $1 and, when it names one, its web image; otherwise the web service is stopped.
+start() {
+  local web
+  quiet compose pull server || return 1
+  web=$(web_for "$1")
+  if [ -n "$web" ]; then
+    set_env GIFITUP_WEB_IMAGE "$web"
+    quiet compose --profile web pull web && quiet compose --profile web up -d server web
+  else
+    quiet compose up -d server && { quiet compose --profile web stop web || true; }
+  fi
+}
+
+# The web container runs exactly this image and answers on its own port. Nothing is said about the public site: until
+# the VM's Caddy has the new site block, "/" is not served by this container.
+web_healthy() {
+  local want=$1 cid image
+  [ -n "$want" ] || return 0
+  cid=$(compose --profile web ps -q web 2>/dev/null || true)
+  image=$([ -n "$cid" ] && docker inspect --format '{{.Config.Image}}' "$cid" 2>/dev/null || true)
+  [ "$image" = "$want" ] && compose --profile web exec -T web wget -q -O /dev/null http://127.0.0.1:8080/index.html >/dev/null 2>&1
+}
 
 # The containers read their secrets as UID 10001 through a bind mount, so the files must exist, be non-empty and
 # world-readable (they sit in the 0700 secrets/ directory; docs/ops/vm-setup.md). Names only, never contents.
@@ -122,7 +155,7 @@ image=$image_repo@$digest
 say "deploying $commit ($digest)"
 migrate "$image" || reject "migration failed; server unchanged (journalctl -t gifitup-deploy)"
 set_image "$image"
-if start && healthy "$image"; then
+if start "$image" && healthy "$image" "$(web_for "$image")"; then
   printf '%s %s\n' "$commit" "$digest" > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"
   say "deployed"
   exit 0
@@ -133,7 +166,7 @@ if [ -s "$state_file" ] && valid_pair "$(cat "$state_file")"; then
   read -r prev_commit prev_digest < "$state_file"
   quiet git -C "$repo" checkout --quiet --detach "$prev_commit" || true
   set_image "$image_repo@$prev_digest"
-  if start && healthy "$image_repo@$prev_digest"; then
+  if start "$image_repo@$prev_digest" && healthy "$image_repo@$prev_digest" "$(web_for "$image_repo@$prev_digest")"; then
     say "health check failed; rolled back to $prev_commit"
   else
     say "health check failed; rollback to $prev_commit is unhealthy too, check the VM"

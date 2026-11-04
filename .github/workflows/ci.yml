@@ -65,7 +65,9 @@ jobs:
 
       # Mechanical review findings (file modes, IDE artifacts, matching pins); see docs/review-lessons.md.
       - name: Repo hygiene
-        run: bash scripts/check-repo-hygiene.sh
+        run: |
+          bash scripts/check-repo-hygiene.sh
+          bash scripts/test-deploy-web-for.sh
 
       # :mls builds crypto/ (ADR-0007): rustup is preinstalled and crypto/rust-toolchain.toml pins the toolchain
       # and targets. Installing it once here keeps parallel cargo calls from installing it concurrently (#67 CR-1).

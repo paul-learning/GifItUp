@@ -1,6 +1,6 @@
 # ADR-0018: Serving the web app
 
-- **Status:** accepted (design; PR 1a built the edge, PR 1b ships the image)
+- **Status:** accepted (PR 1a built the edge, PR 1b ships the image)
 - **Date:** 2026-11-04
 - **Issue/PR:** #27, #249. Round-0 plan review by the security reviewer (SEC-5, SEC-7, SEC-8, SEC-9). Amends ADR-0005's site block (the hostname is public from the friends alpha on, and the site block now routes the web app).
 
@@ -13,7 +13,7 @@ The friends alpha needs the web app on the same domain as the API (owner decisio
 3. **A static-file container (`gifitup-web`), the VM's Caddy reverse-proxies to it.** Chosen.
 
 ## Decision
-- The web app is its own image (`deploy/web/`, pinned Caddy base, no mounts, read-only, no capabilities), built from the production bundle and deployed by digest like the server (PR 1b).
+- The web app is its own image (`deploy/web/`, pinned Caddy base, no mounts, read-only, no capabilities), built from the production bundle by the deploy workflow. Its digest travels as a label (`app.gifitup.web-image`) of the **server image**, which is attested and deployed by digest as before: one verified digest names both images, `deploy.sh` accepts only a digest of our own web repository from the label, and the SSH call keeps its `<commit> <digest>` form (so the previously deployed `deploy.sh` still accepts it). Without the repository variable `GIFITUP_PUBLIC_URL` no web image is built.
 - The VM's Caddy routes the server's route prefixes (`@api`, kept complete by `scripts/check-repo-hygiene.sh`) to `gifitup-server` and everything else to `gifitup-web`. It sets the security headers and **one** Content-Security-Policy per answer, each handle its own: API `default-src 'none'; frame-ancestors 'none'`; web as in the site block (self, `'wasm-unsafe-eval'`, no inline script, one inline style element allowed by its hash (the Compose runtime's own), `style-src-attr 'unsafe-inline'` because the Compose Web runtime sets style attributes (found by the CI browser test), no eval, images from `blob:` and the GIF provider's hosts, connections to its own host and the provider's API).
 - The host name is not in the repo as hygiene only; nothing relies on it being secret.
 - The production bundle is built only with an explicit canonical origin that equals the server's `GIFITUP_PUBLIC_URL`.
