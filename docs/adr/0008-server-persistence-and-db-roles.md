@@ -84,7 +84,7 @@ On every connection, server and migration alike:
 |---|---|---|---|
 | `org.postgresql:postgresql` | 42.7.14 | JDBC driver | The reference driver |
 | `com.zaxxer:HikariCP` | 7.1.0 | Connection pool | Only depends on `slf4j-api` |
-| `org.flywaydb:flyway-core`, `flyway-database-postgresql` | 13.10.3 | Migrations | Lombok (listed at compile scope in Flyway's POM) and `flyway-database-cockroachdb` are excluded; the migration tests show Flyway works without them |
+| `org.flywaydb:flyway-core`, `flyway-database-postgresql` | 13.11.1 | Migrations | Lombok (listed at compile scope in Flyway's POM) and `flyway-database-cockroachdb` are excluded; the migration tests show Flyway works without them |
 | `org.testcontainers:testcontainers-postgresql` | 2.0.5 | Real PostgreSQL in tests | Test classpath only |
 
 **Testcontainers in detail:**
