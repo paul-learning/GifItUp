@@ -100,6 +100,9 @@ class NewChatStateHolder(
     /** The usable direct chats by the friend's name (#217), read when the screen opens. */
     private var directs = mapOf<String, GroupInfo>()
 
+    /** Whether the list of chats could be read; if not, a direct chat is not made (it might be a second one). */
+    private var directsKnown = false
+
     /** The last create ended with a problem and no group: its message survives a refresh of the friends list. */
     private var createFailed = false
 
@@ -107,7 +110,7 @@ class NewChatStateHolder(
     fun open() =
         scope.launch {
             val forVisit = visit
-            directs = directChats()
+            readDirectChats()
             show(forVisit, null)
             val refreshed = sessions.withSessionResult { friends.refresh(it) }
             show(forVisit, (refreshed as? AuthResult.Failed)?.error?.toNewChatProblem())
@@ -117,9 +120,21 @@ class NewChatStateHolder(
      * The usable direct chats of this device by the friend's name: active, one other member, no settled name, history
      * readable ([chatKind]). A frozen, removed or unreadable chat doesn't count, so a fresh one can still be made.
      */
-    private suspend fun directChats(): Map<String, GroupInfo> {
-        val listed = (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.value?.groups.orEmpty()
-        return listed.filter { it.status == GroupStatus.ACTIVE && isDirect(it) }.associateBy { it.others.single() }
+    private suspend fun readDirectChats() {
+        when (val answer = sessions.withSessionResult { chat.groups(it) }) {
+            is AuthResult.Ok -> {
+                directs =
+                    answer.value.groups
+                        .filter { it.status == GroupStatus.ACTIVE && isDirect(it) }
+                        .associateBy { it.others.single() }
+                directsKnown = true
+            }
+
+            // Unknown, not "none": a direct chat is never made without knowing whether one is there already.
+            is AuthResult.Failed -> {
+                directsKnown = false
+            }
+        }
     }
 
     private suspend fun isDirect(info: GroupInfo): Boolean =
@@ -210,9 +225,14 @@ class NewChatStateHolder(
 
     /** One direct chat per friend (#217): a chat that is already there is opened, never made again. */
     private fun openExisting(current: NewChatState): Boolean {
+        if (current.mode != NewChatMode.DIRECT || !current.canCreate) return false
         val already = current.selected.singleOrNull()?.let(directs::get)
-        if (current.mode != NewChatMode.DIRECT || already == null || !current.canCreate) return false
-        flow.value = current.copy(existing = already, problem = null)
+        flow.value =
+            when {
+                !directsKnown -> current.copy(problem = NewChatProblem.FAILED)
+                already != null -> current.copy(existing = already, problem = null)
+                else -> return false
+            }
         return true
     }
 

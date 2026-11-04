@@ -16,6 +16,7 @@ import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomesReport
 import app.gifitup.shared.domain.messages.ChatMessage
+import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.InMemoryMessageStore
 import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.domain.session.SessionHolder
@@ -46,8 +47,10 @@ class NewChatStateTest {
         var addOutcome: (String) -> SyncOutcome = { SyncOutcome.Sent(2) }
 
         var listed = listOf<GroupInfo>()
+        var groupsFail = false
 
-        override suspend fun groups(session: Session) = AuthResult.Ok(GroupList("me", listed))
+        override suspend fun groups(session: Session): AuthResult<GroupList> =
+            if (groupsFail) AuthResult.Failed(AuthError.Api(ApiError.NETWORK)) else AuthResult.Ok(GroupList("me", listed))
 
         override suspend fun welcomes(session: Session) = AuthResult.Ok(WelcomesReport(emptyList(), null))
 
@@ -108,6 +111,11 @@ class NewChatStateTest {
 
     private val chat = FakeChat()
     private val store = InMemoryMessageStore()
+    private var unreadableCount = 0
+    private val history: HistoryAccess =
+        object : HistoryAccess by store {
+            override suspend fun unreadable(groupId: KeyBytes): Int = unreadableCount
+        }
     private val session = Session("d", "t", Long.MAX_VALUE, checkNotNull(ApiEndpoint.forOrigin("https://chat.example.test")))
     private var friends: List<String>? = listOf("carol", "bob", "dave")
 
@@ -124,7 +132,7 @@ class NewChatStateTest {
             }
         }
 
-    private fun TestScope.holder() = NewChatStateHolder(this, SessionHolder({ AuthResult.Ok(session) }, this) { 0L }, chat, names, store)
+    private fun TestScope.holder() = NewChatStateHolder(this, SessionHolder({ AuthResult.Ok(session) }, this) { 0L }, chat, names, history)
 
     private fun NewChatStateHolder.group(name: String) {
         setMode(NewChatMode.GROUP)
@@ -511,5 +519,30 @@ class NewChatStateTest {
             advanceUntilIdle()
             assertNull(holder.state.value.existing)
             assertEquals(listOf("bob"), chat.created)
+        }
+
+    @Test
+    fun aChatWhoseHistoryCannotBeReadIsNotTheChat() =
+        runTest {
+            chat.listed = listOf(direct(1, "bob"))
+            unreadableCount = 2
+            val holder = opened()
+            assertEquals(emptySet(), holder.state.value.directWith)
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(listOf("bob"), chat.created, "kind unknown: a fresh chat is still possible")
+        }
+
+    @Test
+    fun withoutTheListOfChatsNoDirectChatIsMade() =
+        runTest {
+            chat.groupsFail = true
+            val holder = opened()
+            holder.toggle("bob")
+            holder.create()
+            advanceUntilIdle()
+            assertEquals(emptyList(), chat.created, "it might be a second chat")
+            assertEquals(NewChatProblem.FAILED, holder.state.value.problem)
         }
 }
