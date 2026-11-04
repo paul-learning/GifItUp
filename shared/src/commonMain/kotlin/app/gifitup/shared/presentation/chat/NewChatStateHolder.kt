@@ -225,15 +225,16 @@ class NewChatStateHolder(
 
     /** One direct chat per friend (#217): a chat that is already there is opened, never made again. */
     private fun openExisting(current: NewChatState): Boolean {
-        if (current.mode != NewChatMode.DIRECT || !current.canCreate) return false
         val already = current.selected.singleOrNull()?.let(directs::get)
-        flow.value =
+        val next =
             when {
+                current.mode != NewChatMode.DIRECT || !current.canCreate -> null
                 !directsKnown -> current.copy(problem = NewChatProblem.FAILED)
                 already != null -> current.copy(existing = already, problem = null)
-                else -> return false
+                else -> null
             }
-        return true
+        next?.let { flow.value = it }
+        return next != null
     }
 
     /**
