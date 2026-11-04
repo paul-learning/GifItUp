@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.presentation.chat.NewChatMode
 import app.gifitup.shared.presentation.chat.NewChatProblem
 import app.gifitup.shared.presentation.chat.NewChatState
@@ -40,10 +41,13 @@ internal fun NewChatScreen(
     holder: NewChatStateHolder,
     onDone: () -> Unit,
     onBack: () -> Unit,
+    onOpenExisting: (GroupInfo) -> Unit,
 ) {
     val state by holder.state.collectAsState()
     LaunchedEffect(holder) { holder.open() }
     DisposableEffect(holder) { onDispose { holder.leave() } }
+    // The chat with this friend is already there: it opens instead of a second one being made (#217).
+    LaunchedEffect(state.existing) { state.existing?.let(onOpenExisting) }
     LaunchedEffect(state.created, state.problem) {
         // A chat that is made and complete goes back to the list; one with a problem stays so the user reads it.
         if (state.created != null && state.problem == null) onDone()
@@ -63,17 +67,31 @@ internal fun NewChatScreen(
         if (state.loaded && state.friends.isEmpty() && state.problem != NewChatProblem.FRIENDS_UNAVAILABLE) {
             Text(ChatTexts.NO_FRIENDS, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        state.friends.forEach { name ->
-            FriendRow(name, name in state.selected, !state.creating && state.created == null) { holder.toggle(name) }
-        }
+        FriendRows(state, holder)
         Notices(state)
         if (state.creating) CircularProgressIndicator()
         PrimaryButton(
-            if (state.mode == NewChatMode.GROUP) ChatTexts.CREATE_GROUP else ChatTexts.START_CHAT,
+            when {
+                state.mode == NewChatMode.GROUP -> ChatTexts.CREATE_GROUP
+                state.selected.singleOrNull() in state.directWith -> ChatTexts.OPEN_CHAT
+                else -> ChatTexts.START_CHAT
+            },
             onClick = holder::create,
             enabled = state.canCreate,
         )
         NameRetryAndDone(state, holder, onDone)
+    }
+}
+
+/** The friends as cards; in a direct chat a friend who already has one is marked (#217). */
+@Composable
+private fun FriendRows(
+    state: NewChatState,
+    holder: NewChatStateHolder,
+) {
+    state.friends.forEach { name ->
+        val note = if (state.mode == NewChatMode.DIRECT && name in state.directWith) ChatTexts.CHAT_EXISTS else null
+        FriendRow(name, name in state.selected, !state.creating && state.created == null, note) { holder.toggle(name) }
     }
 }
 
@@ -134,6 +152,7 @@ internal fun FriendRow(
     name: String,
     checked: Boolean,
     enabled: Boolean,
+    note: String? = null,
     onToggle: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -153,12 +172,10 @@ internal fun FriendRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Avatar(name)
-            Text(
-                ChatTexts.isolated(name),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
+            Column(Modifier.weight(1f)) {
+                Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
             Checkbox(checked = checked, onCheckedChange = null)
         }
     }

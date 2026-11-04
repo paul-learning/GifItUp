@@ -117,7 +117,7 @@ internal class OnboardingViewModel(
     val chats = ChatListStateHolder(viewModelScope, sessions, chatService, history, marks)
 
     /** The new-chat flow's logic: the friends are the contact book's saved contacts. */
-    val newChat = NewChatStateHolder(viewModelScope, sessions, chatService, auth.friendNames)
+    val newChat = NewChatStateHolder(viewModelScope, sessions, chatService, auth.friendNames, history)
 
     // Fetches GIFs straight from the provider (ADR-0003), apart from the server's API client.
     private val mediaFetcher = graph.conversations.mediaFetcher()

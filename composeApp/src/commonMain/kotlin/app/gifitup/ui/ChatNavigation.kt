@@ -123,7 +123,20 @@ internal fun NavGraphBuilder.chatRoutes(
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
         val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
         val leave = { if (nav.currentDestination?.route == ROUTE_NEW_CHAT) nav.popBackStack() }
-        NewChatScreen(model.newChat, onDone = { leave() }, onBack = { leave() })
+        // On a wide window the open conversation is shown beside the list, as when a row is tapped (see ChatHome).
+        BoxWithConstraints {
+            val wide = maxWidth >= WIDE_MIN_WIDTH
+            NewChatScreen(
+                model.newChat,
+                onDone = { leave() },
+                onBack = { leave() },
+                onOpenExisting = { info ->
+                    leave()
+                    model.openConversation(info)
+                    if (!wide) nav.navigate(ROUTE_CONVERSATION)
+                },
+            )
+        }
     }
     composable(ROUTE_CONVERSATION) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }

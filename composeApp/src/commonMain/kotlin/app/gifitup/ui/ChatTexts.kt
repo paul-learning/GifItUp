@@ -43,6 +43,8 @@ internal object ChatTexts {
     const val REFRESHING = "Looking for new messages…"
     const val BACK = "Back"
     const val DONE = "Done"
+    const val CHAT_EXISTS = "You already have a chat with them"
+    const val OPEN_CHAT = "Open chat"
     const val START_CHAT = "Start chat"
     const val CREATE_GROUP = "Create group"
     const val SEND_NAME_AGAIN = "Send the name again"
