@@ -25,7 +25,7 @@ ignore = [
   # using it. Tracked in #126.
   { id = "RUSTSEC-2026-0374", reason = "unmaintained, build-time bindings generator only (#126)" },
   # crypto-bigint 0.5.5: timing variability in operations meant to be constant-time (fixed in >= 0.7.6). It is reached
-  # only through elliptic-curve 0.13 (p256, p384, k256, ecdsa), which OpenMLS 0.9.1's RustCrypto provider pulls in;
+  # only through elliptic-curve 0.13 (p256, p384, k256, ecdsa), which OpenMLS's RustCrypto provider (0.6) pulls in;
   # `cargo update` cannot reach 0.7.x because the 0.13 curve crates pin 0.5. Our ciphersuite is
   # MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 and we never hold a NIST or secp256k1 secret, so the affected
   # operations do not touch our keys. This holds only while `CIPHERSUITE` (client.rs) stays X25519/Ed25519 and
