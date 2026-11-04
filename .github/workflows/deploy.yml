@@ -1,6 +1,7 @@
 name: Deploy
 
-# Builds the server image from main, pushes it to GHCR with build provenance, and deploys it to the VM once the
+# Builds the server image (and the web image, when the repository variable GIFITUP_PUBLIC_URL is set; its digest goes
+# into the server image's label, deploy/deploy.sh) from main, pushes it to GHCR with build provenance, and deploys it to the VM once the
 # owner approves the `production` environment. Design and threat analysis: docs/ops/deploy.md, round-0 security
 # review on #7. Rollback/redeploy: run this workflow on main with `commit` set to an earlier deployed commit.
 on:

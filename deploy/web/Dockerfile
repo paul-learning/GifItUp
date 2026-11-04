@@ -1,6 +1,6 @@
 # The web app's static files, served to browsers (#27). Built from the output of
-# `./gradlew :composeApp:wasmJsBrowserDistribution -Pgifitup.defaultOrigin=...`: by CI for its edge test now, and by
-# .github/workflows/deploy.yml like the server image from #27 PR 1b.
+# `./gradlew :composeApp:wasmJsBrowserDistribution -Pgifitup.defaultOrigin=...`: by CI for its edge test and by
+# .github/workflows/deploy.yml, which pushes it and names it in the server image's label (deploy/deploy.sh).
 # It is a plain file server on the compose network: the VM's Caddy reverse-proxies to it and adds every security header
 # (deploy/caddy/gifitup.caddy), and nothing from the host is mounted into it. The Caddy base is pinned by digest.
 FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
