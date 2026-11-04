@@ -26,7 +26,9 @@ policy=$(printf '%s\n' "$page" | sed -n 's/^content-security-policy: //p')
 for must in "default-src 'none'" "script-src 'self' 'wasm-unsafe-eval'" "object-src 'none'" "frame-ancestors 'none'" "base-uri 'none'"; do
   case "$policy" in *"$must"*) ;; *) fail "the web policy lacks: $must" ;; esac
 done
-case "$policy" in *unsafe-inline* | *"'unsafe-eval'"* | *" * "* | *"data:"*) fail "the web policy allows unsafe-inline, unsafe-eval, a wildcard or data:" ;; esac
+# Style attributes are the one allowed inline (the Compose Web runtime sets some); everything else must not be.
+stripped=${policy//"style-src-attr 'unsafe-inline'"/}
+case "$stripped" in *unsafe-inline* | *"'unsafe-eval'"* | *" * "* | *"data:"*) fail "the web policy allows unsafe-inline, unsafe-eval, a wildcard or data:" ;; esac
 
 for path in /health /groups/x /config/gif-provider; do
   api=$(headers "$path")
