@@ -231,8 +231,9 @@ class GroupSyncTest {
         }
 
     /**
-     * The reason 0.9.2 matters for an untrusted server: a damaged copy of a message does not burn the real one. When the
-     * genuine message is served again after a failed attempt, it is delivered (with 0.9.1 it was lost for good).
+     * The reason 0.9.2 matters for an untrusted server: one damaged copy of a message does not burn the real one. When the
+     * genuine message is served again after a failed attempt, it is delivered (with 0.9.1 it was lost for good). The limit:
+     * three damaged copies in a row still quarantine it (the count is per sequence number, the server picks the bytes).
      */
     @Test
     fun aDamagedCopyDoesNotBurnTheGenuineMessage() =
