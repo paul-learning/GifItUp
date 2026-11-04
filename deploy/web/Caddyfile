@@ -13,10 +13,12 @@
 	log_skip
 
 	# The page that reads the invite code from the URL fragment is never stored by a cache (#27 SEC-9).
+	# Two matchers that exclude each other: a later `header` for the same name would overwrite the first (SEC-2).
 	@page path / /index.html /invite
 	header @page Cache-Control "no-store"
 	# Everything else is revalidated: the bundle files have no content hash in their names.
-	header Cache-Control "no-cache"
+	@rest not path / /index.html /invite
+	header @rest Cache-Control "no-cache"
 
 	# /invite and any other client route are answered by the app's single page.
 	try_files {path} /index.html

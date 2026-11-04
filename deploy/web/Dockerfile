@@ -10,5 +10,10 @@ LABEL org.opencontainers.image.source="https://github.com/paul-learning/GifItUp"
       org.opencontainers.image.description="GifItUp web app (static files)" \
       org.opencontainers.image.licenses="MIT"
 
+# The official binary carries a file capability (bind to low ports). Compose runs this container with every capability
+# dropped and no-new-privileges, where exec of such a binary fails; a plain copy has no file capability and the server
+# listens on 8080 anyway.
+RUN cp /usr/bin/caddy /tmp/caddy && rm /usr/bin/caddy && mv /tmp/caddy /usr/bin/caddy && chmod 755 /usr/bin/caddy
+
 COPY deploy/web/Caddyfile /etc/caddy/Caddyfile
 COPY composeApp/build/dist/wasmJs/productionExecutable/ /srv/

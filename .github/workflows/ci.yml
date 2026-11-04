@@ -158,7 +158,10 @@ jobs:
           [ -n "$image" ] || { echo "::error::no caddy base image in deploy/web/Dockerfile"; exit 1; }
           docker build --file deploy/web/Dockerfile --tag web-under-test .
           docker network create edge
-          docker run -d --name gifitup-web --network edge --network-alias gifitup-web web-under-test
+          # With the compose service's hardening (deploy/docker-compose.yml), so a binary that can't start there fails here.
+          docker run -d --name gifitup-web --network edge --network-alias gifitup-web \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true --user 10001:10001 \
+            --tmpfs /tmp --tmpfs /data --tmpfs /config -e XDG_DATA_HOME=/data -e XDG_CONFIG_HOME=/config web-under-test
           # Stand-in for the server: the edge only needs something to answer at its address.
           mkdir stub
           printf ':8080 {\n\trespond 200\n}\n' > stub/Caddyfile
