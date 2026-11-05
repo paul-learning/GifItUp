@@ -17,6 +17,16 @@ val appLinkHost =
             ?.get(1) ?: "applinks-disabled.invalid"
     }
 
+// The version of a release build (#27 PR 2): the release workflow derives both from the tag (scripts/release-version.sh)
+// and passes them as -Pgifitup.versionCode / -Pgifitup.versionName. Local and CI builds keep 1 / 0.1.0. The formats are
+// checked here too, so nothing but a number and a dotted name ever reaches the manifest.
+val releaseVersionCode = providers.gradleProperty("gifitup.versionCode").orElse("1").map { it.toInt() }
+val releaseVersionName =
+    providers.gradleProperty("gifitup.versionName").orElse("0.1.0").map {
+        require(Regex("^[0-9]{1,3}\\.[0-9]{1,2}\\.[0-9]{1,2}$").matches(it)) { "gifitup.versionName must be MAJOR.MINOR.PATCH" }
+        it
+    }
+
 android {
     namespace = "app.gifitup.android"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -25,8 +35,8 @@ android {
         applicationId = "app.gifitup"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = releaseVersionCode.get()
+        versionName = releaseVersionName.get()
         manifestPlaceholders["appLinkHost"] = appLinkHost.get()
         // crypto/ is built for these ABIs only (:mls, ADR-0007); on any other ABI the app would crash on first
         // use, so it isn't offered there at all. Also keeps unused 32-bit JNA libraries out of the APK.
