@@ -206,11 +206,19 @@ jobs:
           export PATH="$tools:$PATH"
           apk="$RUNNER_TEMP/out/gifitup-$TAG.apk"
           certs=$(apksigner verify --verbose --print-certs "$apk")
-          signers=$(grep -c 'Signer #[0-9]* certificate SHA-256 digest' <<<"$certs" || true)
-          [ "$signers" -eq 1 ] || { echo "::error::expected exactly one signer, got $signers"; exit 1; }
-          got=$(sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-f]{64})$/\1/p' <<<"$certs")
-          [ "$got" = "$EXPECTED_CERT" ] || { echo "::error::the signing certificate is not the expected one (RELEASE_CERT_SHA256)"; exit 1; }
-          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' <<<"$certs" || { echo "::error::no v2 signature"; exit 1; }
+          # Newer apksigner versions label signers "Signer (minSdkVersion=...)" and older ones "Signer #1": match the
+          # digest line itself. Every scheme prints its own signer, so the same certificate shows up more than once; what
+          # counts is that there is exactly one distinct certificate and that it is the expected one.
+          digests=$(grep -oE 'certificate SHA-256 digest: [0-9a-f]{64}' <<<"$certs" | sed 's/.*: //' | sort -u)
+          if [ -z "$digests" ] || [ "$(wc -l <<<"$digests")" -ne 1 ]; then
+            echo "::error::expected exactly one signing certificate, got: $(wc -w <<<"$digests")"
+            grep -E 'Signer|Number of signers|Verified' <<<"$certs" | grep -v 'SHA-1\|public key' || true
+            exit 1
+          fi
+          [ "$digests" = "$EXPECTED_CERT" ] || { echo "::error::the signing certificate is not the expected one (RELEASE_CERT_SHA256)"; exit 1; }
+          if ! grep -qE 'Verified using v2 scheme.*: true' <<<"$certs"; then
+            echo "::error::no v2 signature"; grep -E 'Verified' <<<"$certs" || true; exit 1
+          fi
           bash scripts/assert-release-apk.sh "$apk" "${ORIGIN#https://}" "$VERSION_CODE" "$VERSION_NAME"
           (cd "$RUNNER_TEMP/out" && sha256sum "gifitup-$TAG.apk" > SHA256SUMS)
           cat "$RUNNER_TEMP/out/SHA256SUMS"
