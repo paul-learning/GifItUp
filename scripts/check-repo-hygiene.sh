@@ -170,8 +170,8 @@ want_connect="'self' https://{host} wss://{host} https://api.klipy.com https://s
 [ "$img" = "'self' blob:" ] || fail "img-src of the web policy in $caddy must be exactly 'self' blob: (the client shows GIFs from decoded bytes, #27): $img"
 
 # The web app's bundled emoji font (ADR-0014): the pinned file, a color bitmap font with exactly the 256 code points of
-# the key-comparison table, and its license text next to it. A text/binary check, not a rendering check: the web start
-# check in CI loads the font in a real browser.
+# the key-comparison table, and its license text next to it. A file check, not a rendering check: nothing in CI loads the
+# font in a browser yet (#258 SEC-3).
 res=composeApp/src/wasmJsMain/resources
 python3 -I scripts/check-emoji-font.py "$res/emoji-v1.ttf" crypto/fingerprint-emojis-v1.tsv "$res/emoji-v1-OFL.txt" || status=1
 

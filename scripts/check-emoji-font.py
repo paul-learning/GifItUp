@@ -61,6 +61,10 @@ def main(font_path, tsv_path, license_path):
         problems.append("the font's SHA-256 is not the pinned one (update PINNED_SHA256 and ADR-0014 together)")
     if len(data) > MAX_BYTES:
         problems.append("the font is %d bytes, more than %d" % (len(data), MAX_BYTES))
+    if problems:  # a different file: don't parse it (a crafted one could trip the reader)
+        for p in problems:
+            print("::error::" + p)
+        return 1
     tables = table_directory(data)
     for needed in ("CBDT", "CBLC", "cmap"):
         if needed not in tables:
