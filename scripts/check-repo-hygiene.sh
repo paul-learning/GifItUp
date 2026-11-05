@@ -135,15 +135,23 @@ route_literals=$(grep -rhoE 'const val [A-Z_]+_PATH = "[^"$]*"' server/src/main 
 route_readable=$(grep -cE '"/[a-z-]+(/[a-z-]+)*"$' <<<"$route_literals" || true)
 [ "$(grep -c . <<<"$route_literals")" -gt 0 ] || fail "no *_PATH route constants found in server/src/main (the Caddy route guard would check nothing, #255)"
 [ "$(grep -c . <<<"$route_literals")" -eq "$route_readable" ] || fail "a *_PATH route constant has characters the Caddy route guard can't read (digit, uppercase, {param}): update scripts/check-repo-hygiene.sh (#255)"
-while read -r route; do
+while read -r name route; do
   [ -n "$route" ] || continue
   rest=${route#/}
-  if [[ "$rest" == */* ]]; then want="/${rest%%/*}/*"; else want="$route"; fi
-  case " $api_line " in
-    *" $want "*) ;;
-    *) fail "server route $route needs '$want' in the @api list of $caddy (#27 SEC-8)" ;;
-  esac
-done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+(/[a-z-]+)*"' server/src/main --include='*.kt' | sed -E 's/.*"(.*)"/\1/' | sort -u)
+  if [[ "$rest" == */* ]]; then
+    wants=("/${rest%%/*}/*")
+  else
+    wants=("$route")
+    # A route the server also serves below ($NAME/...: /welcomes/{id}/ack, /invites/{id}) needs its "/route/*" too (#255 CR-1).
+    if grep -rqF "\$$name/" server/src/main --include='*.kt'; then wants+=("$route/*"); fi
+  fi
+  for want in "${wants[@]}"; do
+    case " $api_line " in
+      *" $want "*) ;;
+      *) fail "server route $route needs '$want' in the @api list of $caddy (#27 SEC-8)" ;;
+    esac
+  done
+done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+(/[a-z-]+)*"' server/src/main --include='*.kt' | sed -E 's/const val ([A-Z_]+) = "(.*)"/\1 \2/' | sort -u)
 
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"
