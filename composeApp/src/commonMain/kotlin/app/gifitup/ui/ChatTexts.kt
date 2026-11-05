@@ -69,8 +69,11 @@ internal object ChatTexts {
     /** A message could not go out for now; it is kept. */
     const val THROTTLED_SEND = "The server is slowing you down. Your message is saved and goes out when you try again a little later."
 
-    /** Creating a chat was refused for now; the chat is kept on this device. */
-    const val NEW_CHAT_THROTTLED =
+    /** Starting a chat was refused before anything was made. */
+    const val THROTTLED_NOTHING_MADE = "The server is slowing you down, so no chat was made. Try again a little later."
+
+    /** The server refused the new chat for now; it is kept on this device. */
+    const val THROTTLED_CHAT_SAVED =
         "The server is slowing you down: you made several chats in a short time. This chat is saved here and is made on the " +
             "server when you open it again a little later."
     const val HISTORY_RETRY = "Try again"
@@ -145,49 +148,18 @@ internal object ChatTexts {
 
     fun newChatProblem(problem: NewChatProblem): String =
         when (problem) {
-            NewChatProblem.FRIENDS_UNAVAILABLE -> {
-                "This device's friends list can't be used."
-            }
-
-            NewChatProblem.NOBODY -> {
-                "Choose at least one friend."
-            }
-
-            NewChatProblem.CANT_REACH -> {
-                "That friend can't be reached right now. They may need to open the app once."
-            }
-
-            NewChatProblem.UNFINISHED -> {
-                "The chat was made, but the server has not confirmed it yet."
-            }
-
-            NewChatProblem.PARTLY -> {
-                "The chat was made, but not everyone could be added."
-            }
-
-            NewChatProblem.NAME_NOT_SENT -> {
-                "The group was made, but its name was not sent. Until it is, it shows as a direct chat."
-            }
-
-            NewChatProblem.NAME_INVALID -> {
-                "Give the group a name of 1 to 64 characters, on one line."
-            }
-
-            NewChatProblem.THROTTLED -> {
-                NEW_CHAT_THROTTLED
-            }
-
-            NewChatProblem.OFFLINE -> {
-                "No answer from the server."
-            }
-
-            NewChatProblem.NOT_SIGNED_IN -> {
-                "The server didn't accept this device."
-            }
-
-            NewChatProblem.FAILED -> {
-                "That did not work."
-            }
+            NewChatProblem.FRIENDS_UNAVAILABLE -> "This device's friends list can't be used."
+            NewChatProblem.NOBODY -> "Choose at least one friend."
+            NewChatProblem.CANT_REACH -> "That friend can't be reached right now. They may need to open the app once."
+            NewChatProblem.UNFINISHED -> "The chat was made, but the server has not confirmed it yet."
+            NewChatProblem.PARTLY -> "The chat was made, but not everyone could be added."
+            NewChatProblem.NAME_NOT_SENT -> "The group was made, but its name was not sent. Until it is, it shows as a direct chat."
+            NewChatProblem.NAME_INVALID -> "Give the group a name of 1 to 64 characters, on one line."
+            NewChatProblem.THROTTLED -> THROTTLED_NOTHING_MADE
+            NewChatProblem.THROTTLED_SAVED -> THROTTLED_CHAT_SAVED
+            NewChatProblem.OFFLINE -> "No answer from the server."
+            NewChatProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
+            NewChatProblem.FAILED -> "That did not work."
         }
 
     fun unread(count: Int): String = if (count > MAX_BADGE) "$MAX_BADGE+" else count.toString()

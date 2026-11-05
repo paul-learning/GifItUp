@@ -47,11 +47,14 @@ enum class NewChatProblem {
     /** A group needs a name (1 to 64 characters, no line breaks). */
     NAME_INVALID,
 
-    /**
-     * The server asked the app to slow down (too many chats created in a short time): the chat exists on this device and is
-     * made on the server when the conversation posts it again, a few minutes later.
-     */
+    /** The server asked the app to slow down before a chat was made: nothing exists yet. */
     THROTTLED,
+
+    /**
+     * The server asked the app to slow down while the chat was being made: it exists on this device and is made on the server
+     * when the conversation posts it again, a little later.
+     */
+    THROTTLED_SAVED,
 
     OFFLINE,
     NOT_SIGNED_IN,
@@ -327,7 +330,7 @@ class NewChatStateHolder(
                     created = id,
                     // The first message is not confirmed: nobody else is added yet, and the user is told who is missing.
                     notAdded = names.drop(1),
-                    problem = if (throttled) NewChatProblem.THROTTLED else NewChatProblem.UNFINISHED,
+                    problem = if (throttled) NewChatProblem.THROTTLED_SAVED else NewChatProblem.UNFINISHED,
                 )
             }
 

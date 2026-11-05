@@ -249,9 +249,7 @@ class ConversationStateHolder(
             }
 
             is AuthResult.Ok -> {
-                change(
-                    forVisit,
-                ) { it.copy(problem = if (synced.value is SyncOutcome.CaughtUp) null else ChatProblem.FAILED) }
+                change(forVisit) { it.copy(problem = synced.value.toListProblem()) }
             }
         }
     }

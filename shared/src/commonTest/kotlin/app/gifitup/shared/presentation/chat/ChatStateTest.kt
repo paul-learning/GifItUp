@@ -327,6 +327,20 @@ class ChatStateTest {
         }
 
     @Test
+    fun aConversationWhoseLogTheServerSlowedDownSaysSo() =
+        runTest {
+            val holder = conversation(group(1, "bob"))
+            chat.syncOutcome = SyncOutcome.Unavailable(ApiError.RATE_LIMITED)
+            holder.open()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.THROTTLED, holder.state.value.problem)
+            chat.syncOutcome = SyncOutcome.LookupIncomplete
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.FAILED, holder.state.value.problem)
+        }
+
+    @Test
     fun openingAConversationShowsTheStoredMessagesAtOnceReadsTheLogAndMarksItRead() =
         runTest {
             val info = group(1, "bob")
