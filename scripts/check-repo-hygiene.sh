@@ -143,9 +143,12 @@ if ! grep -qF 'static[12]?\\.klipy\\.com' "$gif_ref"; then
 fi
 web_csp=$(grep -E 'Content-Security-Policy "default-src .none.; script-src' "$caddy" || true)
 connect=$(sed -nE "s/.*connect-src ([^;]*);.*/\1/p" <<<"$web_csp")
-for gif_host in static.klipy.com static1.klipy.com static2.klipy.com api.klipy.com; do
-  case " $connect " in *" https://$gif_host "*) ;; *) fail "connect-src of the web policy in $caddy lacks https://$gif_host (GIFs are fetched, #27)" ;; esac
-done
+img=$(sed -nE "s/.*img-src ([^;]*);.*/\1/p" <<<"$web_csp")
+# The exact lists, not "contains": a host added to the policy, or one put back into img-src, must be a deliberate change
+# here too (#254 review).
+want_connect="'self' https://{host} wss://{host} https://api.klipy.com https://static.klipy.com https://static1.klipy.com https://static2.klipy.com"
+[ "$connect" = "$want_connect" ] || fail "connect-src of the web policy in $caddy is not exactly the expected list (GIFs are fetched from the hosts GifReference accepts, #27): $connect"
+[ "$img" = "'self' blob:" ] || fail "img-src of the web policy in $caddy must be exactly 'self' blob: (the client shows GIFs from decoded bytes, #27): $img"
 
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"
