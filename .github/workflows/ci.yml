@@ -407,4 +407,7 @@ jobs:
           apk=$(find androidApp/build/outputs/apk/release -name '*-release-unsigned.apk')
           aapt2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -n 1)
           bash scripts/scan-android-apk.sh "$apk"
+          # The release workflow signs the build's APK as it is, so it must come out of Gradle aligned (#251 CR-2).
+          zipalign=$(find "$ANDROID_HOME/build-tools" -name zipalign -type f | sort -V | tail -n 1)
+          "$zipalign" -c 4 "$apk"
           PATH="$(dirname "$aapt2"):$PATH" bash scripts/assert-release-apk.sh "$apk" ci.gifitup.example 1 0.1.0

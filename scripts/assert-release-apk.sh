@@ -65,7 +65,8 @@ for needle in "$HOME" "file:///home" "file:///Users" "/runner/work"; do
 done
 
 # Only the app and its signature: no mapping, no symbol, no source-map files inside the APK.
-if unzip -Z1 "$apk" | grep -qiE '\.(map|pdb|sym|debug)$|mapping\.txt$'; then fail "debug or mapping files inside the APK"; fi
+entries=$(unzip -Z1 "$apk")
+if grep -qiE '\.(map|pdb|sym|debug)$|mapping\.txt$' <<<"$entries"; then fail "debug or mapping files inside the APK"; fi
 
 [ "$status" -eq 0 ] && echo "The APK has the expected identity, version, host and hardening."
 exit "$status"
