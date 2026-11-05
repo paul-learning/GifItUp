@@ -68,6 +68,7 @@ jobs:
         run: |
           bash scripts/check-repo-hygiene.sh
           bash scripts/test-deploy-web-for.sh
+          bash scripts/test-release-version.sh
 
       # :mls builds crypto/ (ADR-0007): rustup is preinstalled and crypto/rust-toolchain.toml pins the toolchain
       # and targets. Installing it once here keeps parallel cargo calls from installing it concurrently (#67 CR-1).
@@ -371,7 +372,7 @@ jobs:
         run: cargo install cargo-ndk --locked --version 4.1.2
 
       - name: Build the Android libraries and APKs
-        run: ./gradlew :mls:cargoNdkBuild :mls:verifyNoTestPanicAndroid :androidApp:assembleDebug :androidApp:assembleRelease
+        run: ./gradlew -Pgifitup.defaultOrigin=https://ci.gifitup.example :mls:cargoNdkBuild :mls:verifyNoTestPanicAndroid :androidApp:assembleDebug :androidApp:assembleRelease
 
       # What ships: the crypto library for every ABI, without the test-only panic trigger or build-machine paths
       # (ADR-0007; #67 SEC-1, SEC-3).
@@ -398,3 +399,11 @@ jobs:
             python3 scripts/scan-artifact.py --control "Lapp/gifitup/" \
               --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli" --forbid "app.gifitup.cli" "$dex"/classes*.dex
           done
+
+      # The release workflow's APK assertions (#27 PR 2), run on the unsigned release APK of this build (version 1, 0.1.0,
+      # the CI origin), so a change that breaks them fails here and not on the first tag.
+      - name: Assert the release APK
+        run: |
+          apk=$(ls androidApp/build/outputs/apk/release/*-release-unsigned.apk)
+          aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)
+          PATH="$(dirname "$aapt2"):$PATH" bash scripts/assert-release-apk.sh "$apk" ci.gifitup.example 1 0.1.0

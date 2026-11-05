@@ -1,0 +1,250 @@
+name: Release
+
+# Builds the Android app for the friends alpha and publishes it as a DRAFT GitHub Release when the owner pushes a tag
+# vMAJOR.MINOR.PATCH on a commit of main (#27 PR 2; design and threat analysis: docs/ops/release.md, round-0 security
+# review on #27). Three jobs, so no job holds both the keystore and Gradle's third-party build code, or the keystore and
+# a write token:
+#   build    runs Gradle with a read-only token, no secrets and no cache; makes the UNSIGNED APK and scans it.
+#   sign     runs in the `release` environment (required reviewer, environment secrets); runs no Gradle: it signs the
+#            artifact with apksigner and asserts the result.
+#   publish  has the contents:write token but no secrets; makes the draft release.
+# The owner publishes the draft by hand after installing the APK.
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      version-code: ${{ steps.version.outputs.code }}
+      version-name: ${{ steps.version.outputs.name }}
+    env:
+      ORIGIN: ${{ vars.GIFITUP_PUBLIC_URL }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      # All tags and main's history, for the version check and the ancestor check.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # The tag text is untrusted input: it only reaches the shell through the environment, and is matched against a
+      # strict pattern before anything else (scripts/release-version.sh).
+      - name: Check the tag and derive the version
+        id: version
+        run: |
+          # Only a commit of main may be released (#27 SEC-2): a tag on any other commit, including one that edits
+          # this workflow, stops here.
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::the tagged commit is not on main"; exit 1; }
+          mapfile -t others < <(git tag --list 'v*')
+          read -r code name < <(bash scripts/release-version.sh "$TAG" "${others[@]}")
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Check the origin
+        run: |
+          [[ "$ORIGIN" =~ ^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$ ]] \
+            || { echo "::error::GIFITUP_PUBLIC_URL must be a plain https origin: a host with no port, path or wildcard (the app link host)"; exit 1; }
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # No Actions cache: the release build starts clean (#7 round-0 SEC-4).
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-disabled: true
+
+      - name: Install the pinned Rust toolchain
+        working-directory: crypto
+        run: rustup toolchain install && rustup show active-toolchain
+
+      - name: Install cargo-ndk
+        working-directory: crypto
+        run: cargo install cargo-ndk --locked --version 4.1.2
+
+      - name: Build the unsigned release APK
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: >-
+          ./gradlew --no-build-cache --no-configuration-cache
+          "-Pgifitup.defaultOrigin=$ORIGIN"
+          "-Pgifitup.versionCode=$VERSION_CODE"
+          "-Pgifitup.versionName=$VERSION_NAME"
+          :mls:cargoNdkBuild :mls:verifyNoTestPanicAndroid :androidApp:assembleRelease
+
+      # What ships: the crypto library for every ABI without the test-only panic trigger or build-machine paths, and no
+      # dev CLI code (ADR-0007; #67, #79). The same scan as CI's "MLS bindings" job.
+      - name: Scan the APK and assert its identity
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          apk=$(ls androidApp/build/outputs/apk/release/*-release-unsigned.apk)
+          [ "$(echo "$apk" | wc -l)" -eq 1 ] || { echo "::error::expected exactly one unsigned release APK"; exit 1; }
+          for abi in arm64-v8a x86_64; do
+            lib="$RUNNER_TEMP/scan.so"
+            rm -f "$lib"
+            unzip -p "$apk" "lib/${abi}/libgifitup_crypto.so" > "$lib" || { echo "::error::the APK lacks ${abi}"; exit 1; }
+            [ -s "$lib" ] || { echo "::error::the APK lacks ${abi}"; exit 1; }
+            for needle in gifitup_test_panic_marker "$HOME"; do
+              rc=0; grep -qaF "$needle" "$lib" || rc=$?
+              [ "$rc" -eq 1 ] || { echo "::error::($abi): found '$needle' (or scan error $rc)"; exit 1; }
+            done
+          done
+          dex="$RUNNER_TEMP/dex"
+          rm -rf "$dex" && mkdir "$dex"
+          unzip -q "$apk" 'classes*.dex' -d "$dex"
+          python3 scripts/scan-artifact.py --control "Lapp/gifitup/" \
+            --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli" --forbid "app.gifitup.cli" "$dex"/classes*.dex
+          aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)
+          PATH="$(dirname "$aapt2"):$PATH" bash scripts/assert-release-apk.sh "$apk" "${ORIGIN#https://}" "$VERSION_CODE" "$VERSION_NAME"
+          mkdir -p "$RUNNER_TEMP/unsigned"
+          cp "$apk" "$RUNNER_TEMP/unsigned/app-unsigned.apk"
+
+      - name: Upload the unsigned APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apk-unsigned
+          path: ${{ runner.temp }}/unsigned/app-unsigned.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    name: Sign
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Required reviewer = owner, admin bypass off, deployment tags = v* only (docs/ops/release.md). Environment secrets:
+    # RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD.
+    # Environment variable: RELEASE_CERT_SHA256 (the expected certificate, not secret).
+    environment: release
+    permissions:
+      contents: read
+    env:
+      ORIGIN: ${{ vars.GIFITUP_PUBLIC_URL }}
+      EXPECTED_CERT: ${{ vars.RELEASE_CERT_SHA256 }}
+      TAG: ${{ github.ref_name }}
+      VERSION_CODE: ${{ needs.build.outputs.version-code }}
+      VERSION_NAME: ${{ needs.build.outputs.version-name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # The gate in front of the keystore (#27 SEC-2): again, in the job that holds the secrets.
+      - name: Only a commit of main, only a well-formed tag
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::the tagged commit is not on main"; exit 1; }
+          read -r code name < <(bash scripts/release-version.sh "$TAG")
+          [ "$code" = "$VERSION_CODE" ] && [ "$name" = "$VERSION_NAME" ] || { echo "::error::version differs from the build job's"; exit 1; }
+          [[ "$EXPECTED_CERT" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::RELEASE_CERT_SHA256 must be 64 lowercase hex digits"; exit 1; }
+
+      - name: Download the unsigned APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: apk-unsigned
+          path: ${{ runner.temp }}/in
+
+      # No Gradle here: only the Android build tools the runner ships (zipalign, apksigner, aapt2). The keystore is
+      # written with a restrictive mode into the runner's temp directory and removed in the last step, which runs even
+      # when an earlier one fails. Passwords go to apksigner through the environment, never the command line.
+      - name: Sign
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          umask 077
+          tools=$(dirname "$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)")
+          export PATH="$tools:$PATH"
+          mkdir -p "$RUNNER_TEMP/out"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          in="$RUNNER_TEMP/in/app-unsigned.apk"
+          # apksigner needs an aligned file; the build's APK already is (checked, not assumed).
+          zipalign -c 4 "$in" || { echo "::error::the unsigned APK is not aligned"; exit 1; }
+          apksigner sign --ks "$RUNNER_TEMP/release.keystore" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KS_PASS --key-pass env:KEY_PASS \
+            --v2-signing-enabled true --v3-signing-enabled true \
+            --out "$RUNNER_TEMP/out/gifitup-$TAG.apk" "$in"
+
+      - name: Verify the signature and assert the APK
+        run: |
+          tools=$(dirname "$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)")
+          export PATH="$tools:$PATH"
+          apk="$RUNNER_TEMP/out/gifitup-$TAG.apk"
+          certs=$(apksigner verify --verbose --print-certs "$apk")
+          signers=$(grep -c 'Signer #[0-9]* certificate SHA-256 digest' <<<"$certs" || true)
+          [ "$signers" -eq 1 ] || { echo "::error::expected exactly one signer, got $signers"; exit 1; }
+          got=$(sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-f]{64})$/\1/p' <<<"$certs")
+          [ "$got" = "$EXPECTED_CERT" ] || { echo "::error::the signing certificate is not the expected one (RELEASE_CERT_SHA256)"; exit 1; }
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' <<<"$certs" || { echo "::error::no v2 signature"; exit 1; }
+          bash scripts/assert-release-apk.sh "$apk" "${ORIGIN#https://}" "$VERSION_CODE" "$VERSION_NAME"
+          (cd "$RUNNER_TEMP/out" && sha256sum "gifitup-$TAG.apk" > SHA256SUMS)
+          cat "$RUNNER_TEMP/out/SHA256SUMS"
+
+      - name: Upload the signed APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apk-signed
+          path: |
+            ${{ runner.temp }}/out/gifitup-${{ github.ref_name }}.apk
+            ${{ runner.temp }}/out/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+  publish:
+    name: Draft release
+    needs: sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The write token lives only here, in a job with no secrets and no build or signing step. Only the APK and its
+    # checksum are attached (#27 SEC-10).
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download the signed APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: apk-signed
+          path: ${{ runner.temp }}/release
+
+      - name: Create the draft release
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release tag"; exit 1; }
+          cd "$RUNNER_TEMP/release"
+          ls
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "GifItUp $TAG" \
+            --notes "Alpha build for the friends circle. Install guide: docs/alpha-guide.md. Check the signing certificate before you install: its SHA-256 is in the guide and in the release checklist." \
+            "gifitup-$TAG.apk" SHA256SUMS
