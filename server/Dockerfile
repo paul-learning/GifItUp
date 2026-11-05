@@ -5,8 +5,12 @@
 FROM gcr.io/distroless/java21-debian13:nonroot@sha256:b22857e939bd95abd69d9d747f0421a274f9f70855ecfc335f7d97f6eeef578d
 
 ARG REVISION=unknown
+# The web image that belongs to this release (#27): "<repo>@sha256:<digest>", or empty. deploy.sh reads it from the verified
+# server image, so one attested digest names both images and the SSH call stays "<commit> <digest>".
+ARG WEB_IMAGE=
 LABEL org.opencontainers.image.source="https://github.com/paul-learning/GifItUp" \
       org.opencontainers.image.revision="${REVISION}" \
+      app.gifitup.web-image="${WEB_IMAGE}" \
       org.opencontainers.image.description="GifItUp server (untrusted relay for MLS ciphertext)" \
       org.opencontainers.image.licenses="MIT"
 

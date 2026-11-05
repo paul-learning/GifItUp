@@ -52,8 +52,8 @@ services:
   # it has no secrets, no database and nothing mounted from the host. Pinned by digest in .env like the server image.
   web:
     <<: *hardening
-    # Behind a profile until deploy.sh deploys the web image too (#27 PR 1b): a plain `up` doesn't start it, so this
-    # file keeps working with a deploy.sh that knows only the server image.
+    # Behind a profile: deploy.sh starts it by name when the server image's label names a web image (and stops it
+    # when it doesn't), and a plain `up` never does, so a release without a web image works as before.
     profiles: [web]
     image: ${GIFITUP_WEB_IMAGE:-gifitup-web:not-deployed}
     user: "10001:10001"
