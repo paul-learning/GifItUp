@@ -10,6 +10,7 @@ import io.ktor.http.HttpStatusCode
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -305,6 +306,25 @@ class DeliveryEndpointsTest {
             assertEquals(HttpStatusCode.TooManyRequests, get(ana, "/groups/$group").status)
             assertNotEquals(HttpStatusCode.TooManyRequests, get(ben, "/groups/$group").status, "limits are per device")
         }
+
+    @Test
+    fun aCreationRefusedByTheCommitLimitKeepsItsCreationToken() {
+        // Commit burst 1, creation burst 2: the second creation is refused by the commit limit and must not have spent a creation token.
+        lateinit var creates: KeyedRateLimiter
+        deliveryTest(
+            limits = {
+                creates = KeyedRateLimiter(it, 2, Duration.ofHours(1))
+                DeliveryLimits(it, commits = KeyedRateLimiter(it, 1, Duration.ofHours(1)), creates = creates)
+            },
+        ) {
+            val ana = member("ana")
+            val ben = member("ben")
+            posted(create(ana, newGroupId(), commit(0, added = listOf(ben))))
+            assertEquals(HttpStatusCode.TooManyRequests, create(ana, newGroupId(), commit(0, added = listOf(ben))).status)
+            assertTrue(creates.spend(ana.deviceId), "one creation token is left after the refused attempt")
+            assertFalse(creates.spend(ana.deviceId), "and it was the last one: only the first creation spent one before")
+        }
+    }
 
     @Test
     fun cleanupDeletesAcknowledgedAndExpiredRowsButKeepsWhatAMemberStillNeeds() =
