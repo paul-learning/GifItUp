@@ -172,7 +172,8 @@ class ChatListStateHolder(
         // A history that can't be used is not fed: every message would fail and stall, once per group and tick (ADR-0017).
         val usable = store.usable()
         // The groups and the history are on this device: show them before any network step, so the list is there at once
-        // and the refresh below only updates it (#27). The later publish carries the refresh's own problem.
+        // and the refresh below only updates it (#27). The previous problem stays on screen until the later publish, which
+        // carries this refresh's own (#261 CR-2).
         (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.let { publish(forVisit, it.value.groups, flow.value.problem) }
         if (usable) {
             when (val joined = sessions.withSessionResult { chat.welcomes(it) }) {
