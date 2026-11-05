@@ -216,8 +216,10 @@ jobs:
             exit 1
           fi
           [ "$digests" = "$EXPECTED_CERT" ] || { echo "::error::the signing certificate is not the expected one (RELEASE_CERT_SHA256)"; exit 1; }
-          if ! grep -qE 'Verified using v2 scheme.*: true' <<<"$certs"; then
-            echo "::error::no v2 signature"; grep -E 'Verified' <<<"$certs" || true; exit 1
+          # minSdk is 28 (Android 9), where v3 is the native scheme: apksigner then writes no v1 or v2 block, and a v3
+          # signature is what the installing phone checks. Require it, and say what was verified when it is missing.
+          if ! grep -qE 'Verified using v3 scheme.*: true' <<<"$certs"; then
+            echo "::error::no v3 signature"; grep -E 'Verified' <<<"$certs" || true; exit 1
           fi
           bash scripts/assert-release-apk.sh "$apk" "${ORIGIN#https://}" "$VERSION_CODE" "$VERSION_NAME"
           (cd "$RUNNER_TEMP/out" && sha256sum "gifitup-$TAG.apk" > SHA256SUMS)
