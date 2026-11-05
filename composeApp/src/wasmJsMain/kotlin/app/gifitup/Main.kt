@@ -2,7 +2,7 @@ package app.gifitup
 
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.text.font.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.window.ComposeViewport
 import app.gifitup.mls.WebSecureRandom
 import app.gifitup.mls.loadWasmHistoryCipherFactory
