@@ -10,9 +10,8 @@ import java.time.Duration
  * - [posts]: every post, burst 60, one more per second.
  * - [commits]: a commit also spends this, burst 5, one more per minute.
  * - [reads]: fetch, status, ack, leave and the welcome calls, burst 120, two more per second.
- * - [creates]: new groups, burst 10, one more per 10 minutes (was 3 and one per hour; the friends alpha found that too tight,
- *   owner decision 2026-11-05, #27). A creation also spends [commits] (burst 5, one more per minute), which is what limits a
- *   quick run of new chats.
+ * - [creates]: new groups, burst 10, one more per 10 minutes. A creation also spends [commits] (burst 5, one more per minute),
+ *   which is what limits a quick run of new chats.
  */
 class DeliveryLimits(
     clock: Clock,
