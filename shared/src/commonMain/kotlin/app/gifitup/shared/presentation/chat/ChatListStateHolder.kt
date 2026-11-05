@@ -76,6 +76,7 @@ data class ChatListState(
  * The chat list's logic (#25): what is on this device, newest activity first, with a refresh that joins new groups and
  * reads every group's log. The list is built from the group engine's own state and the message store, so it shows the
  * history of this process even while the network is down (the history is in memory until #177).
+ * - The list from this device is shown first, before the network steps of a refresh (#27).
  * - One refresh at a time; a refresh that fails shows what is known and names the problem.
  * - A group that is stopped, read-only or gone is listed with its problem and not synced.
  * - [leave] drops the state (the screen is gone); an answer for an older visit is dropped.
@@ -170,6 +171,9 @@ class ChatListStateHolder(
         var problem: ChatProblem? = null
         // A history that can't be used is not fed: every message would fail and stall, once per group and tick (ADR-0017).
         val usable = store.usable()
+        // The groups and the history are on this device: show them before any network step, so the list is there at once
+        // and the refresh below only updates it (#27). The later publish carries the refresh's own problem.
+        (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.let { publish(forVisit, it.value.groups, flow.value.problem) }
         if (usable) {
             when (val joined = sessions.withSessionResult { chat.welcomes(it) }) {
                 is AuthResult.Failed -> problem = joined.error.toChatProblem()
