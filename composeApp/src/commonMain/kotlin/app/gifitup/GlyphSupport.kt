@@ -8,7 +8,10 @@ import androidx.compose.ui.text.font.FontFamily
  * glyph is known to be there, and the names carry the comparison either way.
  */
 fun interface GlyphSupport {
-    /** True if the device draws [emoji], false if it doesn't, null if it can't tell (the web). */
+    /**
+     * True if the device draws [emoji], false if it doesn't, null if it can't tell (the web before its bundled font is
+     * registered, or if that failed).
+     */
     fun supports(emoji: String): Boolean?
 
     /** A font the emojis must be drawn with (the web ships its own), or null to use the device's. */
