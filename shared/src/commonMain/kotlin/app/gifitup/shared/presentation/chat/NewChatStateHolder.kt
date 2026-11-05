@@ -1,6 +1,7 @@
 package app.gifitup.shared.presentation.chat
 
 import app.gifitup.shared.data.content.ContentCodec
+import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.chat.ChatKind
 import app.gifitup.shared.domain.chat.ChatPort
@@ -45,6 +46,12 @@ enum class NewChatProblem {
 
     /** A group needs a name (1 to 64 characters, no line breaks). */
     NAME_INVALID,
+
+    /**
+     * The server asked the app to slow down (too many chats created in a short time): the chat exists on this device and is
+     * made on the server when the conversation posts it again, a few minutes later.
+     */
+    THROTTLED,
 
     OFFLINE,
     NOT_SIGNED_IN,
@@ -313,13 +320,14 @@ class NewChatStateHolder(
             }
 
             creation.outcome !is SyncOutcome.Sent -> {
+                val throttled = (creation.outcome as? SyncOutcome.InFlight)?.error == ApiError.RATE_LIMITED
                 NewChatState(
                     loaded = true,
                     selected = names.toSet(),
                     created = id,
                     // The first message is not confirmed: nobody else is added yet, and the user is told who is missing.
                     notAdded = names.drop(1),
-                    problem = NewChatProblem.UNFINISHED,
+                    problem = if (throttled) NewChatProblem.THROTTLED else NewChatProblem.UNFINISHED,
                 )
             }
 
@@ -371,5 +379,6 @@ private fun app.gifitup.shared.domain.auth.AuthError.toNewChatProblem(): NewChat
     when (toChatProblem()) {
         ChatProblem.OFFLINE -> NewChatProblem.OFFLINE
         ChatProblem.NOT_SIGNED_IN -> NewChatProblem.NOT_SIGNED_IN
+        ChatProblem.THROTTLED -> NewChatProblem.THROTTLED
         ChatProblem.FAILED, ChatProblem.HISTORY -> NewChatProblem.FAILED
     }

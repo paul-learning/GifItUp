@@ -1,6 +1,7 @@
 package app.gifitup.shared.presentation.chat
 
 import app.gifitup.shared.data.content.GifReference
+import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.chat.ChatPort
 import app.gifitup.shared.domain.chat.ReadMarks
@@ -47,6 +48,9 @@ enum class SendProblem {
 
     /** The conversation is stopped, read-only or gone. */
     STOPPED,
+
+    /** The server asked the app to slow down (a rate limit): the message is kept and goes out when tried again later. */
+    THROTTLED,
 
     /** No network or not signed in: nothing was sent. */
     OFFLINE,
@@ -305,18 +309,28 @@ private fun ChatMessage.toView() = MessageView(reference, sender, body, state, a
 
 private fun problemOf(result: AuthResult<SyncOutcome>): SendProblem? =
     when (result) {
-        is AuthResult.Failed -> if (result.error.toChatProblem() == ChatProblem.FAILED) SendProblem.FAILED else SendProblem.OFFLINE
-        is AuthResult.Ok -> outcomeProblem(result.value)
+        is AuthResult.Failed -> {
+            when (result.error.toChatProblem()) {
+                ChatProblem.FAILED -> SendProblem.FAILED
+                ChatProblem.THROTTLED -> SendProblem.THROTTLED
+                else -> SendProblem.OFFLINE
+            }
+        }
+
+        is AuthResult.Ok -> {
+            outcomeProblem(result.value)
+        }
     }
 
 private fun outcomeProblem(outcome: SyncOutcome): SendProblem? =
     when (outcome) {
-        is SyncOutcome.Sent, is SyncOutcome.CaughtUp, is SyncOutcome.InFlight -> null
+        is SyncOutcome.InFlight -> if (outcome.error == ApiError.RATE_LIMITED) SendProblem.THROTTLED else null
+        is SyncOutcome.Sent, is SyncOutcome.CaughtUp -> null
         SyncOutcome.InvalidRequest -> SendProblem.CAPTION
         is SyncOutcome.PendingFirst -> SendProblem.EARLIER_FIRST
         SyncOutcome.Busy, SyncOutcome.CommitPending, is SyncOutcome.Retry, SyncOutcome.RekeyNeeded -> SendProblem.SYNC_FIRST
         is SyncOutcome.Stopped, SyncOutcome.NotJoined -> SendProblem.STOPPED
-        is SyncOutcome.Unavailable -> SendProblem.OFFLINE
+        is SyncOutcome.Unavailable -> if (outcome.error == ApiError.RATE_LIMITED) SendProblem.THROTTLED else SendProblem.OFFLINE
         is SyncOutcome.Rejected -> SendProblem.REFUSED
         else -> SendProblem.FAILED
     }

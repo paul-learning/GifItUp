@@ -122,6 +122,7 @@ internal object ConversationTexts {
             SendProblem.SYNC_FIRST -> "New messages are waiting. They are read first; then send again."
             SendProblem.STOPPED -> "This chat can't be used right now."
             SendProblem.OFFLINE -> "No answer from the server. Nothing was sent."
+            SendProblem.THROTTLED -> ChatTexts.THROTTLED_SEND
             SendProblem.REFUSED -> "The server refused the message."
             SendProblem.HISTORY -> "The history on this device isn't available right now. Nothing was sent."
             SendProblem.FAILED -> "That did not work."

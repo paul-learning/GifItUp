@@ -119,6 +119,7 @@ internal object GroupInfoTexts {
             GroupInfoProblem.NAME_NOT_SENT -> "The friends were added, but the group's name was not sent. Until it is, they may not see it."
             GroupInfoProblem.OFFLINE -> "No answer from the server."
             GroupInfoProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
+            GroupInfoProblem.THROTTLED -> ChatTexts.THROTTLED_SHORT
             GroupInfoProblem.FAILED -> "That did not work."
         }
 }

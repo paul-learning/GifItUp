@@ -171,8 +171,13 @@ class ChatListStateHolder(
         // A history that can't be used is not fed: every message would fail and stall, once per group and tick (ADR-0017).
         val usable = store.usable()
         if (usable) {
-            val joined = sessions.withSessionResult { chat.welcomes(it) }
-            if (joined is AuthResult.Failed) problem = joined.error.toChatProblem()
+            when (val joined = sessions.withSessionResult { chat.welcomes(it) }) {
+                is AuthResult.Failed -> problem = joined.error.toChatProblem()
+
+                // A welcome step that stopped part-way (friends list unreadable, the server slowing us down, ...) used to be
+                // dropped here, and new chats silently never opened (#27).
+                is AuthResult.Ok -> problem = joined.value.stoppedBy?.toListProblem()
+            }
         }
         when (val groups = sessions.withSessionResult { chat.groups(it) }) {
             is AuthResult.Failed -> {
@@ -195,7 +200,7 @@ class ChatListStateHolder(
     private suspend fun syncProblem(info: GroupInfo): ChatProblem? =
         when (val synced = sessions.withSessionResult { chat.sync(it, info.id) }) {
             is AuthResult.Failed -> synced.error.toChatProblem()
-            is AuthResult.Ok -> if (synced.value is SyncOutcome.CaughtUp) null else ChatProblem.FAILED
+            is AuthResult.Ok -> synced.value.toListProblem()
         }
 
     private suspend fun publish(

@@ -295,6 +295,8 @@ class NewChatStateTest {
                 mapOf(
                     AuthResult.Ok(GroupCreation(null, SyncOutcome.InvalidRequest)) to NewChatProblem.CANT_REACH,
                     AuthResult.Ok(GroupCreation(byteArrayOf(7), SyncOutcome.InFlight(ApiError.NETWORK))) to NewChatProblem.UNFINISHED,
+                    AuthResult.Ok(GroupCreation(byteArrayOf(7), SyncOutcome.InFlight(ApiError.RATE_LIMITED))) to NewChatProblem.THROTTLED,
+                    AuthResult.Failed(AuthError.Api(ApiError.RATE_LIMITED)) to NewChatProblem.THROTTLED,
                     AuthResult.Failed(AuthError.Api(ApiError.NETWORK)) to NewChatProblem.OFFLINE,
                     AuthResult.Failed(AuthError.Local.NOT_REGISTERED) to NewChatProblem.NOT_SIGNED_IN,
                     AuthResult.Failed(AuthError.Local.CRYPTO) to NewChatProblem.FAILED,
