@@ -406,4 +406,5 @@ jobs:
         run: |
           apk=$(find androidApp/build/outputs/apk/release -name '*-release-unsigned.apk')
           aapt2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -n 1)
+          bash scripts/scan-android-apk.sh "$apk"
           PATH="$(dirname "$aapt2"):$PATH" bash scripts/assert-release-apk.sh "$apk" ci.gifitup.example 1 0.1.0
