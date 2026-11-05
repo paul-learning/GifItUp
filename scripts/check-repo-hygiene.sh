@@ -134,5 +134,18 @@ while read -r route; do
   esac
 done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+' server/src/main --include='*.kt' | sed -E 's/.*"//' | sort -u)
 
+# The web app downloads GIFs with fetch() from exactly the hosts GifReference accepts, and the Content-Security-Policy
+# of the web handle must allow them in connect-src (#27: with only api.klipy.com every GIF tile failed in the browser).
+# If the host pattern in the client changes, this fails until the policy and this list are updated together.
+gif_ref=shared/src/commonMain/kotlin/app/gifitup/shared/data/content/GifReference.kt
+if ! grep -qF 'static[12]?\\.klipy\\.com' "$gif_ref"; then
+  fail "the GIF host pattern in $gif_ref changed: update connect-src in $caddy and the host list in scripts/check-repo-hygiene.sh (#27)"
+fi
+web_csp=$(grep -E 'Content-Security-Policy "default-src .none.; script-src' "$caddy" || true)
+connect=$(sed -nE "s/.*connect-src ([^;]*);.*/\1/p" <<<"$web_csp")
+for gif_host in static.klipy.com static1.klipy.com static2.klipy.com api.klipy.com; do
+  case " $connect " in *" https://$gif_host "*) ;; *) fail "connect-src of the web policy in $caddy lacks https://$gif_host (GIFs are fetched, #27)" ;; esac
+done
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"
