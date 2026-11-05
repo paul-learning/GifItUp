@@ -98,7 +98,7 @@ jobs:
           VERSION_CODE: ${{ steps.version.outputs.code }}
           VERSION_NAME: ${{ steps.version.outputs.name }}
         run: |
-          apk=$(ls androidApp/build/outputs/apk/release/*-release-unsigned.apk)
+          apk=$(find androidApp/build/outputs/apk/release -name '*-release-unsigned.apk')
           [ "$(echo "$apk" | wc -l)" -eq 1 ] || { echo "::error::expected exactly one unsigned release APK"; exit 1; }
           for abi in arm64-v8a x86_64; do
             lib="$RUNNER_TEMP/scan.so"
@@ -115,7 +115,7 @@ jobs:
           unzip -q "$apk" 'classes*.dex' -d "$dex"
           python3 scripts/scan-artifact.py --control "Lapp/gifitup/" \
             --forbid "usage: gifitup-cli" --forbid "app/gifitup/cli" --forbid "app.gifitup.cli" "$dex"/classes*.dex
-          aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)
+          aapt2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -n 1)
           PATH="$(dirname "$aapt2"):$PATH" bash scripts/assert-release-apk.sh "$apk" "${ORIGIN#https://}" "$VERSION_CODE" "$VERSION_NAME"
           mkdir -p "$RUNNER_TEMP/unsigned"
           cp "$apk" "$RUNNER_TEMP/unsigned/app-unsigned.apk"
@@ -179,7 +179,7 @@ jobs:
           KEY_PASS: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           umask 077
-          tools=$(dirname "$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)")
+          tools=$(dirname "$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)")
           export PATH="$tools:$PATH"
           mkdir -p "$RUNNER_TEMP/out"
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
@@ -193,7 +193,7 @@ jobs:
 
       - name: Verify the signature and assert the APK
         run: |
-          tools=$(dirname "$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)")
+          tools=$(dirname "$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)")
           export PATH="$tools:$PATH"
           apk="$RUNNER_TEMP/out/gifitup-$TAG.apk"
           certs=$(apksigner verify --verbose --print-certs "$apk")
