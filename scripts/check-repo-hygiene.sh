@@ -126,13 +126,18 @@ fi
 caddy=deploy/caddy/gifitup.caddy
 api_line=$(grep -E '^[[:space:]]*@api path ' "$caddy" || true)
 [ -n "$api_line" ] || fail "$caddy has no '@api path' matcher (#27 SEC-8)"
+# Exact paths, not prefixes (#27: "/welcomes/*" does not cover GET "/welcomes"; the web app answered it with index.html and no
+# client could fetch its invitations). A route constant of one segment (/welcomes) must be listed as itself, one with a deeper
+# path (/auth/challenge) as its "/segment/*".
 while read -r route; do
   [ -n "$route" ] || continue
+  rest=${route#/}
+  if [[ "$rest" == */* ]]; then want="/${rest%%/*}/*"; else want="$route"; fi
   case " $api_line " in
-    *" $route "* | *" $route/* "*) ;;
-    *) fail "server route prefix $route is not in the @api list of $caddy (#27 SEC-8)" ;;
+    *" $want "*) ;;
+    *) fail "server route $route needs '$want' in the @api list of $caddy (#27 SEC-8)" ;;
   esac
-done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+' server/src/main --include='*.kt' | sed -E 's/.*"//' | sort -u)
+done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+(/[a-z-]+)*"' server/src/main --include='*.kt' | sed -E 's/.*"(.*)"/\1/' | sort -u)
 
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

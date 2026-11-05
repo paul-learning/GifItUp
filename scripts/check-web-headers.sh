@@ -30,7 +30,8 @@ done
 stripped=${policy//"style-src-attr 'unsafe-inline'"/}
 case "$stripped" in *unsafe-inline* | *"'unsafe-eval'"* | *" * "* | *"data:"*) fail "the web policy allows unsafe-inline, unsafe-eval, a wildcard or data:" ;; esac
 
-for path in /health /groups/x /config/gif-provider; do
+# Every route of the server (GET, no credentials): none may be answered by the web app (#27: /welcomes was).
+for path in /health /accounts /devices /groups /groups/x /welcomes /welcomes/x/ack /key-packages /key-packages/status /invites /members /auth/challenge /config/gif-provider; do
   api=$(headers "$path")
   [ "$(csp_count "$api")" -eq 1 ] || fail "$path has $(csp_count "$api") Content-Security-Policy headers, expected 1"
   case "$(printf '%s\n' "$api" | sed -n 's/^content-security-policy: //p')" in
