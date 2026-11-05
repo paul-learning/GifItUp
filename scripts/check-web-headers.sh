@@ -23,7 +23,7 @@ invite=$(headers /invite)
 [ "$(csp_count "$invite")" -eq 1 ] || fail "/invite has $(csp_count "$invite") Content-Security-Policy headers, expected 1"
 
 policy=$(printf '%s\n' "$page" | sed -n 's/^content-security-policy: //p')
-for must in "default-src 'none'" "script-src 'self' 'wasm-unsafe-eval'" "object-src 'none'" "frame-ancestors 'none'" "base-uri 'none'"; do
+for must in "default-src 'none'" "script-src 'self' 'wasm-unsafe-eval'" "object-src 'none'" "frame-ancestors 'none'" "base-uri 'none'" "img-src 'self' blob:;" "https://static.klipy.com" "https://static1.klipy.com" "https://static2.klipy.com" "https://api.klipy.com"; do
   case "$policy" in *"$must"*) ;; *) fail "the web policy lacks: $must" ;; esac
 done
 # Style attributes are the one allowed inline (the Compose Web runtime sets some); everything else must not be.

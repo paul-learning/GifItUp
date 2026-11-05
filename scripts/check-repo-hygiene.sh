@@ -153,5 +153,21 @@ while read -r name route; do
   done
 done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+(/[a-z-]+)*"' server/src/main --include='*.kt' | sed -E 's/const val ([A-Z_]+) = "(.*)"/\1 \2/' | sort -u)
 
+# The web app downloads GIFs with fetch() from exactly the hosts GifReference accepts, and the Content-Security-Policy
+# of the web handle must allow them in connect-src (#27: with only api.klipy.com every GIF tile failed in the browser).
+# If the host pattern in the client changes, this fails until the policy and this list are updated together.
+gif_ref=shared/src/commonMain/kotlin/app/gifitup/shared/data/content/GifReference.kt
+if ! grep -qF 'static[12]?\\.klipy\\.com' "$gif_ref"; then
+  fail "the GIF host pattern in $gif_ref changed: update connect-src in $caddy and the host list in scripts/check-repo-hygiene.sh (#27)"
+fi
+web_csp=$(grep -E 'Content-Security-Policy "default-src .none.; script-src' "$caddy" || true)
+connect=$(sed -nE "s/.*connect-src ([^;]*);.*/\1/p" <<<"$web_csp")
+img=$(sed -nE "s/.*img-src ([^;]*);.*/\1/p" <<<"$web_csp")
+# The exact lists, not "contains": a host added to the policy, or one put back into img-src, must be a deliberate change
+# here too (#254 review).
+want_connect="'self' https://{host} wss://{host} https://api.klipy.com https://static.klipy.com https://static1.klipy.com https://static2.klipy.com"
+[ "$connect" = "$want_connect" ] || fail "connect-src of the web policy in $caddy is not exactly the expected list (GIFs are fetched from the hosts GifReference accepts, #27): $connect"
+[ "$img" = "'self' blob:" ] || fail "img-src of the web policy in $caddy must be exactly 'self' blob: (the client shows GIFs from decoded bytes, #27): $img"
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"
