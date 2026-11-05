@@ -64,7 +64,7 @@ jobs:
             echo "### Release $TAG"
             echo "- commit: \`$GITHUB_SHA\`"
             echo "- on main: yes (the next step stops otherwise)"
-            echo "- Before approving, on your machine: \`git diff origin/main..$GITHUB_SHA -- .github scripts androidApp\` must be empty or only what you released."
+            echo "- Before approving, on your machine: \`git merge-base --is-ancestor $GITHUB_SHA origin/main\` must succeed, and \`git diff --stat <previous release tag>..$GITHUB_SHA\` must show only what you meant to release."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check the origin
