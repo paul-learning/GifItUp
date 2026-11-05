@@ -10,21 +10,24 @@ import java.time.Duration
  * - [posts]: every post, burst 60, one more per second.
  * - [commits]: a commit also spends this, burst 5, one more per minute.
  * - [reads]: fetch, status, ack, leave and the welcome calls, burst 120, two more per second.
- * - [creates]: new groups, burst 3, one more per hour.
+ * - [creates]: new groups, burst 10, one more per 10 minutes (was 3 and one per hour; the friends alpha found that too tight,
+ *   owner decision 2026-11-05, #27). A creation also spends [commits] (burst 5, one more per minute), which is what limits a
+ *   quick run of new chats.
  */
 class DeliveryLimits(
     clock: Clock,
     val posts: KeyedRateLimiter = KeyedRateLimiter(clock, POST_BURST, Duration.ofSeconds(1), MAX_DEVICES),
     val commits: KeyedRateLimiter = KeyedRateLimiter(clock, COMMIT_BURST, Duration.ofMinutes(1), MAX_DEVICES),
     val reads: KeyedRateLimiter = KeyedRateLimiter(clock, READ_BURST, Duration.ofMillis(READ_REFILL_MS), MAX_DEVICES),
-    val creates: KeyedRateLimiter = KeyedRateLimiter(clock, CREATE_BURST, Duration.ofHours(1), MAX_DEVICES),
+    val creates: KeyedRateLimiter = KeyedRateLimiter(clock, CREATE_BURST, Duration.ofMinutes(CREATE_REFILL_MINUTES), MAX_DEVICES),
 ) {
     private companion object {
         const val POST_BURST = 60
         const val COMMIT_BURST = 5
         const val READ_BURST = 120
         const val READ_REFILL_MS = 500L
-        const val CREATE_BURST = 3
+        const val CREATE_BURST = 10
+        const val CREATE_REFILL_MINUTES = 10L
 
         /** Above the number of device rows of a friends-sized server; a full map still refuses only new keys. */
         const val MAX_DEVICES = 10_000
