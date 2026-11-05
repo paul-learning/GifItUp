@@ -171,7 +171,7 @@ want_connect="'self' https://{host} wss://{host} https://api.klipy.com https://s
 
 # The web app's bundled emoji font (ADR-0014): the pinned file, a color bitmap font with exactly the 256 code points of
 # the key-comparison table, and its license text next to it. A file check, not a rendering check: nothing in CI loads the
-# font in a browser yet (#258 SEC-3).
+# font in a browser yet (#258 SEC-3, CR-2). Needs python3 on PATH (the other checks already use it).
 res=composeApp/src/wasmJsMain/resources
 python3 -I scripts/check-emoji-font.py "$res/emoji-v1.ttf" crypto/fingerprint-emojis-v1.tsv "$res/emoji-v1-OFL.txt" || status=1
 

@@ -15,14 +15,20 @@ import androidx.compose.ui.text.platform.Font as bytesFont
 /**
  * The web app draws into a canvas and cannot use the browser's or the system's fonts, so it ships its own color emoji
  * font: a subset of Noto Color Emoji with exactly the 256 key-comparison emojis (ADR-0014, `emoji-v1.ttf`, built and
- * checked by `scripts/check-emoji-font.py`). A glyph then counts as drawn only once the font is registered with the
- * text engine; until then, and if the font can't be loaded, every glyph is unknown and the names carry the comparison.
+ * checked by `scripts/check-emoji-font.py`). The Friends screen draws the emojis with it once it is registered. A glyph still
+ * counts as unknown on the web, so the names carry the comparison.
  */
 internal class WebGlyphs : GlyphSupport {
     // Compose state, so a screen that asked before the font arrived redraws once it has.
-    private var loaded by mutableStateOf(false)
+    override var emojiFont: FontFamily? by mutableStateOf(null)
+        private set
 
-    override fun supports(emoji: String): Boolean? = if (loaded) true else null
+    /**
+     * Still unknown even with the font registered: registering it doesn't prove that the text engine draws the glyphs
+     * (#258 CR-1), and the "compare the names" notice only goes away when a glyph is known to be drawn. This flips to
+     * true once the drawing has been seen in a browser.
+     */
+    override fun supports(emoji: String): Boolean? = null
 
     /**
      * Fetches the font from the app's own origin (CSP `connect-src 'self'`) and registers it. False on any failure.
@@ -38,8 +44,10 @@ internal class WebGlyphs : GlyphSupport {
                 }
             }.getOrNull()
         val usable = bytes != null && bytes.size in MIN_FONT_BYTES..MAX_FONT_BYTES && isTrueTypeFile(bytes)
-        loaded = usable && runCatching { register(FontFamily(bytesFont("GifItUpEmoji", bytes))) }.isSuccess
-        return loaded
+        val family = if (usable) FontFamily(bytesFont("GifItUpEmoji", bytes)) else null
+        val registered = family != null && runCatching { register(family) }.isSuccess
+        emojiFont = if (registered) family else null
+        return registered
     }
 
     private companion object {
