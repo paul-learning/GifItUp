@@ -39,6 +39,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The chat list and the conversation (#25) over a scripted group engine and the real in-memory message store. */
+@Suppress("LargeClass") // One screen's table of cases over a shared fake group engine.
 class ChatStateTest {
     private val store = InMemoryMessageStore()
     private val marks = ReadMarks()
@@ -74,6 +75,7 @@ class ChatStateTest {
         val synced = mutableListOf<KeyBytes>()
         val sent = mutableListOf<Pair<GifReference, String?>>()
         var welcomed = 0
+        var welcomesStoppedBy: SyncOutcome? = null
         var resumed = 0
 
         private fun <T> answer(value: T): AuthResult<T> = failWith?.let { AuthResult.Failed(it) } ?: AuthResult.Ok(value)
@@ -82,7 +84,7 @@ class ChatStateTest {
 
         override suspend fun welcomes(session: Session): AuthResult<WelcomesReport> {
             welcomed++
-            return answer(WelcomesReport(emptyList(), null))
+            return answer(WelcomesReport(emptyList(), welcomesStoppedBy))
         }
 
         override suspend fun sync(
@@ -238,6 +240,42 @@ class ChatStateTest {
         }
 
     @Test
+    fun aWelcomeStepThatStoppedIsNamedInsteadOfDropped() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            val holder = list()
+            val cases =
+                mapOf<SyncOutcome?, ChatProblem?>(
+                    null to null,
+                    SyncOutcome.LookupIncomplete to ChatProblem.FAILED,
+                    SyncOutcome.Unavailable(ApiError.NETWORK) to ChatProblem.OFFLINE,
+                    SyncOutcome.Unavailable(ApiError.RATE_LIMITED) to ChatProblem.THROTTLED,
+                    SyncOutcome.Unavailable(ApiError.UNAUTHORIZED) to ChatProblem.NOT_SIGNED_IN,
+                )
+            for ((stopped, problem) in cases) {
+                chat.welcomesStoppedBy = stopped
+                holder.refresh()
+                advanceUntilIdle()
+                assertEquals(problem, holder.state.value.problem, stopped.toString())
+            }
+        }
+
+    @Test
+    fun aGroupSyncThatTheServerSlowedDownIsNamedAsThrottling() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            val holder = list()
+            chat.syncOutcome = SyncOutcome.Unavailable(ApiError.RATE_LIMITED)
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.THROTTLED, holder.state.value.problem)
+            chat.failWith = AuthError.Api(ApiError.RATE_LIMITED)
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.THROTTLED, holder.state.value.problem)
+        }
+
+    @Test
     fun aFailedRefreshStillShowsWhatIsKnownAndNamesTheProblem() =
         runTest {
             chat.groups = listOf(group(1, "bob"))
@@ -286,6 +324,20 @@ class ChatStateTest {
             holder.leave()
             assertEquals(listOf("bob", "cy"), holder.state.value.members)
             assertEquals(emptyList(), conversation(group(3, status = GroupStatus.REMOVED)).state.value.members)
+        }
+
+    @Test
+    fun aConversationWhoseLogTheServerSlowedDownSaysSo() =
+        runTest {
+            val holder = conversation(group(1, "bob"))
+            chat.syncOutcome = SyncOutcome.Unavailable(ApiError.RATE_LIMITED)
+            holder.open()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.THROTTLED, holder.state.value.problem)
+            chat.syncOutcome = SyncOutcome.LookupIncomplete
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(ChatProblem.FAILED, holder.state.value.problem)
         }
 
     @Test
@@ -435,6 +487,8 @@ class ChatStateTest {
                     SyncOutcome.CommitPending to SendProblem.SYNC_FIRST,
                     SyncOutcome.NotJoined to SendProblem.STOPPED,
                     SyncOutcome.Unavailable(ApiError.NETWORK) to SendProblem.OFFLINE,
+                    SyncOutcome.Unavailable(ApiError.RATE_LIMITED) to SendProblem.THROTTLED,
+                    SyncOutcome.InFlight(ApiError.RATE_LIMITED) to SendProblem.THROTTLED,
                     SyncOutcome.Rejected(ApiError.BAD_REQUEST) to SendProblem.REFUSED,
                     SyncOutcome.StorageFailed to SendProblem.FAILED,
                 )

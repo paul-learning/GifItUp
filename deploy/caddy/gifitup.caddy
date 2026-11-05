@@ -32,7 +32,7 @@ gifitup.example.com {
 	}
 	# The server's routes: every prefix in server/src/main (scripts/check-repo-hygiene.sh keeps this list complete). An
 	# unknown path is not the API: it falls to the web app below, whose single-page fallback answers it.
-	@api path /health /ws /auth/* /accounts /accounts/* /devices /devices/* /groups /groups/* /welcomes/* /key-packages /key-packages/* /invites /invites/* /members /members/* /config/*
+	@api path /health /ws /auth/* /accounts /accounts/* /devices /devices/* /groups /groups/* /welcomes /welcomes/* /key-packages /key-packages/* /invites /invites/* /members /members/* /config/*
 	handle @api {
 		header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
 		# /ws is a WebSocket (ADR-0015): reverse_proxy upgrades it by default and sets no idle timeout of its own (the

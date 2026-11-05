@@ -6,6 +6,7 @@ import app.gifitup.shared.domain.chat.settledName
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.GroupStatus
+import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.MessageBody
 
@@ -89,7 +90,27 @@ enum class ChatProblem {
 
     /** The history on this device can't be opened or read right now (ADR-0017); what is on the server is untouched. */
     HISTORY,
+
+    /** The server asked the app to slow down (a rate limit): nothing is lost, the app tries again later. */
+    THROTTLED,
 }
+
+/** What the chat list says about a sync or welcome outcome: nothing when it is caught up, else why not (#27: it said nothing). */
+internal fun SyncOutcome.toListProblem(): ChatProblem? =
+    when (this) {
+        is SyncOutcome.CaughtUp -> null
+        is SyncOutcome.Unavailable -> error.toListProblem()
+        is SyncOutcome.InFlight -> error.toListProblem()
+        else -> ChatProblem.FAILED
+    }
+
+private fun ApiError.toListProblem(): ChatProblem =
+    when (this) {
+        ApiError.NETWORK -> ChatProblem.OFFLINE
+        ApiError.UNAUTHORIZED -> ChatProblem.NOT_SIGNED_IN
+        ApiError.RATE_LIMITED -> ChatProblem.THROTTLED
+        else -> ChatProblem.FAILED
+    }
 
 internal fun AuthError.toChatProblem(): ChatProblem =
     when (this) {
@@ -97,6 +118,7 @@ internal fun AuthError.toChatProblem(): ChatProblem =
             when (error) {
                 ApiError.NETWORK -> ChatProblem.OFFLINE
                 ApiError.UNAUTHORIZED -> ChatProblem.NOT_SIGNED_IN
+                ApiError.RATE_LIMITED -> ChatProblem.THROTTLED
                 else -> ChatProblem.FAILED
             }
         }

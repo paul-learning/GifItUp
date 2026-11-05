@@ -126,13 +126,32 @@ fi
 caddy=deploy/caddy/gifitup.caddy
 api_line=$(grep -E '^[[:space:]]*@api path ' "$caddy" || true)
 [ -n "$api_line" ] || fail "$caddy has no '@api path' matcher (#27 SEC-8)"
-while read -r route; do
+# Exact paths, not prefixes (#27: "/welcomes/*" does not cover GET "/welcomes"; the web app answered it with index.html and no
+# client could fetch its invitations). A route constant of one segment (/welcomes) must be listed as itself, one with a deeper
+# path (/auth/challenge) as its "/segment/*".
+# A constant the pattern below can't read (a digit, an uppercase letter or a {parameter} in the path) would be skipped without a
+# word, so every literal route constant must match it, and at least one must be found (#255 SEC-1).
+route_literals=$(grep -rhoE 'const val [A-Z_]+_PATH = "[^"$]*"' server/src/main --include='*.kt' || true)
+route_readable=$(grep -cE '"/[a-z-]+(/[a-z-]+)*"$' <<<"$route_literals" || true)
+[ "$(grep -c . <<<"$route_literals")" -gt 0 ] || fail "no *_PATH route constants found in server/src/main (the Caddy route guard would check nothing, #255)"
+[ "$(grep -c . <<<"$route_literals")" -eq "$route_readable" ] || fail "a *_PATH route constant has characters the Caddy route guard can't read (digit, uppercase, {param}): update scripts/check-repo-hygiene.sh (#255)"
+while read -r name route; do
   [ -n "$route" ] || continue
-  case " $api_line " in
-    *" $route "* | *" $route/* "*) ;;
-    *) fail "server route prefix $route is not in the @api list of $caddy (#27 SEC-8)" ;;
-  esac
-done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+' server/src/main --include='*.kt' | sed -E 's/.*"//' | sort -u)
+  rest=${route#/}
+  if [[ "$rest" == */* ]]; then
+    wants=("/${rest%%/*}/*")
+  else
+    wants=("$route")
+    # A route the server also serves below ($NAME/...: /welcomes/{id}/ack, /invites/{id}) needs its "/route/*" too (#255 CR-1).
+    if grep -rqF "\$$name/" server/src/main --include='*.kt'; then wants+=("$route/*"); fi
+  fi
+  for want in "${wants[@]}"; do
+    case " $api_line " in
+      *" $want "*) ;;
+      *) fail "server route $route needs '$want' in the @api list of $caddy (#27 SEC-8)" ;;
+    esac
+  done
+done < <(grep -rhoE 'const val [A-Z_]+_PATH = "/[a-z-]+(/[a-z-]+)*"' server/src/main --include='*.kt' | sed -E 's/const val ([A-Z_]+) = "(.*)"/\1 \2/' | sort -u)
 
 # The web app downloads GIFs with fetch() from exactly the hosts GifReference accepts, and the Content-Security-Policy
 # of the web handle must allow them in connect-src (#27: with only api.klipy.com every GIF tile failed in the browser).

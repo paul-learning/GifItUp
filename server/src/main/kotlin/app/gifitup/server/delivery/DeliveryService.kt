@@ -264,7 +264,9 @@ class DeliveryService internal constructor(
     fun sessionEnded(session: AuthenticatedSession) = sockets.closeSession(sessionKey(session))
 
     private fun spendCreate(device: UUID): Boolean =
-        listOf(limits.creates, limits.posts, limits.commits).all { it.spend(device.toString()) }
+        // The short-term limits first: a refusal by one of them must not use up a token of the slow creation limit (one per
+        // 10 minutes), or a client that retries would empty the burst for nothing (#256 SEC-2).
+        listOf(limits.commits, limits.posts, limits.creates).all { it.spend(device.toString()) }
 
     private fun createRefusal(envelope: Envelope): Delivery.Refused? =
         if (isFirstCommit(envelope)) null else Delivery.Refused(Refusal.INVALID)
