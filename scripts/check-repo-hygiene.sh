@@ -169,5 +169,11 @@ want_connect="'self' https://{host} wss://{host} https://api.klipy.com https://s
 [ "$connect" = "$want_connect" ] || fail "connect-src of the web policy in $caddy is not exactly the expected list (GIFs are fetched from the hosts GifReference accepts, #27): $connect"
 [ "$img" = "'self' blob:" ] || fail "img-src of the web policy in $caddy must be exactly 'self' blob: (the client shows GIFs from decoded bytes, #27): $img"
 
+# The web app's bundled emoji font (ADR-0014): the pinned file, a color bitmap font with exactly the 256 code points of
+# the key-comparison table, and its license text next to it. A file check, not a rendering check: nothing in CI loads the
+# font in a browser yet (#258 SEC-3, CR-2). Needs python3 on PATH (the other checks already use it).
+res=composeApp/src/wasmJsMain/resources
+python3 -I scripts/check-emoji-font.py "$res/emoji-v1.ttf" crypto/fingerprint-emojis-v1.tsv "$res/emoji-v1-OFL.txt" || status=1
+
 [ "$status" -eq 0 ] && echo "Repo hygiene checks passed."
 exit "$status"

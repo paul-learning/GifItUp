@@ -1,6 +1,8 @@
 package app.gifitup
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.window.ComposeViewport
 import app.gifitup.mls.WebSecureRandom
 import app.gifitup.mls.loadWasmHistoryCipherFactory
@@ -45,6 +47,7 @@ private fun takeInviteLink(): String? =
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     val inbox = InviteInbox(takeInviteLink())
+    val glyphs = WebGlyphs()
     MainScope().launch {
         val storage = claimWebDeviceStorage()
         // Built once, outside composition: a recomposition must never make a second graph with a second lock.
@@ -56,7 +59,7 @@ fun main() {
                     engine = { Js.create() },
                     random = WebSecureRandom,
                     clipboard = WebClipboard,
-                    glyphs = WebGlyphs,
+                    glyphs = glyphs,
                     serverSettingsEditable = false,
                     conversations =
                         ConversationPlatform(
@@ -70,6 +73,9 @@ fun main() {
                 )
             }
         ComposeViewport {
+            // The emoji font registers after the first frame; the screens redraw when the glyphs become known.
+            val resolver = LocalFontFamilyResolver.current
+            LaunchedEffect(resolver) { glyphs.load { resolver.preload(it) } }
             if (graph == null) OpenInAnotherTab() else App(graph, inbox)
         }
     }

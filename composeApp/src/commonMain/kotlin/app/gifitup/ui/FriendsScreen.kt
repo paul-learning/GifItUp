@@ -311,7 +311,7 @@ private fun EmojiBlock(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { cell ->
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(cell.emoji, fontSize = 28.sp)
+                        Text(cell.emoji, fontSize = 28.sp, fontFamily = glyphs.emojiFont)
                         Text(cell.name, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
                     }
                 }
