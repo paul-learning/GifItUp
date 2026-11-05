@@ -31,6 +31,9 @@ enum class GroupInfoProblem {
 
     OFFLINE,
     NOT_SIGNED_IN,
+
+    /** The server asked the app to slow down (a rate limit); nothing is lost. */
+    THROTTLED,
     FAILED,
 }
 
@@ -222,6 +225,7 @@ private fun ChatProblem.toInfoProblem(): GroupInfoProblem =
     when (this) {
         ChatProblem.OFFLINE -> GroupInfoProblem.OFFLINE
         ChatProblem.NOT_SIGNED_IN -> GroupInfoProblem.NOT_SIGNED_IN
+        ChatProblem.THROTTLED -> GroupInfoProblem.THROTTLED
         ChatProblem.FAILED, ChatProblem.HISTORY -> GroupInfoProblem.FAILED
     }
 

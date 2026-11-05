@@ -59,6 +59,23 @@ internal object ChatTexts {
     /** The history is unreadable right now; what the server holds is not touched. No record name, no content (ADR-0017). */
     const val HISTORY_PROBLEM = "The chat history on this device can't be opened right now. Nothing was lost on the server."
     const val HISTORY_ROW = "History not available"
+
+    /** The server asked the app to slow down; shown on the chat list. */
+    const val THROTTLED = "The server is slowing you down because of many requests. Nothing is lost. Try again a little later."
+
+    /** The same, short, for a screen that has a line for it. */
+    const val THROTTLED_SHORT = "The server is slowing you down. Nothing is lost. Try again a little later."
+
+    /** A message could not go out for now; it is kept. */
+    const val THROTTLED_SEND = "The server is slowing you down. Your message is saved and goes out when you try again a little later."
+
+    /** Starting a chat was refused before anything was made. */
+    const val THROTTLED_NOTHING_MADE = "The server is slowing you down, so no chat was made. Try again a little later."
+
+    /** The server refused the new chat for now; it is kept on this device. */
+    const val THROTTLED_CHAT_SAVED =
+        "The server is slowing you down: you made several chats in a short time. This chat is saved here and is made on the " +
+            "server when you open it again a little later."
     const val HISTORY_RETRY = "Try again"
     const val RESET_HISTORY = "Reset chat history…"
     const val RESET_TITLE = "Reset the chat history on this device?"
@@ -126,6 +143,7 @@ internal object ChatTexts {
             ChatProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
             ChatProblem.FAILED -> "Some messages could not be read. Trying again later may help."
             ChatProblem.HISTORY -> HISTORY_PROBLEM
+            ChatProblem.THROTTLED -> THROTTLED
         }
 
     fun newChatProblem(problem: NewChatProblem): String =
@@ -137,6 +155,8 @@ internal object ChatTexts {
             NewChatProblem.PARTLY -> "The chat was made, but not everyone could be added."
             NewChatProblem.NAME_NOT_SENT -> "The group was made, but its name was not sent. Until it is, it shows as a direct chat."
             NewChatProblem.NAME_INVALID -> "Give the group a name of 1 to 64 characters, on one line."
+            NewChatProblem.THROTTLED -> THROTTLED_NOTHING_MADE
+            NewChatProblem.THROTTLED_SAVED -> THROTTLED_CHAT_SAVED
             NewChatProblem.OFFLINE -> "No answer from the server."
             NewChatProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
             NewChatProblem.FAILED -> "That did not work."
