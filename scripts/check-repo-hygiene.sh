@@ -129,6 +129,12 @@ api_line=$(grep -E '^[[:space:]]*@api path ' "$caddy" || true)
 # Exact paths, not prefixes (#27: "/welcomes/*" does not cover GET "/welcomes"; the web app answered it with index.html and no
 # client could fetch its invitations). A route constant of one segment (/welcomes) must be listed as itself, one with a deeper
 # path (/auth/challenge) as its "/segment/*".
+# A constant the pattern below can't read (a digit, an uppercase letter or a {parameter} in the path) would be skipped without a
+# word, so every literal route constant must match it, and at least one must be found (#255 SEC-1).
+route_literals=$(grep -rhoE 'const val [A-Z_]+_PATH = "[^"$]*"' server/src/main --include='*.kt' || true)
+route_readable=$(grep -cE '"/[a-z-]+(/[a-z-]+)*"$' <<<"$route_literals" || true)
+[ "$(grep -c . <<<"$route_literals")" -gt 0 ] || fail "no *_PATH route constants found in server/src/main (the Caddy route guard would check nothing, #255)"
+[ "$(grep -c . <<<"$route_literals")" -eq "$route_readable" ] || fail "a *_PATH route constant has characters the Caddy route guard can't read (digit, uppercase, {param}): update scripts/check-repo-hygiene.sh (#255)"
 while read -r route; do
   [ -n "$route" ] || continue
   rest=${route#/}
