@@ -26,8 +26,13 @@ grep -qE 'A: http://schemas.android.com/apk/res/android:allowBackup\(0x[0-9a-f]+
 grep -qE 'usesCleartextTraffic\(0x[0-9a-f]+\)=false' <<<"$tree" || fail "usesCleartextTraffic is not false"
 
 # The one permission, and the invite link host: the build's host, never the placeholders.
-perms=$(grep -oE "^uses-permission: name='[^']+'" <<<"$badging" | sort -u)
-[ "$perms" = "uses-permission: name='android.permission.INTERNET'" ] || fail "the APK asks for permissions other than INTERNET"
+# androidx adds one permission of its own, protected by the app's signature, that keeps other apps from sending
+# broadcasts to the app's dynamic receivers; it is named after the package and cannot be granted to another app.
+perms=$(grep -oE "^uses-permission: name='[^']+'" <<<"$badging" | sed -E "s/^uses-permission: name='(.*)'/\1/" | sort -u)
+want=$(printf '%s\n' android.permission.INTERNET app.gifitup.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION | sort -u)
+if [ "$perms" != "$want" ]; then
+  fail "the APK's permissions are not exactly INTERNET plus androidx's signature permission; found: $(tr '\n' ' ' <<<"$perms")"
+fi
 grep -qF "host=\"$host\"" <<<"$tree" || grep -qE "host.*\"$host\"" <<<"$tree" || fail "the invite link host is not the expected host"
 if grep -qE 'gifitup\.invalid|applinks-disabled\.invalid' <<<"$tree"; then fail "a placeholder host is in the manifest"; fi
 

@@ -35,6 +35,7 @@ bad v201.0.0
 bad 'v1.0.0 '
 bad $'v1.0.0\n'
 bad 'v1.0.0; echo hi'
+# shellcheck disable=SC2016 # a literal command substitution, on purpose
 bad '$(id)'
 bad ''
 bad v0.1.0 v0.1.1
