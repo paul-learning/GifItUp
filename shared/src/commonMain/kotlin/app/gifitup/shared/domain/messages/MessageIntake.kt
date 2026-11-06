@@ -131,7 +131,11 @@ class MessageIntake(
                 is Decoded.Message -> {
                     when (val content = decoded.content) {
                         is Content.Gif -> MessageBody.Gif(content.reference, content.caption)
+
                         is Content.GroupMeta -> MessageBody.GroupMeta(content.name)
+
+                        // Stored from the next change on (#88); until then a reaction is acknowledged and shown nowhere.
+                        is Content.Reaction -> null
                     }
                 }
             }

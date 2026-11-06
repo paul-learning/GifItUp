@@ -1,5 +1,7 @@
 package app.gifitup.shared.data.content
 
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.messages.MessageRefs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -359,5 +361,59 @@ class ContentCodecTest {
             assertEquals(size, bytes.size)
             assertEquals(caption, assertIs<Content.Gif>(assertIs<Decoded.Message>(ContentCodec.decode(bytes)).content).caption)
         }
+    }
+
+    private val reactionTarget = KeyBytes(ByteArray(32) { it.toByte() })
+    private val reactionRef = MessageRefs.format(reactionTarget)
+    private val heart = "\u2764\uFE0F" // needs U+FE0F: the table holds the exact string
+
+    private fun reaction(
+        emoji: String,
+        target: String = reactionRef,
+        v: String = "1",
+    ) = """{"v":$v,"type":"ann_reaction","target":"$target","emoji":$emoji}"""
+
+    @Test
+    fun aReactionIsDecodedWithTheTablesOwnEntry() {
+        val decoded = assertIs<Decoded.Message>(decode(reaction("\"$heart\"")))
+        val content = assertIs<Content.Reaction>(decoded.content)
+        assertEquals(reactionTarget, content.target)
+        assertEquals(heart, content.emoji)
+    }
+
+    @Test
+    fun aReactionWithNullTakesTheReactionBack() {
+        val decoded = assertIs<Decoded.Message>(decode(reaction("null")))
+        val content = assertIs<Content.Reaction>(decoded.content)
+        assertNull(content.emoji)
+    }
+
+    @Test
+    fun aReactionThatBreaksARuleIsDroppedSilently() {
+        val bad =
+            listOf(
+                reaction("\"x\""),
+                reaction("\"\\u2764\""), // the text form without U+FE0F is not the table's entry
+                reaction("\"\\uD83D\\uDC4D\\uD83C\\uDFFD\""), // a thumbs up with a skin tone: a sequence
+                reaction("\"$heart$heart\""),
+                reaction("\"\""),
+                reaction("5"),
+                reaction("\"$heart\"", target = "short"),
+                reaction("\"$heart\"", v = "2"),
+                """{"v":1,"type":"ann_reaction","target":"$reactionRef"}""", // no emoji field at all
+                """{"v":1,"type":"ann_reaction","emoji":"$heart"}""", // no target
+            )
+        bad.forEach { assertEquals(Decoded.Dropped, decode(it), it) }
+    }
+
+    @Test
+    fun aReactionIsWrittenAndReadBack() {
+        val bytes = assertNotNull(ContentCodec.encodeReaction(reactionTarget, heart))
+        assertTrue(bytes.size <= ContentCodec.MAX_BYTES)
+        val content = assertIs<Content.Reaction>(assertIs<Decoded.Message>(ContentCodec.decode(bytes)).content)
+        assertEquals(heart, content.emoji)
+        val removal = assertNotNull(ContentCodec.encodeReaction(reactionTarget, null))
+        assertNull(assertIs<Content.Reaction>(assertIs<Decoded.Message>(ContentCodec.decode(removal)).content).emoji)
+        assertNull(ContentCodec.encodeReaction(reactionTarget, "x"), "an emoji outside the table is not written")
     }
 }

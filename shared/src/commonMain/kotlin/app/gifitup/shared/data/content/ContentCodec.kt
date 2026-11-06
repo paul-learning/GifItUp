@@ -1,5 +1,7 @@
 package app.gifitup.shared.data.content
 
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.messages.MessageRefs
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -16,6 +18,15 @@ sealed interface Content {
 
     class GroupMeta(
         val name: String,
+    ) : Content
+
+    /**
+     * A reaction to the message [target] (`ann_reaction`, ADR-0006 B10): [emoji] is an entry of [ReactionEmojis], `null` takes
+     * the sender's reaction back. An annotation, not a message: it is never shown on its own.
+     */
+    class Reaction(
+        val target: KeyBytes,
+        val emoji: String?,
     ) : Content
 }
 
@@ -46,6 +57,7 @@ object ContentCodec {
 
     private const val VERSION = 1
     private const val ANNOTATION_PREFIX = "ann_"
+    private const val REACTION_TYPE = "ann_reaction"
 
     /** Total: any bytes give an answer, nothing throws. */
     fun decode(bytes: ByteArray): Decoded {
@@ -56,8 +68,8 @@ object ContentCodec {
         return when {
             root == null || type == null -> Decoded.Invalid
 
-            // No annotation type exists yet (#88 adds the first): every one is dropped, whatever else is wrong with it.
-            type.startsWith(ANNOTATION_PREFIX) -> Decoded.Dropped
+            // An annotation that is of an unknown type, has a version other than 1 or fails a check is dropped (B10).
+            type.startsWith(ANNOTATION_PREFIX) -> annotation(type, version, root)
 
             version == null || version < 1 -> Decoded.Invalid
 
@@ -65,6 +77,31 @@ object ContentCodec {
 
             else -> ContentFields.typed(type, root)
         }
+    }
+
+    private fun annotation(
+        type: String,
+        version: Int?,
+        root: Map<String, JsonValue>,
+    ): Decoded = if (type == REACTION_TYPE && version == VERSION) ContentFields.reaction(root) else Decoded.Dropped
+
+    /**
+     * The bytes of a reaction to [target], or `null` to take it back with [emoji] `null`; `null` too if [emoji] is not an entry
+     * of [ReactionEmojis]. Always fits [MAX_BYTES].
+     */
+    fun encodeReaction(
+        target: KeyBytes,
+        emoji: String?,
+    ): ByteArray? {
+        val entry = emoji?.let { ReactionEmojis.canonical(it) ?: return null }
+        return write(
+            buildJsonObject {
+                put("v", VERSION)
+                put("type", REACTION_TYPE)
+                put("target", MessageRefs.format(target))
+                put("emoji", entry?.let { JsonPrimitive(it) } ?: JsonNull)
+            },
+        )
     }
 
     /**
