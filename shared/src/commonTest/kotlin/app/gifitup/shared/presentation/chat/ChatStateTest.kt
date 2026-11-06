@@ -162,6 +162,34 @@ class ChatStateTest {
         }
 
     @Test
+    fun theListIsShownFromThisDeviceBeforeTheNetworkStepsOfARefreshFinish() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            store.insert(gif(1, 1, "bob", at = 100, caption = "hi"))
+            val gate = CompletableDeferred<Unit>()
+            chat.onSync = { gate.await() }
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(1, chat.synced.size, "the refresh is waiting on the network")
+            assertTrue(holder.state.value.refreshing)
+            assertTrue(holder.state.value.loaded, "the list is on screen while the refresh runs")
+            assertEquals(
+                1,
+                holder.state.value.conversations
+                    .size,
+            )
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertFalse(holder.state.value.refreshing)
+            assertEquals(
+                1,
+                holder.state.value.conversations
+                    .size,
+            )
+        }
+
+    @Test
     fun theListShowsTheNewestActivityFirstWithPreviewAndUnreadCount() =
         runTest {
             chat.groups = listOf(group(1, "bob"), group(2, "carol"), group(3, "dave"))
