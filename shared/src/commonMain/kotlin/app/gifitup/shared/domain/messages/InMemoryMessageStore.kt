@@ -43,9 +43,23 @@ class InMemoryMessageStore : HistoryAccess {
         mutex.withLock {
             val log = groups[groupId] ?: return
             val old = log[reference]?.takeIf { it.state != null } ?: return
-            log[reference] = ChatMessage(old.groupId, old.reference, old.sender, seq ?: old.seq, old.body, state, old.at)
+            log[reference] = ChatMessage(old.groupId, old.reference, old.sender, seq ?: old.seq, old.body, state, old.at, old.reactions)
         }
     }
+
+    override suspend fun react(
+        groupId: KeyBytes,
+        target: KeyBytes,
+        by: String,
+        emoji: String?,
+    ): Boolean =
+        mutex.withLock {
+            val log = groups[groupId] ?: return@withLock false
+            val old = log[target] ?: return@withLock false
+            val reactions = ReactionRules.apply(old, by, emoji) ?: return@withLock false
+            log[target] = old.withReactions(reactions)
+            true
+        }
 
     override suspend fun messages(groupId: KeyBytes): List<ChatMessage> = mutex.withLock { groups[groupId]?.values?.toList().orEmpty() }
 

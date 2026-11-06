@@ -22,6 +22,19 @@ interface MessageStore {
         seq: Long? = null,
     )
 
+    /**
+     * Records that [by] (the username of the sender's MLS credential) reacted to the message [target] with [emoji], or took the
+     * reaction back (`null`): the latest wins, one per member (ADR-0006 B10a, [ReactionRules]). Whether anything changed: a
+     * target that is not a GIF of this group, an emoji outside the table or a full message change nothing. A store failure
+     * throws like [insert].
+     */
+    suspend fun react(
+        groupId: KeyBytes,
+        target: KeyBytes,
+        by: String,
+        emoji: String?,
+    ): Boolean
+
     /** The group's messages in the order they were added. */
     suspend fun messages(groupId: KeyBytes): List<ChatMessage>
 

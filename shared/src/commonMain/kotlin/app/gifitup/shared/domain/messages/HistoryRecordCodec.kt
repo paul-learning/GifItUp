@@ -1,6 +1,7 @@
 package app.gifitup.shared.domain.messages
 
 import app.gifitup.shared.data.content.GifReference
+import app.gifitup.shared.data.content.ReactionEmojis
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.ByteReader
 import app.gifitup.shared.domain.groups.ByteWriter
@@ -18,7 +19,8 @@ internal class StoredMessage(
  *
  * ```text
  * version(1) ‖ group id (u32 len) ‖ reference(32) ‖ arrival(i64) ‖ sender (flag, u32 len + UTF-8) ‖ seq (flag, i64)
- *   ‖ state(1) ‖ at(i64) ‖ body tag(1) ‖ body
+ *   ‖ state(1) ‖ at(i64) ‖ body tag(1) ‖ body ‖ reactions (version 2: count(1), then per reaction username and emoji,
+ *   u32 len + UTF-8 each; only a gif has any, at most [ReactionRules.MAX_PER_MESSAGE])
  * body: 1 gif  = slug, url (u32 len each) ‖ width(u16) ‖ height(u16) ‖ caption (flag, u32 len + UTF-8)
  *       2 rename = name (u32 len + UTF-8);  3 unavailable;  4 update needed
  *       5 membership = event(1) ‖ subject (u32 len + UTF-8) ‖ by (flag, u32 len + UTF-8) ‖ count(u16)
@@ -26,7 +28,9 @@ internal class StoredMessage(
  */
 @Suppress("TooManyFunctions") // One small function per field kind and body tag of one record layout.
 internal object HistoryRecordCodec {
-    private const val VERSION = 1
+    /** 2 adds the reactions after the body (ADR-0006 B10a); version 1 records still read, with none. */
+    private const val VERSION = 2
+    private const val FIRST_VERSION = 1
     const val REFERENCE_BYTES = 32
     private const val MAX_ID = 128
     private const val MAX_TEXT = 1024
@@ -61,6 +65,13 @@ internal object HistoryRecordCodec {
         out.u8(stateCode(message.state))
         out.i64(message.at)
         writeBody(out, message.body)
+        check(message.reactions.isEmpty() || message.body is MessageBody.Gif) { "only a gif has reactions" }
+        check(message.reactions.size <= ReactionRules.MAX_PER_MESSAGE) { "too many reactions" }
+        out.u8(message.reactions.size)
+        message.reactions.forEach {
+            out.blob(it.by.encodeToByteArray())
+            out.blob(it.emoji.encodeToByteArray())
+        }
         return out.toByteArray()
     }
 
@@ -74,7 +85,8 @@ internal object HistoryRecordCodec {
 
     @Suppress("ReturnCount") // One early exit for each field that can be wrong.
     private fun read(input: ByteReader): StoredMessage? {
-        if (input.u8() != VERSION) return null
+        val version = input.u8()
+        if (version != VERSION && version != FIRST_VERSION) return null
         val group = KeyBytes(input.blob(MAX_ID))
         val reference = KeyBytes(input.bytes(REFERENCE_BYTES))
         val arrival = input.i64().takeIf { it >= 0 } ?: return null
@@ -83,9 +95,27 @@ internal object HistoryRecordCodec {
         val state = stateOf(input.u8())
         val at = input.i64()
         val body = readBody(input) ?: return null
+        val reactions = if (version == VERSION) readReactions(input, body) ?: return null else emptyList()
         // A sender and a delivery state go together: ours have a state, received ones don't (and the reverse).
         if (!input.done() || (sender == null) != (state != null)) return null
-        return StoredMessage(ChatMessage(group, reference, sender, seq, body, state, at), arrival)
+        return StoredMessage(ChatMessage(group, reference, sender, seq, body, state, at, reactions), arrival)
+    }
+
+    /** The reactions of a gif, checked again like anything that arrives; `null` if one breaks a rule (the record is unreadable). */
+    private fun readReactions(
+        input: ByteReader,
+        body: MessageBody,
+    ): List<Reaction>? {
+        val count = input.u8()
+        if (count > ReactionRules.MAX_PER_MESSAGE || (count > 0 && body !is MessageBody.Gif)) return null
+        val reactions =
+            List(count) {
+                val by = input.blob(MAX_TEXT).decodeToString(throwOnInvalidSequence = true)
+                val emoji = input.blob(MAX_TEXT).decodeToString(throwOnInvalidSequence = true)
+                Reaction(by, emoji)
+            }
+        val valid = reactions.all { ReactionRules.validUsername(it.by) && ReactionEmojis.canonical(it.emoji) != null }
+        return reactions.takeIf { valid && reactions.map { it.by }.toSet().size == count }
     }
 
     private fun writeBody(
