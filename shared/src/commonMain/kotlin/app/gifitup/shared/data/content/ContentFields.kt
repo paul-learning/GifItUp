@@ -1,5 +1,7 @@
 package app.gifitup.shared.data.content
 
+import app.gifitup.shared.domain.messages.MessageRefs
+
 /** Reads the fields of the content types from the parsed envelope (ADR-0006 B3); see [ContentCodec.decode]. */
 internal object ContentFields {
     private val TEXT_FIELDS = listOf("provider", "slug", "url")
@@ -14,6 +16,33 @@ internal object ContentFields {
             "group_meta" -> groupMeta(fields)
             else -> Decoded.Unsupported
         }
+
+    /**
+     * An `ann_reaction`: a target that is a message reference and an `emoji` that is a table entry or an explicit `null`.
+     * Anything else, a missing `emoji` included, is dropped (B10).
+     */
+    fun reaction(fields: Map<String, JsonValue>): Decoded {
+        val target = string(fields, "target")?.let { MessageRefs.parse(it) }
+        val raw = fields["emoji"]
+        return when {
+            target == null -> {
+                Decoded.Dropped
+            }
+
+            raw == JsonValue.Null -> {
+                Decoded.Message(Content.Reaction(target, null))
+            }
+
+            raw is JsonValue.Str -> {
+                ReactionEmojis.canonical(raw.value)?.let { Decoded.Message(Content.Reaction(target, it)) }
+                    ?: Decoded.Dropped
+            }
+
+            else -> {
+                Decoded.Dropped
+            }
+        }
+    }
 
     private fun gif(fields: Map<String, JsonValue>): Decoded {
         val reference = reference(fields)
