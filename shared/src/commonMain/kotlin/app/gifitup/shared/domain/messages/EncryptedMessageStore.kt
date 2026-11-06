@@ -131,7 +131,14 @@ class EncryptedMessageStore(
                         ChatMessage(m.groupId, m.reference, m.sender, seq ?: m.seq, m.body, state, m.at, m.reactions),
                         old.arrival,
                     )
-                log.items[index] = history.write(log.folder, updated)
+                // A message with reactions is rewritten as it is: the fallback of [HistoryRecords.write] would drop them (#263 CR-2).
+                // The caps keep a record far under the limit, so this is a defence, not a path.
+                log.items[index] =
+                    if (m.reactions.isEmpty()) {
+                        history.write(log.folder, updated)
+                    } else {
+                        updated.also { history.rewrite(log.folder, it) }
+                    }
             }
         }
     }

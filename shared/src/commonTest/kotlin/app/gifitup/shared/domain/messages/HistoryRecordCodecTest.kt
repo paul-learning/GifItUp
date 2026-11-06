@@ -177,8 +177,13 @@ class HistoryRecordCodecTest {
 
     @Test
     fun theWorstGifWithTheMostReactionsStillFitsTheCipherLimit() {
+        // The longest slug and URL the rules allow (128 characters, 64 in the file name), a caption of 120 four-byte symbols,
+        // the longest names and group id, and the 32 longest emojis of the table.
+        val longUrl = "https://static2.klipy.com/ii/0123456789abcdef0123456789abcdef/ab/cd/" + "a".repeat(64) + ".webp"
+        val widest = assertNotNull(GifReference.of("klipy", "s".repeat(128), longUrl, 2048, 2048))
         val longCaption = "\uD83D\uDE00".repeat(ContentCodec.CAPTION_MAX_CODE_POINTS)
-        val reactions = List(ReactionRules.MAX_PER_MESSAGE) { Reaction("u".repeat(32 - 2) + "%02d".format(it), ReactionEmojis.all[it]) }
+        val longest = ReactionEmojis.all.sortedByDescending { it.encodeToByteArray().size }.take(ReactionRules.MAX_PER_MESSAGE)
+        val reactions = List(ReactionRules.MAX_PER_MESSAGE) { Reaction("u".repeat(32 - 2) + "%02d".format(it), longest[it]) }
         val bytes =
             HistoryRecordCodec.encode(
                 StoredMessage(
@@ -187,7 +192,7 @@ class HistoryRecordCodecTest {
                         ref,
                         "u".repeat(32),
                         4L,
-                        MessageBody.Gif(gif, longCaption),
+                        MessageBody.Gif(widest, longCaption),
                         null,
                         123L,
                         reactions,
