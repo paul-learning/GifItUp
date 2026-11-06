@@ -183,7 +183,7 @@ class HistoryRecordCodecTest {
         val widest = assertNotNull(GifReference.of("klipy", "s".repeat(128), longUrl, 2048, 2048))
         val longCaption = "\uD83D\uDE00".repeat(ContentCodec.CAPTION_MAX_CODE_POINTS)
         val longest = ReactionEmojis.all.sortedByDescending { it.encodeToByteArray().size }.take(ReactionRules.MAX_PER_MESSAGE)
-        val reactions = List(ReactionRules.MAX_PER_MESSAGE) { Reaction("u".repeat(32 - 2) + "%02d".format(it), longest[it]) }
+        val reactions = List(ReactionRules.MAX_PER_MESSAGE) { Reaction("u".repeat(32 - 2) + it.toString().padStart(2, '0'), longest[it]) }
         val bytes =
             HistoryRecordCodec.encode(
                 StoredMessage(

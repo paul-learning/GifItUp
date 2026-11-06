@@ -92,7 +92,9 @@ class ReactionStoreTest {
         runTest {
             for (s in stores()) {
                 s.insert(received(1))
-                repeat(ReactionRules.MAX_PER_MESSAGE) { assertTrue(s.react(group, ref(1), "user_%02d".format(it), heart), "member $it") }
+                repeat(
+                    ReactionRules.MAX_PER_MESSAGE,
+                ) { assertTrue(s.react(group, ref(1), "user_" + it.toString().padStart(2, '0'), heart), "member $it") }
                 assertFalse(s.react(group, ref(1), "one_too_many", heart))
                 assertTrue(s.react(group, ref(1), "user_00", thumbsUp))
                 assertTrue(s.react(group, ref(1), "user_01", null))
@@ -191,7 +193,7 @@ class ReactionStoreTest {
                 runCatching {
                     repeat(
                         ReactionRules.MAX_PER_MESSAGE,
-                    ) { s.react(group, ref(1), "user_%02d".format(it), ReactionEmojis.all[it]) }
+                    ) { s.react(group, ref(1), "user_" + it.toString().padStart(2, '0'), ReactionEmojis.all[it]) }
                 }
             assertTrue(failure.isFailure, "the cipher refused a record over its limit")
             assertTrue(s.messages(group).single().body is MessageBody.Gif, "the GIF stays a GIF")
