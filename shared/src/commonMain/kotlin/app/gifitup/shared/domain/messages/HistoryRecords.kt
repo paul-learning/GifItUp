@@ -88,6 +88,18 @@ internal class HistoryRecords(
     }
 
     /**
+     * Seals [stored] again under its own name (a reaction was added or taken back). Unlike [write] it never turns the
+     * message into "unavailable": a record that can't be sealed throws and the old record stays.
+     */
+    suspend fun rewrite(
+        folder: String,
+        stored: StoredMessage,
+    ) {
+        val name = cipher.messageName(stored.message.groupId.bytes, stored.message.reference.bytes)
+        records.put(folder, hex(name), cipher.seal(name, HistoryRecordCodec.encode(stored)))
+    }
+
+    /**
      * Deletes the oldest records of the group beyond [max]; one that can't be deleted stays for the next insert. **The newest
      * settled group name (`group_meta`, by arrival; the same test as the chat's kind) is never deleted** (#217): it is what
      * makes a chat with one other member a group, and it is the first message of a chat, so retention would take it first.

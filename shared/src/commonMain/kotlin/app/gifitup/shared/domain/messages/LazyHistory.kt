@@ -59,6 +59,13 @@ class LazyHistory(
         seq: Long?,
     ) = gated { it.setState(groupId, reference, state, seq) }
 
+    override suspend fun react(
+        groupId: KeyBytes,
+        target: KeyBytes,
+        by: String,
+        emoji: String?,
+    ) = gated { it.react(groupId, target, by, emoji) }
+
     override suspend fun messages(groupId: KeyBytes): List<ChatMessage> = gated { it.messages(groupId) }
 
     override suspend fun forget(groupId: KeyBytes) = gated { it.forget(groupId) }

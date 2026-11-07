@@ -89,9 +89,25 @@ class ChatMessage(
     val state: DeliveryState?,
     /** When this device first saw or sent the message, seconds since the epoch by its own clock (the server sends no time). */
     val at: Long,
+    /**
+     * The reactions to this message (ADR-0006 B10a): at most one per member, in the order the members first reacted. Only a GIF
+     * has any. Kept in the message's own record, so they go when the message goes.
+     */
+    val reactions: List<Reaction> = emptyList(),
 ) {
     override fun toString(): String = "ChatMessage(state=$state)"
+
+    fun withReactions(reactions: List<Reaction>) = ChatMessage(groupId, reference, sender, seq, body, state, at, reactions)
 }
+
+/**
+ * One member's reaction: [by] is the username of the reactor's MLS credential (never taken from content), [emoji] an entry of
+ * the table.
+ */
+class Reaction(
+    val by: String,
+    val emoji: String,
+)
 
 /**
  * A group name that counts (#217): received, or sent and accepted by the server. One that is still sending or failed does not,

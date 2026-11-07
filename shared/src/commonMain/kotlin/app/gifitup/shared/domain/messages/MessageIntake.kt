@@ -19,6 +19,13 @@ class MessageIntake(
     private val nowEpochSeconds: () -> Long,
 ) : IncomingSink {
     override suspend fun deliver(message: DeliveredMessage) {
+        // A reaction is not a message: it changes the reactions of its target, if the target is a GIF of this group (B10a). The
+        // reactor is the MLS credential's username; nothing about who reacted is read from the content.
+        val reaction = (ContentCodec.decode(message.plaintext) as? Decoded.Message)?.content as? Content.Reaction
+        if (reaction != null) {
+            store.react(KeyBytes(message.groupId), reaction.target, message.senderUsername, reaction.emoji)
+            return
+        }
         val body = bodyOf(message.plaintext) ?: return
         store.insert(
             ChatMessage(
@@ -134,7 +141,7 @@ class MessageIntake(
 
                         is Content.GroupMeta -> MessageBody.GroupMeta(content.name)
 
-                        // Stored from the next change on (#88); until then a reaction is acknowledged and shown nowhere.
+                        // Applied by [deliver] before this is reached; a reaction has no body of its own.
                         is Content.Reaction -> null
                     }
                 }

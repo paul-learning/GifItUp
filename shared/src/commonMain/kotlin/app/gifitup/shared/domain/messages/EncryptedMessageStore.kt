@@ -126,11 +126,46 @@ class EncryptedMessageStore(
                 val index = log.items.indexOfFirst { it.message.reference == reference }
                 val old = log.items.getOrNull(index)?.takeIf { it.message.state != null } ?: return@guarded
                 val m = old.message
-                val updated = StoredMessage(ChatMessage(m.groupId, m.reference, m.sender, seq ?: m.seq, m.body, state, m.at), old.arrival)
-                log.items[index] = history.write(log.folder, updated)
+                val updated =
+                    StoredMessage(
+                        ChatMessage(m.groupId, m.reference, m.sender, seq ?: m.seq, m.body, state, m.at, m.reactions),
+                        old.arrival,
+                    )
+                // A message with reactions is rewritten as it is: the fallback of [HistoryRecords.write] would drop them (#263 CR-2).
+                // The caps keep a record far under the limit, so this is a defence, not a path.
+                log.items[index] =
+                    if (m.reactions.isEmpty()) {
+                        history.write(log.folder, updated)
+                    } else {
+                        updated.also { history.rewrite(log.folder, it) }
+                    }
             }
         }
     }
+
+    /**
+     * The reactions of a message are part of its own sealed record (ADR-0006 B10a): the record is rewritten under the same name,
+     * so they leave with the message (retention, [forget], reset, the wipe) and need no name of their own. A reaction is only
+     * applied to a message that is held and readable, and a failed write leaves the memory as it was.
+     */
+    override suspend fun react(
+        groupId: KeyBytes,
+        target: KeyBytes,
+        by: String,
+        emoji: String?,
+    ): Boolean =
+        mutex.withLock {
+            guarded {
+                val log = logFor(groupId, create = false) ?: return@guarded false
+                val index = log.items.indexOfFirst { it.message.reference == target }
+                val old = log.items.getOrNull(index) ?: return@guarded false
+                val reactions = ReactionRules.apply(old.message, by, emoji) ?: return@guarded false
+                val updated = StoredMessage(old.message.withReactions(reactions), old.arrival)
+                history.rewrite(log.folder, updated)
+                log.items[index] = updated
+                true
+            }
+        }
 
     override suspend fun messages(groupId: KeyBytes): List<ChatMessage> =
         mutex.withLock { guarded { logFor(groupId, create = false)?.items?.map { it.message }.orEmpty() } }

@@ -371,4 +371,48 @@ class MessagesTest {
             assertEquals(listOf(MembershipEvent.ADDED, MembershipEvent.REMOVED), own.map { (it.body as MessageBody.Membership).event })
             assertNull((own.first().body as MessageBody.Membership).by)
         }
+
+    private val heart = "\u2764\uFE0F"
+
+    private suspend fun storeGif(n: Int): KeyBytes {
+        intake.deliver(delivered(assertNotNull(ContentCodec.encodeGif(reference, null)), n))
+        return KeyBytes(ref(n))
+    }
+
+    @Test
+    fun aReactionIsAppliedToItsGifUnderTheSendersCredentialNameAndIsNotAMessage() =
+        runTest {
+            val target = storeGif(1)
+            intake.deliver(delivered(assertNotNull(ContentCodec.encodeReaction(target, heart)), 2))
+            val messages = store.messages(KeyBytes(group))
+            assertEquals(1, messages.size, "a reaction is not a message")
+            assertEquals(listOf("iris" to heart), messages.single().reactions.map { it.by to it.emoji })
+            intake.deliver(delivered(assertNotNull(ContentCodec.encodeReaction(target, null)), 3))
+            assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions)
+        }
+
+    @Test
+    fun aReactionToNothingOrToANonGifIsAcknowledgedAndChangesNothing() =
+        runTest {
+            val target = storeGif(1)
+            intake.deliver(delivered(assertNotNull(ContentCodec.encodeGroupMeta("Trip")), 2))
+            val rename = KeyBytes(ref(2))
+            intake.deliver(delivered(assertNotNull(ContentCodec.encodeReaction(KeyBytes(ref(77)), heart)), 3))
+            intake.deliver(delivered(assertNotNull(ContentCodec.encodeReaction(rename, heart)), 4))
+            intake.deliver(delivered(assertNotNull(ContentCodec.encodeReaction(target, heart)), 5, groupId = byteArrayOf(9)))
+            val messages = store.messages(KeyBytes(group))
+            assertEquals(2, messages.size)
+            assertEquals(emptyList(), messages.flatMap { it.reactions })
+            assertEquals(emptyList(), store.messages(KeyBytes(byteArrayOf(9))))
+        }
+
+    @Test
+    fun aReactionWithAnEmojiOutsideTheTableIsDroppedBeforeTheStoreSeesIt() =
+        runTest {
+            val target = storeGif(1)
+            val bad = """{"v":1,"type":"ann_reaction","target":"${MessageRefs.format(target)}","emoji":"x"}"""
+            intake.deliver(delivered(bad.encodeToByteArray(), 2))
+            assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions)
+            assertEquals(1, store.messages(KeyBytes(group)).size)
+        }
 }
