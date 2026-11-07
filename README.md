@@ -9,6 +9,7 @@ A messenger for friends where you can only send GIFs. Every chat is end-to-end e
 - **Status:** pre-alpha, see [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## Docs
+- [Alpha guide for friends](docs/alpha-guide.md) and the [owner checklist](docs/ops/alpha-checklist.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Architecture decisions](docs/adr/)
 - [Threat model](docs/security/threat-model.md)
