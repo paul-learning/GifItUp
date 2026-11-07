@@ -65,6 +65,8 @@ class CliTest {
         listOf("chat-send", "chat-sync", "chat-resume", "chat-history", "chat-rename").forEach {
             assertEquals(it, Invocation.parse(listOf(it) + base + listOf("--group", group)).command)
         }
+        val react = Invocation.parse(listOf("chat-react") + base + listOf("--group", group, "--seq", "3"))
+        assertEquals(3L, react.seq)
         assertEquals("chat-welcomes", Invocation.parse(listOf("chat-welcomes") + base).command)
         assertEquals("gif-provider", Invocation.parse(listOf("gif-provider") + base).command)
         assertEquals(
@@ -74,6 +76,7 @@ class CliTest {
                 "chat-remove",
                 "chat-send",
                 "chat-rename",
+                "chat-react",
                 "chat-sync",
                 "chat-history",
                 "chat-resume",
@@ -90,6 +93,8 @@ class CliTest {
                 listOf("chat-add") + base + listOf("--group", group), // no target
                 listOf("chat-send") + base + listOf("--group", group, "--text", "hello"), // the text comes from stdin only
                 listOf("chat-sync") + base + listOf("--group", group, "--seq", "3"),
+                listOf("chat-react") + base + listOf("--group", group), // no seq
+                listOf("chat-react") + base + listOf("--seq", "3"), // no group
                 listOf("chat-welcomes") + base + listOf("--group", group),
                 listOf("chat-send") + base + listOf("--group", "AAAA"), // a group id under 16 bytes
                 listOf("group-post") + base + listOf("--group", group, "--target", "ben"), // the wire driver takes no target

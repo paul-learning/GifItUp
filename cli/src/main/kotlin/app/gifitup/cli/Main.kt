@@ -3,6 +3,7 @@ package app.gifitup.cli
 import app.gifitup.mls.UniffiMlsClientFactory
 import io.ktor.client.engine.java.Java
 import kotlinx.coroutines.runBlocking
+import java.io.PrintStream
 import java.net.http.HttpClient
 import java.security.SecureRandom
 import kotlin.system.exitProcess
@@ -22,7 +23,8 @@ fun main(args: Array<String>) {
                     random = { size -> ByteArray(size).also(random::nextBytes) },
                     readInvite = ::readInvite,
                     readText = ::readText,
-                    out = System.out,
+                    // UTF-8 whatever the locale: a reaction's emoji is part of the fixed output lines (chat-history, #88).
+                    out = PrintStream(System.out, true, Charsets.UTF_8),
                     err = System.err,
                 )
             runBlocking { cli.run(Invocation.parse(args.toList())) }

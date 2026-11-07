@@ -2,10 +2,12 @@ package app.gifitup.cli
 
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.domain.auth.AuthResult
+import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.groups.IncomingSink
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.messages.EncryptedMessageStore
+import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.domain.messages.MessageIntake
 import app.gifitup.shared.domain.messages.SendGif
 import java.io.PrintStream
@@ -19,6 +21,7 @@ import kotlin.time.Clock
  * the text is encrypted before it is posted. Group ids, usernames and counts are printed; keys, tokens and KeyPackages
  * never.
  */
+@Suppress("TooManyFunctions") // One small function per command of the chat family.
 internal class ChatCommands(
     private val chat: ChatActions,
     private val store: EncryptedMessageStore,
@@ -48,6 +51,7 @@ internal class ChatCommands(
             "chat-remove" -> change(session, checkNotNull(group), checkNotNull(invocation.target), add = false)
             "chat-send" -> send(session, checkNotNull(group))
             "chat-rename" -> rename(session, checkNotNull(group))
+            "chat-react" -> react(session, checkNotNull(group), checkNotNull(invocation.seq))
             "chat-sync" -> outcome(chat.sync(session, checkNotNull(group), sink)) { "synced, ${it.applied} log entries" }
             "chat-resume" -> outcome(chat.resume(session, checkNotNull(group), sink)) { "nothing was pending" }
             "chat-groups" -> groups(session)
@@ -93,6 +97,35 @@ internal class ChatCommands(
         session: Session,
         group: ByteArray,
     ): Int = outcome(sendGif.rename(session, group, readText(), sink)) { sent -> "renamed at seq ${sent.seq}" }
+
+    /**
+     * Reacts to the stored GIF with the server order number [seq] with the emoji on stdin (an empty line takes the reaction back),
+     * through the app's own use case; the reaction shows in `chat-history` once the server accepted it (ADR-0006 B10a).
+     */
+    private suspend fun react(
+        session: Session,
+        group: ByteArray,
+        seq: Long,
+    ): Int {
+        val target =
+            store
+                .messages(KeyBytes(group))
+                .firstOrNull { it.seq == seq && it.body is MessageBody.Gif }
+                ?.reference
+                ?: throw CliError("no stored GIF with that seq in this group (see chat-history)", EXIT_REFUSED)
+        val emoji = readText().ifEmpty { null }
+        return when (val groups = chat.groups(session, sink)) {
+            is AuthResult.Failed -> {
+                report(groups)
+            }
+
+            is AuthResult.Ok -> {
+                val result = sendGif.react(session, group, target, emoji, groups.value.own, sink)
+                if (result is AuthResult.Ok && result.value is SyncOutcome.InvalidRequest) throw CliError(NO_CHANGE_LINE, EXIT_REFUSED)
+                outcome(result) { sent -> (if (emoji == null) "reaction taken back" else "reacted") + " at seq ${sent.seq}" }
+            }
+        }
+    }
 
     private suspend fun groups(session: Session): Int =
         when (val result = chat.groups(session, sink)) {
@@ -154,3 +187,7 @@ internal class ChatCommands(
         return EXIT_OK
     }
 }
+
+private const val NO_CHANGE_LINE =
+    "that can't be done: the reaction changes nothing " +
+        "(the same emoji again, a message that is not a GIF, or 32 members have reacted already)"

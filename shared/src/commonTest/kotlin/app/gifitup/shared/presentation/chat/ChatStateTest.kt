@@ -133,6 +133,13 @@ class ChatStateTest {
             return answer(sendOutcome)
         }
 
+        override suspend fun react(
+            session: Session,
+            groupId: KeyBytes,
+            target: KeyBytes,
+            emoji: String?,
+        ): AuthResult<SyncOutcome> = error("not used")
+
         override suspend fun resume(
             session: Session,
             groupId: KeyBytes,

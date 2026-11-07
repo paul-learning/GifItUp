@@ -72,6 +72,7 @@ class EndToEndTest {
             groups(cli, dbEnv)
             chat(cli, dbEnv)
             history(cli, dbEnv)
+            reactions(cli, dbEnv)
             gifProvider(cli, dbEnv, port, gifKey)
             server.stopAndWait()
             assertNoSecretInOutput()
@@ -660,6 +661,80 @@ class EndToEndTest {
         assertTrue(other.contentEquals(Files.readAllBytes(keyFile)), "and the key file is untouched")
         Files.write(keyFile, key)
         assertEquals(shown, ok(milo, "chat-history", "--group", group), "the right key shows the message again: nothing was lost")
+    }
+
+    /**
+     * Emoji reactions (#88, ADR-0006 B10a) through the real server and the CLI: omar reacts to nora's GIF with the emoji on
+     * stdin, so the server only relays one more sealed message. The reaction shows on omar's copy once the server accepted
+     * it and on nora's after her next sync; it is no "message" for anybody; the same reaction again, and a GIF that is not
+     * stored, are refused before anything is sent; taking it back removes it. Fresh accounts (a device may log in 10 times an
+     * hour, and every command logs in, so the step is lean).
+     */
+    @Suppress("LongMethod") // One scripted scenario with two accounts; splitting it would hide the order that matters.
+    private fun reactions(
+        cli: Cli,
+        dbEnv: Map<String, String>,
+    ) {
+        fun register(name: String): Path {
+            val state = work.resolve("state-$name")
+            assertEquals(0, cli.run("register", state, "--username", "e2e_$name", stdin = createInvite(dbEnv)).exit, "register $name")
+            return state
+        }
+
+        fun ok(
+            state: Path,
+            command: String,
+            vararg args: String,
+            stdin: String = "",
+        ): List<String> {
+            val finished = cli.run(command, state, *args, stdin = stdin)
+            assertEquals(0, finished.exit, "$command exit code: ${finished.stderr}")
+            return finished.stdout.lines().filter { it.isNotBlank() }
+        }
+
+        fun refused(
+            state: Path,
+            expected: String,
+            vararg args: String,
+            stdin: String = "",
+        ) {
+            val finished = cli.run("chat-react", state, *args, stdin = stdin)
+            assertEquals(EXIT_REFUSED, finished.exit, "chat-react: exit code")
+            assertTrue(expected in finished.stderr, "chat-react: the refusal says '$expected': ${finished.stderr}")
+        }
+
+        val nora = register("nora")
+        val omar = register("omar")
+        assertEquals(0, cli.run("keypackages-refill", omar).exit, "omar refills")
+        plaintexts += "react to this"
+        val created = ok(nora, "chat-create", "--target", "e2e_omar").single()
+        val group = Regex("^created group (\\S+) at seq 1$").matchEntire(created)?.groupValues?.get(1) ?: fail("chat-create: $created")
+        assertEquals(listOf("joined group $group"), ok(omar, "chat-welcomes"))
+        assertEquals(listOf("sent at seq 2"), ok(nora, "chat-send", "--group", group, stdin = "react to this"))
+        val gif = "gif e2e-test-gif \"react to this\""
+        assertEquals(listOf("message 2 from e2e_nora: $gif", "synced, 1 log entries"), ok(omar, "chat-sync", "--group", group))
+
+        val heart = "\u2764\uFE0F"
+        refused(omar, "no stored GIF with that seq", "--group", group, "--seq", "99", stdin = heart)
+        assertEquals(listOf("reacted at seq 3"), ok(omar, "chat-react", "--group", group, "--seq", "2", stdin = heart))
+        refused(omar, "the reaction changes nothing", "--group", group, "--seq", "2", stdin = heart)
+        assertTrue(
+            ok(omar, "chat-history", "--group", group).contains("stored 2 e2e_nora -: $gif | reactions e2e_omar=$heart"),
+            "omar's own reaction shows on the GIF after the server accepted it",
+        )
+        val sync = ok(nora, "chat-sync", "--group", group)
+        assertTrue(sync.none { it.startsWith("message ") }, "a reaction is no message: $sync")
+        assertTrue(
+            ok(nora, "chat-history", "--group", group).contains("stored 2 - sent: $gif | reactions e2e_omar=$heart"),
+            "nora sees omar's reaction on her GIF, under his name",
+        )
+
+        assertEquals(listOf("reaction taken back at seq 4"), ok(omar, "chat-react", "--group", group, "--seq", "2", stdin = "\n"))
+        ok(nora, "chat-sync", "--group", group)
+        assertTrue(
+            ok(nora, "chat-history", "--group", group).contains("stored 2 - sent: $gif"),
+            "the reaction is gone from nora's GIF after omar took it back",
+        )
     }
 
     /**

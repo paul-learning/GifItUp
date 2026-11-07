@@ -115,7 +115,12 @@ private fun bodyText(body: MessageBody): String =
 
 /** One stored message of `chat-history`: seq (or `-`), sender (or `-` for one this device sent), state (or `-`), the same text. */
 internal fun storedLine(message: ChatMessage): String =
-    "stored ${message.seq ?: "-"} ${message.sender ?: "-"} ${message.state?.name?.lowercase() ?: "-"}: ${bodyText(message.body)}"
+    "stored ${message.seq ?: "-"} ${message.sender ?: "-"} ${message.state?.name?.lowercase() ?: "-"}: ${bodyText(message.body)}" +
+        reactionsText(message)
+
+/** ` | reactions iris=❤️ jack=👍` after a GIF that has reactions, nothing for one that has none. */
+private fun reactionsText(message: ChatMessage): String =
+    if (message.reactions.isEmpty()) "" else " | reactions " + message.reactions.joinToString(" ") { "${it.by}=${it.emoji}" }
 
 private const val TEST_GIF_WIDTH = 320
 private const val TEST_GIF_HEIGHT = 240

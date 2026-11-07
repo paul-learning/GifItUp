@@ -73,4 +73,34 @@ class StoringSinkTest {
             )
         assertEquals("stored 3 - sent: update needed", storedLine(own))
     }
+
+    @Test
+    fun aStoredGifShowsItsReactionsAfterTheText() {
+        val reference =
+            checkNotNull(
+                app.gifitup.shared.data.content.GifReference.of(
+                    "klipy",
+                    "slug-1",
+                    "https://static.klipy.com/ii/0123456789abcdef0123456789abcdef/ab/cd/slug-1.webp",
+                    320,
+                    240,
+                ),
+            )
+        val kb =
+            app.gifitup.shared.domain.contacts
+                .KeyBytes(ByteArray(32))
+        val gif =
+            app.gifitup.shared.domain.messages.MessageBody
+                .Gif(reference, null)
+        val reactions =
+            listOf(
+                app.gifitup.shared.domain.messages
+                    .Reaction("iris", "\u2764\uFE0F"),
+                app.gifitup.shared.domain.messages
+                    .Reaction("jack", "\uD83D\uDC4D"),
+            )
+        val with = ChatMessage(kb, kb, "bob", 2, gif, null, 1L, reactions)
+        assertEquals("stored 2 bob -: gif slug-1 | reactions iris=\u2764\uFE0F jack=\uD83D\uDC4D", storedLine(with))
+        assertEquals("stored 2 bob -: gif slug-1", storedLine(ChatMessage(kb, kb, "bob", 2, gif, null, 1L)))
+    }
 }

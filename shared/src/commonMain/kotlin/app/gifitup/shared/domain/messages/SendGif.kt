@@ -37,6 +37,9 @@ class SendGif(
     /** Sends and resumes of this use case run one at a time, so the reconcile and the answer see the same state. */
     private val mutex = Mutex()
 
+    /** Reactions that are sealed and not settled yet (ADR-0006 B10a); see [PendingReactions]. */
+    private val reactions = PendingReactions(store)
+
     suspend operator fun invoke(
         session: Session,
         groupId: ByteArray,
@@ -65,11 +68,39 @@ class SendGif(
             if (content == null) AuthResult.Ok(SyncOutcome.InvalidRequest) else send(session, groupId, content, sink)
         }
 
+    /**
+     * Reacts to the GIF [target] with [emoji], or takes the own reaction back (`null`) (ADR-0006 B10a). [own] is the user's
+     * own username. Sent like any message (one in flight per group, resumable), but no message appears in the history: the
+     * reaction is applied to the target when the server accepted it. A reaction that would change nothing (the same emoji
+     * again, a target that is not a GIF this device holds, a full message) sends nothing ([SyncOutcome.InvalidRequest]).
+     */
+    @Suppress("LongParameterList") // The session, the group, the target, the emoji, the user's name and the sink: one each.
+    suspend fun react(
+        session: Session,
+        groupId: ByteArray,
+        target: KeyBytes,
+        emoji: String?,
+        own: String,
+        sink: IncomingSink,
+    ): AuthResult<SyncOutcome> =
+        mutex.withLock {
+            val group = KeyBytes(groupId)
+            val content = ContentCodec.encodeReaction(target, emoji)
+            val message = store.messages(group).firstOrNull { it.reference == target }
+            val changes = message != null && ReactionRules.apply(message, own, emoji) != null
+            if (content == null || !changes) {
+                AuthResult.Ok(SyncOutcome.InvalidRequest)
+            } else {
+                send(session, groupId, content, sink, PendingReactions.Entry(group, target, own, emoji))
+            }
+        }
+
     private suspend fun send(
         session: Session,
         groupId: ByteArray,
         content: ByteArray,
         sink: IncomingSink,
+        reaction: PendingReactions.Entry? = null,
     ): AuthResult<SyncOutcome> {
         val group = KeyBytes(groupId)
         var sealed: KeyBytes? = null
@@ -77,10 +108,14 @@ class SendGif(
             object : SendObserver {
                 override suspend fun sealed(messageRef: ByteArray) {
                     val ref = KeyBytes(messageRef)
-                    // Shown the way a recipient will read it (trimmed caption), from the bytes that are sent. A failing
-                    // insert aborts the send: the engine does not persist or post what the history could not store.
-                    val body = MessageIntake.bodyOf(content) ?: MessageBody.Unavailable
-                    store.insert(ChatMessage(group, ref, null, null, body, DeliveryState.SENDING, nowEpochSeconds()))
+                    if (reaction != null) {
+                        reactions.remember(ref, reaction)
+                    } else {
+                        // Shown the way a recipient will read it (trimmed caption), from the bytes that are sent. A failing
+                        // insert aborts the send: the engine does not persist or post what the history could not store.
+                        val body = MessageIntake.bodyOf(content) ?: MessageBody.Unavailable
+                        store.insert(ChatMessage(group, ref, null, null, body, DeliveryState.SENDING, nowEpochSeconds()))
+                    }
                     sealed = ref
                 }
 
@@ -132,6 +167,7 @@ class SendGif(
         if (state.pendingUnknown) return
         val pending = state.pending?.let(::KeyBytes)
         val lastSent = state.lastSent?.let(::KeyBytes)
+        reactions.reconcile(group, pending, lastSent, state.lastSentSeq != null)
         // A store that fails here throws: the engine then sends nothing new, so a record left SENDING is never outlived by a
         // newer "last accepted" send (it would be FAILED though it was delivered).
         store.messages(group).filter { it.state == DeliveryState.SENDING && it.reference != pending }.forEach { message ->
@@ -161,6 +197,7 @@ class SendGif(
         reference: KeyBytes,
         outcome: SyncOutcome,
     ) {
+        reactions.settle(reference, outcome)
         when (outcome) {
             is SyncOutcome.Sent -> store.setState(group, reference, DeliveryState.SENT, outcome.seq)
             is SyncOutcome.Rejected -> store.setState(group, reference, DeliveryState.FAILED)
