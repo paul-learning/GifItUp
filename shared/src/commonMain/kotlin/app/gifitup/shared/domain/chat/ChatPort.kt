@@ -62,6 +62,17 @@ interface ChatPort {
         name: String,
     ): AuthResult<SyncOutcome>
 
+    /**
+     * Reacts to the GIF [target] with [emoji], or takes the own reaction back (`null`) (ADR-0006 B10a). It shows on the GIF
+     * once the server accepted it; one that would change nothing sends nothing ([SyncOutcome.InvalidRequest]).
+     */
+    suspend fun react(
+        session: Session,
+        groupId: KeyBytes,
+        target: KeyBytes,
+        emoji: String?,
+    ): AuthResult<SyncOutcome>
+
     /** Posts the group's unsettled message again. */
     suspend fun resume(
         session: Session,

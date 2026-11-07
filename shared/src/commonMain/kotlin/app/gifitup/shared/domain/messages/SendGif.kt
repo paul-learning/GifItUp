@@ -37,6 +37,21 @@ class SendGif(
     /** Sends and resumes of this use case run one at a time, so the reconcile and the answer see the same state. */
     private val mutex = Mutex()
 
+    /**
+     * Reactions that are sealed and not settled yet, by their message reference (ADR-0006 B10a). A reaction has no record of
+     * its own: it is applied to the target once the server accepted it (here, on the answer of a send, of a resume, or of the
+     * next send that settles it first), never before, and dropped when the server refused it. Memory only, bounded: a process
+     * that ends between an unknown answer and the resume loses the local chip of its own reaction (the others have it).
+     */
+    private val pendingReactions = LinkedHashMap<KeyBytes, PendingReaction>()
+
+    private class PendingReaction(
+        val group: KeyBytes,
+        val target: KeyBytes,
+        val own: String,
+        val emoji: String?,
+    )
+
     suspend operator fun invoke(
         session: Session,
         groupId: ByteArray,
@@ -65,11 +80,39 @@ class SendGif(
             if (content == null) AuthResult.Ok(SyncOutcome.InvalidRequest) else send(session, groupId, content, sink)
         }
 
+    /**
+     * Reacts to the GIF [target] with [emoji], or takes the own reaction back (`null`) (ADR-0006 B10a). [own] is the user's
+     * own username. Sent like any message (one in flight per group, resumable), but no message appears in the history: the
+     * reaction is applied to the target when the server accepted it. A reaction that would change nothing (the same emoji
+     * again, a target that is not a GIF this device holds, a full message) sends nothing ([SyncOutcome.InvalidRequest]).
+     */
+    @Suppress("LongParameterList") // The session, the group, the target, the emoji, the user's name and the sink: one each.
+    suspend fun react(
+        session: Session,
+        groupId: ByteArray,
+        target: KeyBytes,
+        emoji: String?,
+        own: String,
+        sink: IncomingSink,
+    ): AuthResult<SyncOutcome> =
+        mutex.withLock {
+            val group = KeyBytes(groupId)
+            val content = ContentCodec.encodeReaction(target, emoji)
+            val message = store.messages(group).firstOrNull { it.reference == target }
+            val changes = message != null && ReactionRules.apply(message, own, emoji) != null
+            if (content == null || !changes) {
+                AuthResult.Ok(SyncOutcome.InvalidRequest)
+            } else {
+                send(session, groupId, content, sink, PendingReaction(group, target, own, emoji))
+            }
+        }
+
     private suspend fun send(
         session: Session,
         groupId: ByteArray,
         content: ByteArray,
         sink: IncomingSink,
+        reaction: PendingReaction? = null,
     ): AuthResult<SyncOutcome> {
         val group = KeyBytes(groupId)
         var sealed: KeyBytes? = null
@@ -77,10 +120,14 @@ class SendGif(
             object : SendObserver {
                 override suspend fun sealed(messageRef: ByteArray) {
                     val ref = KeyBytes(messageRef)
-                    // Shown the way a recipient will read it (trimmed caption), from the bytes that are sent. A failing
-                    // insert aborts the send: the engine does not persist or post what the history could not store.
-                    val body = MessageIntake.bodyOf(content) ?: MessageBody.Unavailable
-                    store.insert(ChatMessage(group, ref, null, null, body, DeliveryState.SENDING, nowEpochSeconds()))
+                    if (reaction != null) {
+                        remember(ref, reaction)
+                    } else {
+                        // Shown the way a recipient will read it (trimmed caption), from the bytes that are sent. A failing
+                        // insert aborts the send: the engine does not persist or post what the history could not store.
+                        val body = MessageIntake.bodyOf(content) ?: MessageBody.Unavailable
+                        store.insert(ChatMessage(group, ref, null, null, body, DeliveryState.SENDING, nowEpochSeconds()))
+                    }
                     sealed = ref
                 }
 
@@ -156,11 +203,43 @@ class SendGif(
         }
     }
 
+    private fun remember(
+        reference: KeyBytes,
+        reaction: PendingReaction,
+    ) {
+        pendingReactions[reference] = reaction
+        while (pendingReactions.size > MAX_PENDING_REACTIONS) pendingReactions.remove(pendingReactions.keys.first())
+    }
+
+    /** The answer to a reaction: accepted, then it shows on its target; refused, then it is forgotten; anything else waits. */
+    private suspend fun settleReaction(
+        reference: KeyBytes,
+        outcome: SyncOutcome,
+    ) {
+        val pending = pendingReactions[reference] ?: return
+        when (outcome) {
+            is SyncOutcome.Sent -> {
+                // A store that fails here throws (the caller swallows it for a settle): the reaction then stays unapplied here.
+                pendingReactions.remove(reference)
+                store.react(pending.group, pending.target, pending.own, pending.emoji)
+            }
+
+            is SyncOutcome.Rejected -> {
+                pendingReactions.remove(reference)
+            }
+
+            else -> {
+                Unit
+            }
+        }
+    }
+
     private suspend fun settleOrThrow(
         group: KeyBytes,
         reference: KeyBytes,
         outcome: SyncOutcome,
     ) {
+        settleReaction(reference, outcome)
         when (outcome) {
             is SyncOutcome.Sent -> store.setState(group, reference, DeliveryState.SENT, outcome.seq)
             is SyncOutcome.Rejected -> store.setState(group, reference, DeliveryState.FAILED)
@@ -168,3 +247,5 @@ class SendGif(
         }
     }
 }
+
+private const val MAX_PENDING_REACTIONS = 64

@@ -1,6 +1,8 @@
 package app.gifitup.shared.domain.messages
 
+import app.gifitup.shared.data.content.Content
 import app.gifitup.shared.data.content.ContentCodec
+import app.gifitup.shared.data.content.Decoded
 import app.gifitup.shared.data.content.GifReference
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.Session
@@ -414,5 +416,85 @@ class MessagesTest {
             intake.deliver(delivered(bad.encodeToByteArray(), 2))
             assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions)
             assertEquals(1, store.messages(KeyBytes(group)).size)
+        }
+
+    private val own = "me_user"
+
+    private fun sendGif(chat: FakeChat) = SendGif(chat, store) { NOW }
+
+    @Test
+    fun aReactionIsAppliedOnlyOnceTheServerAcceptedItAndMakesNoMessage() =
+        runTest {
+            val target = storeGif(1)
+            val chat = FakeChat(SyncOutcome.Sent(9))
+            val result = sendGif(chat).react(session, group, target, heart, own, sink)
+            assertEquals(SyncOutcome.Sent(9), (result as AuthResult.Ok).value)
+            val messages = store.messages(KeyBytes(group))
+            assertEquals(1, messages.size, "a reaction is not a message and has no sending record")
+            assertEquals(listOf(own to heart), messages.single().reactions.map { it.by to it.emoji })
+            val sent = assertIs<Decoded.Message>(ContentCodec.decode(assertNotNull(chat.sent)))
+            assertEquals(target, assertIs<Content.Reaction>(sent.content).target)
+        }
+
+    @Test
+    fun aReactionWithAnUnknownAnswerIsAppliedWhenTheResumeIsAccepted() =
+        runTest {
+            val target = storeGif(1)
+            val chat = FakeChat(SyncOutcome.Unavailable(ApiError.NETWORK))
+            val sender = sendGif(chat)
+            sender.react(session, group, target, heart, own, sink)
+            assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions, "not yet")
+            chat.outcome = SyncOutcome.Sent(10)
+            sender.resume(session, group, sink)
+            assertEquals(
+                listOf(own to heart),
+                store
+                    .messages(KeyBytes(group))
+                    .single()
+                    .reactions
+                    .map { it.by to it.emoji },
+            )
+        }
+
+    @Test
+    fun aRefusedReactionIsForgottenAndNeverShows() =
+        runTest {
+            val target = storeGif(1)
+            val chat = FakeChat(SyncOutcome.Rejected(ApiError.NETWORK))
+            val sender = sendGif(chat)
+            sender.react(session, group, target, heart, own, sink)
+            chat.outcome = SyncOutcome.Sent(11)
+            sender.resume(session, group, sink)
+            assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions)
+        }
+
+    @Test
+    fun aReactionThatWouldChangeNothingSendsNothing() =
+        runTest {
+            val target = storeGif(1)
+            val chat = FakeChat(SyncOutcome.Sent(9))
+            val sender = sendGif(chat)
+
+            fun invalid(result: AuthResult<SyncOutcome>) = assertEquals(SyncOutcome.InvalidRequest, (result as AuthResult.Ok).value)
+            invalid(sender.react(session, group, KeyBytes(ref(77)), heart, own, sink))
+            invalid(sender.react(session, group, target, "x", own, sink))
+            invalid(sender.react(session, group, target, null, own, sink))
+            assertNull(chat.sent, "nothing reached the engine")
+            sender.react(session, group, target, heart, own, sink)
+            chat.sent = null
+            invalid(sender.react(session, group, target, heart, own, sink))
+            assertNull(chat.sent)
+        }
+
+    @Test
+    fun aReactionCanBeTakenBack() =
+        runTest {
+            val target = storeGif(1)
+            val chat = FakeChat(SyncOutcome.Sent(9), sealWith = ByteArray(32) { 50 })
+            val sender = sendGif(chat)
+            sender.react(session, group, target, heart, own, sink)
+            chat.sealWith = ByteArray(32) { 51 }
+            sender.react(session, group, target, null, own, sink)
+            assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions)
         }
 }

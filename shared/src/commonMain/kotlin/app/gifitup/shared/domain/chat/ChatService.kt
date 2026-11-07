@@ -17,6 +17,7 @@ import app.gifitup.shared.domain.messages.SendGif
  * [ChatPort] over [ChatActions]: everything it reads goes into [store] through a [MessageIntake], and a GIF is sent
  * with [SendGif], so the store shows what is sending, sent or failed. One instance per signed-in app instance.
  */
+@Suppress("TooManyFunctions") // One function per use case of the ChatPort it implements.
 class ChatService(
     private val actions: ChatActions,
     private val store: HistoryAccess,
@@ -106,6 +107,18 @@ class ChatService(
         reference: GifReference,
         caption: String?,
     ): AuthResult<SyncOutcome> = gifs(session, groupId.bytes, reference, caption, intake)
+
+    override suspend fun react(
+        session: Session,
+        groupId: KeyBytes,
+        target: KeyBytes,
+        emoji: String?,
+    ): AuthResult<SyncOutcome> =
+        // The user's own name comes from the engine's own state, not from anything a caller or the server says.
+        when (val list = actions.groups(session, intake)) {
+            is AuthResult.Failed -> AuthResult.Failed(list.error)
+            is AuthResult.Ok -> gifs.react(session, groupId.bytes, target, emoji, list.value.own, intake)
+        }
 
     override suspend fun resume(
         session: Session,

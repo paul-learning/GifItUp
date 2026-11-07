@@ -87,6 +87,13 @@ class GroupInfoStateTest {
             caption: String?,
         ) = AuthResult.Ok<SyncOutcome>(SyncOutcome.Sent(1))
 
+        override suspend fun react(
+            session: Session,
+            groupId: KeyBytes,
+            target: KeyBytes,
+            emoji: String?,
+        ): AuthResult<SyncOutcome> = error("not used")
+
         override suspend fun resume(
             session: Session,
             groupId: KeyBytes,
