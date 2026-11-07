@@ -1,5 +1,6 @@
 package app.gifitup.shared.domain.events
 
+import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.socket.SocketFrames
 import app.gifitup.shared.domain.auth.AuthError
@@ -100,6 +101,7 @@ class LiveUpdates(
     suspend fun start() {
         lifecycle.withLock {
             if (job?.isActive == true || nowMillis() < blockedUntil) return
+            forced = false
             if (nowMillis() - lastOpenAt > QUIET_RESET_MILLIS) memory.failures = 0
             if (flow.value.stopped == StopReason.SESSION_REFUSED) memory.relogged = false
             job = scope.launch { run() }
@@ -111,6 +113,7 @@ class LiveUpdates(
         lifecycle.withLock {
             job?.cancelAndJoin()
             job = null
+            forced = false
             withContext(NonCancellable) { closeLink() }
             flow.value = LiveStatus(LiveState.STOPPED, flow.value.stopped)
         }
@@ -156,19 +159,31 @@ class LiveUpdates(
     /** One pass: a session, a socket, listening, then the wait its close code asks for. `false` ends the loop for good. */
     private suspend fun cycle(): Boolean {
         flow.value = LiveStatus(LiveState.CONNECTING)
+        // Taken before the session is asked for, so a wipe at any point from here to the hello is seen (#271 SEC-18).
+        val generation = sessions.mark()
         return when (val s = sessions.session()) {
             is AuthResult.Failed -> sessionFailed(s.error)
-            is AuthResult.Ok -> connect(s.value)
+            is AuthResult.Ok -> connect(s.value, generation)
         }
     }
 
-    private suspend fun sessionFailed(error: AuthError): Boolean {
-        if (error == AuthError.Local.NOT_REGISTERED) {
-            stopFor(StopReason.NOT_SIGNED_IN)
-            return false
+    private suspend fun sessionFailed(error: AuthError): Boolean =
+        when (error) {
+            AuthError.Local.NOT_REGISTERED -> {
+                stopFor(StopReason.NOT_SIGNED_IN)
+                false
+            }
+
+            // The login budget (ADR-0009) is used up: nothing here can help before it refills, and asking again spends it.
+            AuthError.Api(ApiError.RATE_LIMITED) -> {
+                wait(LOGIN_LIMITED_MILLIS)
+                true
+            }
+
+            else -> {
+                failed()
+            }
         }
-        return failed()
-    }
 
     private suspend fun failed(): Boolean {
         memory.failures++
@@ -176,8 +191,10 @@ class LiveUpdates(
         return true
     }
 
-    private suspend fun connect(session: Session): Boolean {
-        val generation = sessions.mark()
+    private suspend fun connect(
+        session: Session,
+        generation: Int,
+    ): Boolean {
         // Never two attempts less than a second apart, however the screens start and stop us.
         val sinceLast = nowMillis() - lastOpenAt
         if (sinceLast < MIN_OPEN_GAP_MILLIS) delay(MIN_OPEN_GAP_MILLIS - sinceLast)
@@ -325,5 +342,6 @@ class LiveUpdates(
         const val MIN_OPEN_GAP_MILLIS = 1_000L
         const val QUIET_RESET_MILLIS = 10 * 60_000L
         const val REFUSED_BLOCK_MILLIS = 10 * 60_000L
+        const val LOGIN_LIMITED_MILLIS = 10 * 60_000L
     }
 }

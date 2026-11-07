@@ -2,6 +2,7 @@ package app.gifitup.shared.domain.events
 
 import app.gifitup.protocol.SocketCloseCodes
 import app.gifitup.shared.data.network.ApiEndpoint
+import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.Base64Url
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.domain.auth.AuthError
@@ -520,5 +521,99 @@ class LiveUpdatesTest {
                 )
             assertTrue(shown.none { "SENTINEL" in it }, "nothing the loop or the session shows holds the token: $shown")
             assertEquals(LiveState.CONNECTED, f.live.status.value.state, "it recovered from the failures")
+        }
+
+    @Test
+    fun aResyncThatArrivesWhileAGroupHintWaitsStillWaitsItsOwnLongerGap() =
+        runTest {
+            val moves =
+                listOf(
+                    Move.Frame("{\"resync\":true}"),
+                    Move.Pause(500),
+                    Move.Frame(knownText),
+                    Move.Pause(100),
+                    Move.Frame("{\"resync\":true}"),
+                )
+            val f = fixture(listOf(moves))
+            f.live.start()
+            val first = f.live.nextWake()
+            assertTrue(first.everything)
+            val at = testScheduler.currentTime
+            val second = f.live.nextWake()
+            assertTrue(second.everything, "the resync made the waiting wake an everything wake")
+            assertTrue(
+                testScheduler.currentTime - at >= 4_500,
+                "and it waited the five seconds, not one: ${testScheduler.currentTime - at}",
+            )
+        }
+
+    @Test
+    fun aWipeDuringTheWaitBeforeTheHelloMeansNoHelloWithTheOldSession() =
+        runTest {
+            val f =
+                fixture(
+                    listOf(listOf(Move.Close(SocketCloseCodes.UNAUTHORIZED)), listOf(Move.Pause(1))),
+                    login = { n ->
+                        if (n <=
+                            2
+                        ) {
+                            AuthResult.Ok(Session("d", "SENTINEL-TOKEN-$n", Long.MAX_VALUE / 4, endpoint))
+                        } else {
+                            AuthResult.Failed(AuthError.Local.NOT_REGISTERED)
+                        }
+                    },
+                )
+            f.live.start()
+            advanceTimeBy(500) // the second attempt has its session and waits out the one-second gap
+            assertEquals(1, f.connector.opens.size)
+            f.sessions.clear()
+            advanceTimeBy(60_000)
+            assertEquals(1, f.connector.opens.size, "no second hello: the session was handed out before the wipe")
+            assertEquals(StopReason.NOT_SIGNED_IN, f.live.status.value.stopped)
+        }
+
+    @Test
+    fun aStaleReconnectFlagDoesNotSwallowTheNextCloseCodeAfterAStopAndStart() =
+        runTest {
+            val f =
+                fixture(listOf(listOf(Move.Pause(1_000_000)), listOf(Move.Close(SocketCloseCodes.CLIENT_OUTDATED)), listOf(Move.Pause(1))))
+            f.live.start()
+            advanceTimeBy(2_000)
+            f.live.reconnect()
+            f.live.stop()
+            f.live.start()
+            advanceTimeBy(60_000)
+            assertEquals(StopReason.OUTDATED_CLIENT, f.live.status.value.stopped, "4001 was not taken for a forced reconnect")
+            assertEquals(2, f.connector.opens.size)
+        }
+
+    @Test
+    fun aRateLimitedLoginWaitsLongInsteadOfAskingEveryMinute() =
+        runTest {
+            val f =
+                fixture(
+                    listOf(listOf(Move.Pause(1_000_000))),
+                    login = { n ->
+                        if (n ==
+                            1
+                        ) {
+                            AuthResult.Failed(AuthError.Api(ApiError.RATE_LIMITED))
+                        } else {
+                            AuthResult.Ok(
+                                Session(
+                                    "d",
+                                    "SENTINEL-TOKEN-$n",
+                                    Long.MAX_VALUE / 4,
+                                    endpoint,
+                                ),
+                            )
+                        }
+                    },
+                )
+            f.live.start()
+            advanceTimeBy(9 * 60_000L)
+            assertEquals(1, f.logins(), "nothing asked again before the login budget refills")
+            advanceTimeBy(2 * 60_000L)
+            assertEquals(1, f.connector.opens.size)
         }
 }

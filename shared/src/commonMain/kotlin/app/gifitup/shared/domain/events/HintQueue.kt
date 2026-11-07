@@ -46,40 +46,53 @@ internal class HintQueue(
         signal.trySend(Unit)
     }
 
+    private sealed interface Outcome {
+        data object Nothing : Outcome
+
+        data class Wait(
+            val millis: Long,
+        ) : Outcome
+
+        data class Take(
+            val wake: Wake,
+        ) : Outcome
+    }
+
     /**
      * Waits for something to ask about, then for the gap since the last wake (a longer one if the wake asks about everything,
-     * which costs a request per group), and hands everything waiting out as one wake.
+     * which costs a request per group), and hands everything waiting out as one wake. The wait is worked out again under the
+     * lock after every pause: a `resync` that arrives while a group hint waits makes that wake an "everything" wake, which
+     * then waits for its own, longer gap (#271 SEC-17).
      */
     suspend fun next(): Wake {
         while (true) {
             signal.receive()
-            val wait =
-                maxOf(
-                    gapMillis - (nowMillis() - lastWake),
-                    if (mutex.withLock { everything }) {
-                        everythingGapMillis -
-                            (nowMillis() - lastEverything)
-                    } else {
-                        0L
-                    },
-                )
-            if (wait > 0) delay(wait)
-            val wake =
-                mutex.withLock {
-                    if (groups.isEmpty() && !welcomes && !everything) {
-                        null
-                    } else {
-                        Wake(groups.toSet(), welcomes, everything).also {
-                            if (everything) lastEverything = nowMillis()
-                            groups.clear()
-                            welcomes = false
-                            everything = false
-                            lastWake = nowMillis()
-                        }
-                    }
+            while (true) {
+                when (val outcome = mutex.withLock { decide() }) {
+                    Outcome.Nothing -> break
+                    is Outcome.Wait -> delay(outcome.millis)
+                    is Outcome.Take -> return outcome.wake
                 }
-            if (wake != null) return wake
+            }
         }
+    }
+
+    /** What to do now, from what is waiting; called with the lock held. */
+    private fun decide(): Outcome {
+        if (groups.isEmpty() && !welcomes && !everything) return Outcome.Nothing
+        val now = nowMillis()
+        val wait = maxOf(gapMillis - (now - lastWake), if (everything) everythingGapMillis - (now - lastEverything) else 0L)
+        return if (wait > 0) Outcome.Wait(wait) else Outcome.Take(take(now))
+    }
+
+    private fun take(now: Long): Wake {
+        val wake = Wake(groups.toSet(), welcomes, everything)
+        if (everything) lastEverything = now
+        groups.clear()
+        welcomes = false
+        everything = false
+        lastWake = now
+        return wake
     }
 
     private companion object {
