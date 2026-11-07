@@ -54,7 +54,10 @@ sealed interface SocketOpening {
 
 /** An open socket. */
 interface SocketLink {
-    /** The next frame the server sent, or the end of the socket. A failure inside is the end ([SocketFrame.Closed] with no code). */
+    /**
+     * The next frame the server sent, or the end of the socket. A failure inside is the end ([SocketFrame.Closed] with no code).
+     * A [close] from this side ends a receive that is waiting, with [SocketFrame.Closed] and no code (the loop relies on it).
+     */
     suspend fun receive(): SocketFrame
 
     /** Closes the socket; safe to call twice. */
