@@ -10,6 +10,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,6 +47,13 @@ class SessionHolder(
 
     /** Bumped by [clear]: a login that was started before it must not hand out its session afterwards. */
     private var generation = 0
+    private val generationFlow = MutableStateFlow(0)
+
+    /**
+     * The same counter, observable: it changes when [clear] runs (a wipe, a logout, an origin change). A long-lived connection
+     * that was made with a session closes itself when it changes (the live-updates socket, #27).
+     */
+    val generations: StateFlow<Int> = generationFlow.asStateFlow()
 
     suspend fun <T> withSession(call: suspend (Session) -> ApiResult<T>): AuthResult<T> = withSessionResult { call(it).toAuth() }
 
@@ -92,6 +102,7 @@ class SessionHolder(
             session = null
             pending = null
             generation++
+            generationFlow.value = generation
         }
     }
 

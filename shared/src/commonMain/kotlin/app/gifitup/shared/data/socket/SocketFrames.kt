@@ -8,6 +8,7 @@ import app.gifitup.shared.data.network.Base64Url
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.events.ServerMessage
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -82,8 +83,7 @@ internal object SocketFrames {
         }
     }
 
-    private fun text(element: kotlinx.serialization.json.JsonElement?): String? =
-        (element as? JsonPrimitive)?.takeIf { it.isString }?.content
+    private fun text(element: JsonElement?): String? = (element as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     private val PUSH_KEYS = setOf("groupId", "seq", "kind")
     private val RESYNC_KEYS = setOf("resync")

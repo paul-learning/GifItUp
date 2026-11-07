@@ -56,7 +56,7 @@ internal object CloseRules {
         failures: Int,
         random: () -> Double,
     ): Long {
-        val base = min(MAX_BACKOFF_MILLIS, INITIAL_BACKOFF_MILLIS shl min(failures - 1, MAX_SHIFT))
+        val base = min(MAX_BACKOFF_MILLIS, INITIAL_BACKOFF_MILLIS shl min(failures.coerceAtLeast(1) - 1, MAX_SHIFT))
         return (base * (1 + JITTER * random())).toLong()
     }
 }

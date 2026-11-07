@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
@@ -91,6 +92,7 @@ class LiveUpdatesTest {
         var script = ArrayDeque<List<Move>?>() // null: the connect fails
         var inFlight = 0
         var maxInFlight = 0
+        var throwTimes = 0
 
         override suspend fun open(
             url: String,
@@ -103,6 +105,10 @@ class LiveUpdatesTest {
             urls += url
             delay(1) // an attempt takes a moment, so an overlapping second one would show
             inFlight--
+            if (throwTimes > 0) {
+                throwTimes--
+                error("the library failed while opening with $hello")
+            }
             val moves = script.removeFirstOrNull() ?: return SocketOpening.Failed
             return SocketOpening.Opened(Link(moves).also { links += it })
         }
@@ -348,4 +354,171 @@ class LiveUpdatesTest {
     }
 
     private fun launchWake(f: Fixture) = f.scope.launch { f.live.nextWake() }
+
+    @Test
+    fun aWipeClosesAnOpenSocketAtOnceAndTheLoopStopsWhenThereIsNoIdentity() =
+        runTest {
+            val f =
+                fixture(
+                    listOf(listOf(Move.Pause(1_000_000)), listOf(Move.Pause(1))),
+                    login = { n ->
+                        if (n ==
+                            1
+                        ) {
+                            AuthResult.Ok(Session("d", "SENTINEL-TOKEN-1", Long.MAX_VALUE / 4, endpoint))
+                        } else {
+                            AuthResult.Failed(AuthError.Local.NOT_REGISTERED)
+                        }
+                    },
+                )
+            f.live.start()
+            advanceTimeBy(10_000)
+            assertEquals(LiveState.CONNECTED, f.live.status.value.state)
+            f.sessions.clear()
+            runCurrent()
+            assertTrue(
+                f.connector.links
+                    .single()
+                    .closed,
+                "the open socket is closed by the wipe, not left to the server",
+            )
+            advanceTimeBy(60_000)
+            assertEquals(StopReason.NOT_SIGNED_IN, f.live.status.value.stopped)
+            assertEquals(1, f.connector.opens.size, "no hello with the old session after the wipe")
+        }
+
+    @Test
+    fun aStopForOutdatedOrRefusedIsRememberedAcrossStarts() =
+        runTest {
+            val outdated = fixture(listOf(listOf(Move.Close(SocketCloseCodes.CLIENT_OUTDATED)), listOf(Move.Pause(1))))
+            outdated.live.start()
+            advanceTimeBy(5_000)
+            repeat(5) {
+                outdated.live.stop()
+                outdated.live.start()
+                advanceTimeBy(5_000)
+            }
+            assertEquals(1, outdated.connector.opens.size, "an outdated client does not try again on every foreground")
+
+            val refused =
+                fixture(
+                    listOf(
+                        listOf(Move.Close(SocketCloseCodes.UNAUTHORIZED)),
+                        listOf(Move.Close(SocketCloseCodes.UNAUTHORIZED)),
+                        listOf(Move.Pause(1_000_000)),
+                    ),
+                )
+            refused.live.start()
+            advanceTimeBy(10_000)
+            assertEquals(2, refused.connector.opens.size)
+            repeat(5) {
+                refused.live.stop()
+                refused.live.start()
+                advanceTimeBy(60_000)
+            }
+            assertEquals(2, refused.connector.opens.size, "ten foregrounds do not spend the login budget on a refused session")
+            assertEquals(2, refused.logins())
+            advanceTimeBy(11 * 60_000L)
+            refused.live.start()
+            advanceTimeBy(5_000)
+            assertEquals(3, refused.connector.opens.size, "after the quiet time it tries again")
+        }
+
+    @Test
+    fun theBackoffSurvivesAStopAndAStart() =
+        runTest {
+            val f = fixture(listOf(null, null, null, null, listOf(Move.Pause(1))))
+            f.live.start()
+            advanceTimeBy(1_500)
+            f.live.stop()
+            f.live.start()
+            advanceTimeBy(60_000)
+            val gaps = f.connector.opens.zipWithNext { a, b -> b - a }
+            assertTrue(gaps.any { it >= 4_000 }, "a foreground that comes and goes does not reset the back-off: $gaps")
+        }
+
+    @Test
+    fun reconnectDoesNothingWithoutASocketAndDoesNotMaskTheNextCloseCode() =
+        runTest {
+            val f = fixture(listOf(listOf(Move.Pause(500), Move.Close(SocketCloseCodes.CLIENT_OUTDATED)), listOf(Move.Pause(1))))
+            f.live.reconnect() // no socket yet
+            f.live.start()
+            advanceTimeBy(60_000)
+            assertEquals(StopReason.OUTDATED_CLIENT, f.live.status.value.stopped, "4001 was not swallowed by an earlier reconnect")
+            assertEquals(1, f.connector.opens.size)
+        }
+
+    @Test
+    fun reconnectsAreLimitedToOneEveryThirtySeconds() =
+        runTest {
+            val f = fixture(List(10) { listOf(Move.Pause(1_000_000)) })
+            f.live.start()
+            advanceTimeBy(2_000)
+            repeat(8) {
+                f.live.reconnect()
+                advanceTimeBy(3_000)
+            }
+            assertTrue(f.connector.opens.size <= 2, "eight reconnect calls in 24 s made ${f.connector.opens.size - 1} reconnect(s)")
+        }
+
+    @Test
+    fun aFailingGroupLookupDropsTheHintAndTheLoopGoesOn() =
+        runTest {
+            var calls = 0
+            val f =
+                fixture(
+                    listOf(listOf(Move.Frame(knownText), Move.Pause(100), Move.Frame(knownText))),
+                    isKnown = {
+                        calls++
+                        if (calls == 1) error("the lookup failed") else true
+                    },
+                )
+            f.live.start()
+            assertEquals(setOf(knownGroup), f.live.nextWake().groups, "the second hint got through")
+            assertEquals(LiveState.CONNECTED, f.live.status.value.state)
+        }
+
+    @Test
+    fun stopThenStartRunsExactlyOneLoopAndTheOldSocketIsClosed() =
+        runTest {
+            val f = fixture(listOf(listOf(Move.Pause(1_000_000)), listOf(Move.Pause(1_000_000))))
+            f.live.start()
+            advanceTimeBy(2_000)
+            f.live.stop()
+            f.live.start()
+            advanceTimeBy(5_000)
+            assertEquals(2, f.connector.opens.size)
+            assertTrue(f.connector.links[0].closed)
+            assertFalse(f.connector.links[1].closed, "the new loop's socket is not closed by the old loop's cleanup")
+            assertEquals(1, f.connector.maxInFlight)
+        }
+
+    @Test
+    fun theHintsThatAskAboutEverythingAreSpacedFiveSecondsApart() =
+        runTest {
+            val f = fixture(listOf(listOf(Move.Frame("{\"resync\":true}"), Move.Pause(2_000), Move.Frame("{\"resync\":true}"))))
+            f.live.start()
+            f.live.nextWake()
+            val first = testScheduler.currentTime
+            f.live.nextWake()
+            assertTrue(testScheduler.currentTime - first >= 5_000, "a resync costs a request per group, so it is paced separately")
+        }
+
+    @Test
+    fun aLibraryFailureWhileOpeningNeverShowsTheTokenAnywhere() =
+        runTest {
+            val f = fixture(listOf(listOf(Move.Pause(1_000_000))))
+            f.connector.throwTimes = 2
+            f.live.start()
+            advanceTimeBy(20_000)
+            val session = (f.sessions.session() as AuthResult.Ok).value
+            val shown =
+                listOf(
+                    f.live.status.value
+                        .toString(),
+                    session.toString(),
+                )
+            assertTrue(shown.none { "SENTINEL" in it }, "nothing the loop or the session shows holds the token: $shown")
+            assertEquals(LiveState.CONNECTED, f.live.status.value.state, "it recovered from the failures")
+        }
 }
