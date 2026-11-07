@@ -64,6 +64,10 @@ internal class ReactionControls(
     val onOpen: (KeyBytes) -> Unit,
 )
 
+/** The long-press action of a message's GIF: opens its reactions, or `null` where reacting is not possible right now. */
+internal fun ReactionControls.holdAction(message: MessageView): (() -> Unit)? =
+    if (enabled && message.canBeReactedTo()) ({ onOpen(message.reference) }) else null
+
 /** Only a GIF that was sent or received takes reactions: an own message that is still sending or failed has nobody to see it. */
 internal fun MessageView.canBeReactedTo(): Boolean = body is MessageBody.Gif && (state == null || state == DeliveryState.SENT)
 

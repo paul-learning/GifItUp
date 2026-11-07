@@ -22,6 +22,7 @@ internal object ConversationTexts {
     const val SENDING = "Sending…"
     const val NOT_SENT = "Not sent"
     const val REACT = "React"
+    const val REACT_TO_GIF = "React to this GIF"
     const val REACTIONS_TITLE = "Reactions"
     const val NO_REACTIONS = "No reactions yet."
     const val YOUR_REACTION = "Your reaction"
