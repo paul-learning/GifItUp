@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.withLock
 internal class HintQueue(
     private val nowMillis: () -> Long,
     private val gapMillis: Long = DEFAULT_GAP_MILLIS,
+    private val everythingGapMillis: Long = DEFAULT_EVERYTHING_GAP_MILLIS,
     private val maxGroups: Int = DEFAULT_MAX_GROUPS,
 ) {
     private val mutex = Mutex()
@@ -22,6 +23,7 @@ internal class HintQueue(
     private var welcomes = false
     private var everything = false
     private var lastWake = NEVER
+    private var lastEverything = NEVER
     private val signal = Channel<Unit>(Channel.CONFLATED)
 
     suspend fun offer(
@@ -44,11 +46,23 @@ internal class HintQueue(
         signal.trySend(Unit)
     }
 
-    /** Waits for something to ask about, then for the gap since the last wake, and hands everything waiting out as one wake. */
+    /**
+     * Waits for something to ask about, then for the gap since the last wake (a longer one if the wake asks about everything,
+     * which costs a request per group), and hands everything waiting out as one wake.
+     */
     suspend fun next(): Wake {
         while (true) {
             signal.receive()
-            val wait = gapMillis - (nowMillis() - lastWake)
+            val wait =
+                maxOf(
+                    gapMillis - (nowMillis() - lastWake),
+                    if (mutex.withLock { everything }) {
+                        everythingGapMillis -
+                            (nowMillis() - lastEverything)
+                    } else {
+                        0L
+                    },
+                )
             if (wait > 0) delay(wait)
             val wake =
                 mutex.withLock {
@@ -56,6 +70,7 @@ internal class HintQueue(
                         null
                     } else {
                         Wake(groups.toSet(), welcomes, everything).also {
+                            if (everything) lastEverything = nowMillis()
                             groups.clear()
                             welcomes = false
                             everything = false
@@ -69,6 +84,7 @@ internal class HintQueue(
 
     private companion object {
         const val DEFAULT_GAP_MILLIS = 1_000L
+        const val DEFAULT_EVERYTHING_GAP_MILLIS = 5_000L
         const val DEFAULT_MAX_GROUPS = 64
         const val NEVER = Long.MIN_VALUE / 2
     }
