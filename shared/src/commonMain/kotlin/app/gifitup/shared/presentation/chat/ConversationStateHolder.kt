@@ -33,7 +33,10 @@ class MessageView(
     val at: Long,
     /** The reactions to this message, in the order the members first reacted (ADR-0006 B10a); only a GIF has any. */
     val reactions: List<Reaction> = emptyList(),
-)
+) {
+    /** Only a GIF that was sent or received takes reactions: an own message that is still sending or failed has nobody to see it. */
+    val canBeReactedTo: Boolean get() = body is MessageBody.Gif && (state == null || state == DeliveryState.SENT)
+}
 
 /** Why the last send did not go as asked. */
 enum class SendProblem {

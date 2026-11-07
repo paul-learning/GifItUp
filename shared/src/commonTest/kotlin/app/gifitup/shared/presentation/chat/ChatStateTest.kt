@@ -964,4 +964,24 @@ class ChatStateTest {
             advanceUntilIdle()
             assertEquals(SendProblem.THROTTLED, holder.state.value.sendProblem)
         }
+
+    @Test
+    fun onlyAGifThatWasSentOrReceivedTakesReactions() =
+        runTest {
+            val info = group(1, "bob")
+            chat.groups = listOf(info)
+            store.insert(gif(1, 1, "bob", at = 5))
+            store.insert(gif(1, 2, null, at = 6, state = DeliveryState.SENT))
+            store.insert(gif(1, 3, null, at = 7, state = DeliveryState.SENDING))
+            store.insert(gif(1, 4, null, at = 8, state = DeliveryState.FAILED))
+            store.insert(ChatMessage(id(1), id(105), "bob", null, MessageBody.GroupMeta("Trip"), null, 9L))
+            val holder = conversation(info)
+            holder.open()
+            advanceUntilIdle()
+            assertEquals(
+                listOf(true, true, false, false, false),
+                holder.state.value.messages
+                    .map { it.canBeReactedTo },
+            )
+        }
 }

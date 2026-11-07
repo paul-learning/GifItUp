@@ -2,6 +2,7 @@ package app.gifitup.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,10 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,7 +76,7 @@ internal fun MessageRow(
             MessageBody.UpdateNeeded -> Text(ConversationTexts.UPDATE_NEEDED, style = MaterialTheme.typography.bodySmall)
             is MessageBody.Membership -> Text(ConversationTexts.membership(body), style = MaterialTheme.typography.bodySmall)
         }
-        if (message.canBeReactedTo()) ReactionBar(message, reactions)
+        if (message.canBeReactedTo) ReactionBar(message, reactions)
         if (message.body !is MessageBody.Membership) SenderLine(message, sender, mine)
     }
 }
@@ -194,7 +197,8 @@ private fun CaptionUnderGif(
 
 /**
  * A tap and, when [onLongPress] is given, a long press that opens the reactions (ADR-0006 B10a). The long press has its own
- * label for a screen reader and a short vibration on a touch screen. Without either action the modifier does nothing.
+ * label for a screen reader and a short vibration on a touch screen. A target with no tap is not announced as a button: it
+ * only offers the long-press action. Without either action the modifier does nothing.
  */
 @Composable
 private fun Modifier.pressable(
@@ -204,19 +208,31 @@ private fun Modifier.pressable(
 ): Modifier {
     if (onTap == null && onLongPress == null) return this
     val haptics = LocalHapticFeedback.current
-    return combinedClickable(
-        onClickLabel = tapLabel,
-        role = Role.Button,
-        onLongClickLabel = onLongPress?.let { ConversationTexts.REACT_TO_GIF },
-        onLongClick =
-            onLongPress?.let { hold ->
-                {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    hold()
+    val hold: (() -> Unit)? =
+        onLongPress?.let { open ->
+            {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                open()
+            }
+        }
+    return if (onTap != null) {
+        combinedClickable(
+            onClickLabel = tapLabel,
+            role = Role.Button,
+            onLongClickLabel = hold?.let { ConversationTexts.REACT_TO_GIF },
+            onLongClick = hold,
+            onClick = onTap,
+        )
+    } else {
+        // Only a long press: no click semantics, so nothing is announced as a button that does nothing.
+        pointerInput(hold) { detectTapGestures(onLongPress = { hold?.invoke() }) }
+            .semantics {
+                onLongClick(ConversationTexts.REACT_TO_GIF) {
+                    hold?.invoke()
+                    true
                 }
-            },
-        onClick = onTap ?: {},
-    )
+            }
+    }
 }
 
 /** The GIF itself, or a placeholder of the same shape that says what is going on. */
