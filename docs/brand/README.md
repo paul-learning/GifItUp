@@ -21,7 +21,8 @@ The web favicon files are same-origin, so the page's Content-Security-Policy (`i
 
 ## Rendering the PNGs again
 Any renderer that draws an SVG at an exact size works. With the Chromium and Playwright of the dev container (`render.js`
-takes the SVG, the size and the output file):
+takes the SVG, the size and the output file; it puts the file into a page, so use it on this repo's own SVGs only, never on an
+SVG from elsewhere):
 
 ```js
 const { chromium } = require('playwright');
