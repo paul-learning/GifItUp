@@ -16,8 +16,8 @@ without one.
      newest release (`gifitup-vX.Y.Z.apk`). Releases are published by the owner and cannot be changed afterwards.
   2. Open the file. Android asks you to allow installs from your browser or file manager: allow it for this one install.
   3. Open your invite link. If the app is installed, the link opens the app; otherwise it opens in the browser, and you can
-     also paste the link into the app's invite field.
-- **Web:** open the address the owner gave you in a current Chrome, Firefox or Safari and open your invite link there. Keep it
+     also paste the link or code into the app's "Invite link or code" field.
+- **Web:** open the address the owner gave you in a current, up-to-date browser and open your invite link there. Keep it
   in **one tab**: a second tab says the app is open elsewhere.
 
 **Careful? Check the APK.** The owner sends you the signing certificate's fingerprint in a separate message (not in
@@ -30,7 +30,7 @@ owner.
 - **Chats:** start a chat from the list. A chat with one friend is a direct chat; give it a name and add more friends and it
   is a group.
 - **Send a GIF:** tap the button at the bottom, search, pick a GIF, optionally add a caption (120 characters), send.
-- **React:** under a GIF, tap **React** (or an emoji that is already there). The window shows who reacted with what, a row of
+- **React:** under a GIF, tap **React** (or one of the small reaction chips). The window shows who reacted with what, a row of
   common emojis and the whole list. Tap your own emoji again, or "Remove my reaction", to take it back. One reaction per
   person per GIF; everyone in the chat sees who reacted. On the web, the first load downloads a font of about 2.5 MB so the
   emojis can be drawn.
