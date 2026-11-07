@@ -9,7 +9,7 @@ import kotlin.test.assertEquals
 /**
  * The reaction table exists twice, in `shared/emoji-reactions-v1.tsv` (SHA-256 pinned here) and in [ReactionEmojis]. They
  * must be the same list in the same order, and the file can't change without this test changing, a high-tier path
- * (ADR-0006 B10). The web font's check script will read the same file once the font covers it (PR 3).
+ * (ADR-0006 B10). The web font's check script (`scripts/check-emoji-font.py`) reads the same file.
  */
 class ReactionTableFileTest {
     private val file: Path =

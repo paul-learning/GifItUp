@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.font.FontFamily
+import app.gifitup.shared.data.content.ReactionEmojis
 import app.gifitup.shared.data.crypto.FingerprintEmojis
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.js.Js
@@ -15,9 +16,10 @@ import androidx.compose.ui.text.platform.Font as bytesFont
 
 /**
  * The web app draws into a canvas and cannot use the browser's or the system's fonts, so it ships its own color emoji
- * font: a subset of Noto Color Emoji with exactly the 256 key-comparison emojis (ADR-0014, `emoji-v1.ttf`, built and
- * checked by `scripts/check-emoji-font.py`). The Friends screen draws the emojis with it once it is registered. Until
- * it is registered, and if it can't be loaded, every glyph is unknown and the names carry the comparison.
+ * font: a subset of Noto Color Emoji with exactly the 1156 reaction emojis (ADR-0006 B10a), which include the 256
+ * key-comparison emojis (ADR-0014); `emoji-v2.ttf`, built and checked by `scripts/check-emoji-font.py`. The Friends screen
+ * and the reactions draw the emojis with it once it is registered. Until it is registered, and if it can't be loaded, every
+ * glyph is unknown: the names carry the key comparison and no reaction emoji is offered.
  */
 internal class WebGlyphs : GlyphSupport {
     // Compose state, so a screen that asked before the font arrived redraws once it has.
@@ -28,7 +30,7 @@ internal class WebGlyphs : GlyphSupport {
      * Drawn once the bundled font is registered, unknown before and if it can't be loaded. This is a claim about the
      * font, not a check of the drawing: the web can't ask the text engine whether a glyph came out (owner decision
      * 2026-11-05: the drawing was seen in a browser and the notice is dropped, ADR-0014). Every glyph is in the font
-     * (`scripts/check-emoji-font.py`), and only those 256 count (#259 CR-2).
+     * (`scripts/check-emoji-font.py`), and only the emojis of the two tables count (#259 CR-2).
      */
     override fun supports(emoji: String): Boolean? = if (emojiFont != null && emoji in tableEmojis) true else null
 
@@ -53,15 +55,19 @@ internal class WebGlyphs : GlyphSupport {
     }
 
     private companion object {
-        /** The 256 emojis of the fingerprint table, read through its public accessor (the table itself is internal). */
+        /**
+         * What the font draws: the reaction table, and the 256 fingerprint emojis (read through their public accessor, the table
+         * itself is internal), which are inside it and are listed too so that this holds if either table is ever extended.
+         */
         val tableEmojis: Set<String> =
-            (0 until FingerprintEmojis.TABLE_SIZE).chunked(FingerprintEmojis.LENGTH).flatMapTo(mutableSetOf()) { chunk ->
-                FingerprintEmojis.cells(ByteArray(FingerprintEmojis.LENGTH) { chunk.getOrElse(it) { 0 }.toByte() }).map { it.emoji }
-            }
+            ReactionEmojis.all.toSet() +
+                (0 until FingerprintEmojis.TABLE_SIZE).chunked(FingerprintEmojis.LENGTH).flatMap { chunk ->
+                    FingerprintEmojis.cells(ByteArray(FingerprintEmojis.LENGTH) { chunk.getOrElse(it) { 0 }.toByte() }).map { it.emoji }
+                }
 
-        const val FONT_PATH = "emoji-v1.ttf"
+        const val FONT_PATH = "emoji-v2.ttf"
         const val MIN_FONT_BYTES = 1_000
-        const val MAX_FONT_BYTES = 2_000_000
+        const val MAX_FONT_BYTES = 4_000_000
     }
 }
 
