@@ -15,6 +15,7 @@ import app.gifitup.shared.domain.messages.DeliveryState
 import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.MessageBody
+import app.gifitup.shared.domain.messages.Reaction
 import app.gifitup.shared.domain.messages.ResetResult
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,8 @@ class MessageView(
     val body: MessageBody,
     val state: DeliveryState?,
     val at: Long,
+    /** The reactions to this message, in the order the members first reacted (ADR-0006 B10a); only a GIF has any. */
+    val reactions: List<Reaction> = emptyList(),
 )
 
 /** Why the last send did not go as asked. */
@@ -48,6 +51,9 @@ enum class SendProblem {
 
     /** The conversation is stopped, read-only or gone. */
     STOPPED,
+
+    /** A reaction could not be sent: the message is gone from this device, or the emoji is not one the app offers. */
+    REACTION,
 
     /** The server asked the app to slow down (a rate limit): the message is kept and goes out when tried again later. */
     THROTTLED,
@@ -81,6 +87,8 @@ data class ConversationState(
     val canResetHistory: Boolean = false,
     /** The last "reset history" did not finish: the history is as it was and the reset can be tried again. */
     val resetFailed: Boolean = false,
+    /** The user's own username, once the group list has said so; a reaction of theirs is told apart by it. */
+    val own: String? = null,
 ) {
     /** A message of ours was stored but not answered: [ConversationStateHolder.resend] posts it again. */
     val hasUnsettled: Boolean get() = messages.any { it.state == DeliveryState.SENDING }
@@ -127,7 +135,11 @@ class ConversationStateHolder(
      * Shows what is stored at once, settles what a crash left unsettled, then reads the log. The unsettled message is
      * posted again (`resume`) only when the conversation is usable and the history is readable (ADR-0017).
      */
-    fun open() = act { forVisit -> resumeUnsettled(forVisit) }
+    fun open() =
+        act { forVisit ->
+            loadOwn(forVisit)
+            resumeUnsettled(forVisit)
+        }
 
     /** The user's confirmed "reset history": the stored history of this device is deleted; the conversation is rebuilt. */
     fun resetHistory() {
@@ -173,6 +185,28 @@ class ConversationStateHolder(
         sendWith { sessions.withSessionResult { chat.sendGif(it, group.id, reference, checked.caption) } }
     }
 
+    /**
+     * Reacts to the GIF [target] with [emoji], or takes the user's own reaction back (`null`) (ADR-0006 B10a). It goes through
+     * the same gate as a send. Choosing what is already there changes nothing and sends nothing; a reaction the use case refuses
+     * (the message is gone from this device, a full message) says [SendProblem.REACTION].
+     */
+    fun react(
+        target: KeyBytes,
+        emoji: String?,
+    ) {
+        val state = flow.value
+        val message = state.messages.firstOrNull { it.reference == target }
+        val current = state.own?.let { name -> message?.reactions?.firstOrNull { it.by == name }?.emoji }
+        // The screen shows the message it asks about; if it is gone, or the choice is the reaction already there, nothing to do.
+        if (message == null || current == emoji) return
+        val forVisit = visit
+        sendWith(SendProblem.REACTION) {
+            // The user's own name is needed to tell their reaction: asked again if the group list had not answered yet.
+            loadOwn(forVisit)
+            sessions.withSessionResult { chat.react(it, group.id, target, emoji) }
+        }
+    }
+
     /** Posts the unsettled message again. */
     fun resend() = sendWith { sessions.withSessionResult { chat.resume(it, group.id) } }
 
@@ -180,7 +214,10 @@ class ConversationStateHolder(
      * A send has its own gate, so reading the log never swallows it. It is refused with a reason, never dropped
      * silently, if the conversation is stopped or the previous send is still going.
      */
-    private fun sendWith(call: suspend () -> AuthResult<SyncOutcome>) {
+    private fun sendWith(
+        invalid: SendProblem = SendProblem.CAPTION,
+        call: suspend () -> AuthResult<SyncOutcome>,
+    ) {
         val blocked =
             when {
                 flow.value.conversationProblem != null -> SendProblem.STOPPED
@@ -197,7 +234,7 @@ class ConversationStateHolder(
         flow.value = flow.value.copy(sending = true, sendProblem = null)
         scope.launch {
             try {
-                problemOf(call())?.let { problem -> change(forVisit) { it.copy(sendProblem = problem) } }
+                problemOf(call(), invalid)?.let { problem -> change(forVisit) { it.copy(sendProblem = problem) } }
             } finally {
                 if (forVisit == visit) {
                     sendRunning = false
@@ -239,6 +276,13 @@ class ConversationStateHolder(
                 }
             }
         }
+    }
+
+    /** The user's own name comes from the group list (the engine's own state); a failure leaves it unknown. */
+    private suspend fun loadOwn(forVisit: Int) {
+        if (flow.value.own != null) return
+        val groups = sessions.withSessionResult { chat.groups(it) }
+        (groups as? AuthResult.Ok)?.let { list -> change(forVisit) { it.copy(own = list.value.own) } }
     }
 
     private suspend fun readLog(forVisit: Int) {
@@ -303,9 +347,12 @@ class ConversationStateHolder(
     }
 }
 
-private fun ChatMessage.toView() = MessageView(reference, sender, body, state, at)
+private fun ChatMessage.toView() = MessageView(reference, sender, body, state, at, reactions)
 
-private fun problemOf(result: AuthResult<SyncOutcome>): SendProblem? =
+private fun problemOf(
+    result: AuthResult<SyncOutcome>,
+    invalid: SendProblem = SendProblem.CAPTION,
+): SendProblem? =
     when (result) {
         is AuthResult.Failed -> {
             when (result.error.toChatProblem()) {
@@ -316,15 +363,18 @@ private fun problemOf(result: AuthResult<SyncOutcome>): SendProblem? =
         }
 
         is AuthResult.Ok -> {
-            outcomeProblem(result.value)
+            outcomeProblem(result.value, invalid)
         }
     }
 
-private fun outcomeProblem(outcome: SyncOutcome): SendProblem? =
+private fun outcomeProblem(
+    outcome: SyncOutcome,
+    invalid: SendProblem = SendProblem.CAPTION,
+): SendProblem? =
     when (outcome) {
         is SyncOutcome.InFlight -> if (outcome.error == ApiError.RATE_LIMITED) SendProblem.THROTTLED else null
         is SyncOutcome.Sent, is SyncOutcome.CaughtUp -> null
-        SyncOutcome.InvalidRequest -> SendProblem.CAPTION
+        SyncOutcome.InvalidRequest -> invalid
         is SyncOutcome.PendingFirst -> SendProblem.EARLIER_FIRST
         SyncOutcome.Busy, SyncOutcome.CommitPending, is SyncOutcome.Retry, SyncOutcome.RekeyNeeded -> SendProblem.SYNC_FIRST
         is SyncOutcome.Stopped, SyncOutcome.NotJoined -> SendProblem.STOPPED

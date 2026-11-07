@@ -21,6 +21,26 @@ internal object ConversationTexts {
     const val ENCRYPTED = "end-to-end encrypted"
     const val SENDING = "Sending…"
     const val NOT_SENT = "Not sent"
+    const val REACT = "React"
+    const val REACTIONS_TITLE = "Reactions"
+    const val NO_REACTIONS = "No reactions yet."
+    const val YOUR_REACTION = "Your reaction"
+    const val REMOVE_REACTION = "Remove my reaction"
+    const val CLOSE = "Close"
+    const val NO_EMOJI_HERE = "This device can't draw any of the reaction emojis yet."
+
+    /** A chip under a GIF, for a screen reader: the emoji, how many, and whether the user is one of them. */
+    fun reactionChip(
+        emoji: String,
+        count: Int,
+        mine: Boolean,
+    ): String = "$emoji, $count" + if (mine) ", including you" else ""
+
+    /** One line of the list of who reacted; the name is isolated like every name from a friend. */
+    fun reactedBy(
+        name: String,
+        emoji: String,
+    ): String = "${ChatTexts.isolated(name)}  $emoji"
 
     /** A message that was stored but never confirmed, in a chat that can't be used: it is not sent again from here. */
     const val NOT_CONFIRMED = "A message was not confirmed by the server. It can't be sent again while this chat can't be used."
@@ -117,6 +137,7 @@ internal object ConversationTexts {
     fun sendProblem(problem: SendProblem): String =
         when (problem) {
             SendProblem.CAPTION -> "The caption can't be sent. Nothing was sent."
+            SendProblem.REACTION -> "That reaction can't be sent. Nothing was sent."
             SendProblem.EARLIER_FIRST -> "An earlier message is still waiting. Send it again first."
             SendProblem.IN_PROGRESS -> "The last message is still being sent."
             SendProblem.SYNC_FIRST -> "New messages are waiting. They are read first; then send again."

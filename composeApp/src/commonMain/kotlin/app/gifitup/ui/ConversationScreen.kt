@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.gifitup.shared.data.content.GifReference
+import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.ConversationState
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
@@ -65,6 +66,9 @@ internal fun ConversationScreen(
     var pickerOpen by rememberSaveable { mutableStateOf(false) }
     // The GIF picked in the picker, waiting for its optional caption; not kept in saved state (#217).
     var chosen by remember { mutableStateOf<GifReference?>(null) }
+    // The message whose reactions are open; looked up again from the state, so the dialog follows a change (ADR-0006 B10a).
+    var reacting by remember { mutableStateOf<KeyBytes?>(null) }
+    val controls = ReactionControls(state.own, state.canSend) { reacting = it }
     LaunchedEffect(holder) {
         holder.open()
         while (true) {
@@ -80,15 +84,7 @@ internal fun ConversationScreen(
     }
     val list = rememberLazyListState()
     // Newest at the bottom: the list is laid out from the bottom up, and a new message scrolls it into view.
-    // Pinned: the reader is at the newest message. Only the user's own scrolling changes it, so a message that arrives
-    // while they read older ones does not pull them down.
-    var pinned by remember { mutableStateOf(true) }
-    LaunchedEffect(list) {
-        snapshotFlow { list.isScrollInProgress }.filter { !it }.collect {
-            pinned =
-                list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0
-        }
-    }
+    val pinned = rememberPinned(list)
     LaunchedEffect(state.messages.size) {
         if (pinned && state.messages.isNotEmpty()) list.scrollToItem(0)
     }
@@ -100,7 +96,9 @@ internal fun ConversationScreen(
             list,
             SendInput { pickerOpen = true },
             nav,
+            controls,
         )
+        ReactionsDialogFor(holder, state, reacting) { reacting = null }
         if (pickerOpen) {
             val close = {
                 chosen = null
@@ -124,6 +122,21 @@ internal fun ConversationScreen(
     }
 }
 
+/**
+ * Pinned: the reader is at the newest message. Only the user's own scrolling changes it, so a message that arrives while they
+ * read older ones does not pull them down.
+ */
+@Composable
+private fun rememberPinned(list: LazyListState): Boolean {
+    var pinned by remember { mutableStateOf(true) }
+    LaunchedEffect(list) {
+        snapshotFlow { list.isScrollInProgress }.filter { !it }.collect {
+            pinned = list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0
+        }
+    }
+    return pinned
+}
+
 @Suppress("LongParameterList") // The screen's pieces, handed down from the one place that owns them.
 @Composable
 private fun ConversationColumn(
@@ -133,6 +146,7 @@ private fun ConversationColumn(
     list: LazyListState,
     input: SendInput,
     nav: Navigation,
+    reactions: ReactionControls,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -156,7 +170,7 @@ private fun ConversationColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(state.messages.asReversed(), key = { it.reference.listKey() }) { message ->
-                MessageRow(message, tiles, tileStates[message.reference])
+                MessageRow(message, tiles, tileStates[message.reference], reactions)
             }
         }
         SendArea(holder, state, input)
