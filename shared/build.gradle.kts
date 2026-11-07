@@ -23,6 +23,8 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.protocol)
             implementation(libs.ktor.client.core)
+            // The push channel's WebSocket client (#27, ADR-0015): the plugin only; each platform brings its own engine.
+            implementation(libs.ktor.client.websockets)
             implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
