@@ -30,7 +30,7 @@ internal class WebGlyphs : GlyphSupport {
      * Drawn once the bundled font is registered, unknown before and if it can't be loaded. This is a claim about the
      * font, not a check of the drawing: the web can't ask the text engine whether a glyph came out (owner decision
      * 2026-11-05: the drawing was seen in a browser and the notice is dropped, ADR-0014). Every glyph is in the font
-     * (`scripts/check-emoji-font.py`), and only those 256 count (#259 CR-2).
+     * (`scripts/check-emoji-font.py`), and only the emojis of the two tables count (#259 CR-2).
      */
     override fun supports(emoji: String): Boolean? = if (emojiFont != null && emoji in tableEmojis) true else null
 
