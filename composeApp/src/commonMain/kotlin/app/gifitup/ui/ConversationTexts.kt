@@ -137,6 +137,7 @@ internal object ConversationTexts {
     fun sendProblem(problem: SendProblem): String =
         when (problem) {
             SendProblem.CAPTION -> "The caption can't be sent. Nothing was sent."
+            SendProblem.REACTION -> "That reaction can't be sent. Nothing was sent."
             SendProblem.EARLIER_FIRST -> "An earlier message is still waiting. Send it again first."
             SendProblem.IN_PROGRESS -> "The last message is still being sent."
             SendProblem.SYNC_FIRST -> "New messages are waiting. They are read first; then send again."

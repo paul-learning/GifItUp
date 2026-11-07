@@ -52,6 +52,9 @@ enum class SendProblem {
     /** The conversation is stopped, read-only or gone. */
     STOPPED,
 
+    /** A reaction could not be sent: the message is gone from this device, or the emoji is not one the app offers. */
+    REACTION,
+
     /** The server asked the app to slow down (a rate limit): the message is kept and goes out when tried again later. */
     THROTTLED,
 
@@ -184,15 +187,23 @@ class ConversationStateHolder(
 
     /**
      * Reacts to the GIF [target] with [emoji], or takes the user's own reaction back (`null`) (ADR-0006 B10a). It goes through
-     * the same gate as a send. A reaction that would change nothing is not a problem and sends nothing.
+     * the same gate as a send. Choosing what is already there changes nothing and sends nothing; a reaction the use case refuses
+     * (the message is gone from this device, a full message) says [SendProblem.REACTION].
      */
     fun react(
         target: KeyBytes,
         emoji: String?,
-    ) = sendWith {
-        when (val result = sessions.withSessionResult { chat.react(it, group.id, target, emoji) }) {
-            is AuthResult.Ok -> if (result.value == SyncOutcome.InvalidRequest) AuthResult.Ok(SyncOutcome.CaughtUp(0)) else result
-            is AuthResult.Failed -> result
+    ) {
+        val state = flow.value
+        val message = state.messages.firstOrNull { it.reference == target }
+        val current = state.own?.let { name -> message?.reactions?.firstOrNull { it.by == name }?.emoji }
+        // The screen shows the message it asks about; if it is gone, or the choice is the reaction already there, nothing to do.
+        if (message == null || current == emoji) return
+        val forVisit = visit
+        sendWith(SendProblem.REACTION) {
+            // The user's own name is needed to tell their reaction: asked again if the group list had not answered yet.
+            loadOwn(forVisit)
+            sessions.withSessionResult { chat.react(it, group.id, target, emoji) }
         }
     }
 
@@ -203,7 +214,10 @@ class ConversationStateHolder(
      * A send has its own gate, so reading the log never swallows it. It is refused with a reason, never dropped
      * silently, if the conversation is stopped or the previous send is still going.
      */
-    private fun sendWith(call: suspend () -> AuthResult<SyncOutcome>) {
+    private fun sendWith(
+        invalid: SendProblem = SendProblem.CAPTION,
+        call: suspend () -> AuthResult<SyncOutcome>,
+    ) {
         val blocked =
             when {
                 flow.value.conversationProblem != null -> SendProblem.STOPPED
@@ -220,7 +234,7 @@ class ConversationStateHolder(
         flow.value = flow.value.copy(sending = true, sendProblem = null)
         scope.launch {
             try {
-                problemOf(call())?.let { problem -> change(forVisit) { it.copy(sendProblem = problem) } }
+                problemOf(call(), invalid)?.let { problem -> change(forVisit) { it.copy(sendProblem = problem) } }
             } finally {
                 if (forVisit == visit) {
                     sendRunning = false
@@ -335,7 +349,10 @@ class ConversationStateHolder(
 
 private fun ChatMessage.toView() = MessageView(reference, sender, body, state, at, reactions)
 
-private fun problemOf(result: AuthResult<SyncOutcome>): SendProblem? =
+private fun problemOf(
+    result: AuthResult<SyncOutcome>,
+    invalid: SendProblem = SendProblem.CAPTION,
+): SendProblem? =
     when (result) {
         is AuthResult.Failed -> {
             when (result.error.toChatProblem()) {
@@ -346,15 +363,18 @@ private fun problemOf(result: AuthResult<SyncOutcome>): SendProblem? =
         }
 
         is AuthResult.Ok -> {
-            outcomeProblem(result.value)
+            outcomeProblem(result.value, invalid)
         }
     }
 
-private fun outcomeProblem(outcome: SyncOutcome): SendProblem? =
+private fun outcomeProblem(
+    outcome: SyncOutcome,
+    invalid: SendProblem = SendProblem.CAPTION,
+): SendProblem? =
     when (outcome) {
         is SyncOutcome.InFlight -> if (outcome.error == ApiError.RATE_LIMITED) SendProblem.THROTTLED else null
         is SyncOutcome.Sent, is SyncOutcome.CaughtUp -> null
-        SyncOutcome.InvalidRequest -> SendProblem.CAPTION
+        SyncOutcome.InvalidRequest -> invalid
         is SyncOutcome.PendingFirst -> SendProblem.EARLIER_FIRST
         SyncOutcome.Busy, SyncOutcome.CommitPending, is SyncOutcome.Retry, SyncOutcome.RekeyNeeded -> SendProblem.SYNC_FIRST
         is SyncOutcome.Stopped, SyncOutcome.NotJoined -> SendProblem.STOPPED

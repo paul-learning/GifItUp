@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -193,7 +194,8 @@ private fun EmojiButton(
             .background(
                 if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
                 MaterialTheme.shapes.medium,
-            ).clickable(role = Role.Button, onClickLabel = emoji) { onClick(emoji) },
+            ).semantics { this.selected = selected }
+            .clickable(role = Role.Button, onClickLabel = emoji) { onClick(emoji) },
         contentAlignment = Alignment.Center,
     ) {
         Text(emoji, fontSize = EMOJI_SIZE, fontFamily = glyphs.emojiFont)

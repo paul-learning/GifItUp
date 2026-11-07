@@ -80,7 +80,7 @@ class ChatStateTest {
 
         private fun <T> answer(value: T): AuthResult<T> = failWith?.let { AuthResult.Failed(it) } ?: AuthResult.Ok(value)
 
-        override suspend fun groups(session: Session) = answer(GroupList("me", groups))
+        override suspend fun groups(session: Session) = answer(GroupList("me_user", groups))
 
         override suspend fun welcomes(session: Session): AuthResult<WelcomesReport> {
             welcomed++
@@ -863,7 +863,7 @@ class ChatStateTest {
             holder.open()
             advanceUntilIdle()
             val state = holder.state.value
-            assertEquals("me", state.own)
+            assertEquals("me_user", state.own)
             assertEquals(
                 listOf("bob" to heart),
                 state.messages
@@ -884,12 +884,12 @@ class ChatStateTest {
             advanceUntilIdle()
             chat.onSync = { }
             holder.react(id(101), heart)
-            store.react(id(1), id(101), "iris", heart) // what the use case does once the server accepted it
+            store.react(id(1), id(101), "me_user", heart) // what the use case does once the server accepted it
             advanceUntilIdle()
             assertEquals(listOf<Pair<KeyBytes, String?>>(id(101) to heart), chat.reacted)
             assertNull(holder.state.value.sendProblem)
             assertEquals(
-                listOf("iris"),
+                listOf("me_user"),
                 holder.state.value.messages
                     .single()
                     .reactions
@@ -901,7 +901,24 @@ class ChatStateTest {
         }
 
     @Test
-    fun aReactionThatChangesNothingIsNoProblem() =
+    fun choosingTheReactionAlreadyThereSendsNothing() =
+        runTest {
+            val info = group(1, "bob")
+            chat.groups = listOf(info)
+            store.insert(gif(1, 1, "bob", at = 5))
+            store.react(id(1), id(101), "me_user", heart)
+            val holder = conversation(info)
+            holder.open()
+            advanceUntilIdle()
+            holder.react(id(101), heart)
+            holder.react(id(999), heart) // a message that is not in the conversation
+            advanceUntilIdle()
+            assertEquals(emptyList(), chat.reacted)
+            assertNull(holder.state.value.sendProblem)
+        }
+
+    @Test
+    fun aReactionTheUseCaseRefusesSaysSoInsteadOfPretendingItWorked() =
         runTest {
             val info = group(1, "bob")
             chat.groups = listOf(info)
@@ -912,7 +929,25 @@ class ChatStateTest {
             chat.reactOutcome = SyncOutcome.InvalidRequest
             holder.react(id(101), heart)
             advanceUntilIdle()
-            assertNull(holder.state.value.sendProblem)
+            assertEquals(SendProblem.REACTION, holder.state.value.sendProblem)
+        }
+
+    @Test
+    fun theOwnNameIsAskedAgainWhenTheFirstAnswerFailed() =
+        runTest {
+            val info = group(1, "bob")
+            chat.groups = listOf(info)
+            store.insert(gif(1, 1, "bob", at = 5))
+            chat.failWith = AuthError.Api(ApiError.NETWORK)
+            val holder = conversation(info)
+            holder.open()
+            advanceUntilIdle()
+            assertNull(holder.state.value.own)
+            chat.failWith = null
+            holder.react(id(101), heart)
+            advanceUntilIdle()
+            assertEquals("me_user", holder.state.value.own)
+            assertEquals(listOf<Pair<KeyBytes, String?>>(id(101) to heart), chat.reacted)
         }
 
     @Test
