@@ -67,6 +67,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     // The HTTP engine the composition root hands to the shared API client (ADR-0013); HttpURLConnection, no OkHttp.
     implementation(libs.ktor.client.android)
+    // The push channel's WebSocket engine only (#27, ADR-0015): the Android engine above cannot do WebSockets. REST stays on it.
+    implementation(libs.ktor.client.okhttp)
     // AppGraph's engine type is Ktor's; the shared UI uses it, so the app module sees it too.
     implementation(libs.ktor.client.core)
 }
