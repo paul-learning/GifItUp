@@ -37,20 +37,8 @@ class SendGif(
     /** Sends and resumes of this use case run one at a time, so the reconcile and the answer see the same state. */
     private val mutex = Mutex()
 
-    /**
-     * Reactions that are sealed and not settled yet, by their message reference (ADR-0006 B10a). A reaction has no record of
-     * its own: it is applied to the target once the server accepted it (here, on the answer of a send, of a resume, or of the
-     * next send that settles it first), never before, and dropped when the server refused it. Memory only, bounded: a process
-     * that ends between an unknown answer and the resume loses the local chip of its own reaction (the others have it).
-     */
-    private val pendingReactions = LinkedHashMap<KeyBytes, PendingReaction>()
-
-    private class PendingReaction(
-        val group: KeyBytes,
-        val target: KeyBytes,
-        val own: String,
-        val emoji: String?,
-    )
+    /** Reactions that are sealed and not settled yet (ADR-0006 B10a); see [PendingReactions]. */
+    private val reactions = PendingReactions(store)
 
     suspend operator fun invoke(
         session: Session,
@@ -103,7 +91,7 @@ class SendGif(
             if (content == null || !changes) {
                 AuthResult.Ok(SyncOutcome.InvalidRequest)
             } else {
-                send(session, groupId, content, sink, PendingReaction(group, target, own, emoji))
+                send(session, groupId, content, sink, PendingReactions.Entry(group, target, own, emoji))
             }
         }
 
@@ -112,7 +100,7 @@ class SendGif(
         groupId: ByteArray,
         content: ByteArray,
         sink: IncomingSink,
-        reaction: PendingReaction? = null,
+        reaction: PendingReactions.Entry? = null,
     ): AuthResult<SyncOutcome> {
         val group = KeyBytes(groupId)
         var sealed: KeyBytes? = null
@@ -121,7 +109,7 @@ class SendGif(
                 override suspend fun sealed(messageRef: ByteArray) {
                     val ref = KeyBytes(messageRef)
                     if (reaction != null) {
-                        remember(ref, reaction)
+                        reactions.remember(ref, reaction)
                     } else {
                         // Shown the way a recipient will read it (trimmed caption), from the bytes that are sent. A failing
                         // insert aborts the send: the engine does not persist or post what the history could not store.
@@ -179,6 +167,7 @@ class SendGif(
         if (state.pendingUnknown) return
         val pending = state.pending?.let(::KeyBytes)
         val lastSent = state.lastSent?.let(::KeyBytes)
+        reactions.reconcile(group, pending, lastSent, state.lastSentSeq != null)
         // A store that fails here throws: the engine then sends nothing new, so a record left SENDING is never outlived by a
         // newer "last accepted" send (it would be FAILED though it was delivered).
         store.messages(group).filter { it.state == DeliveryState.SENDING && it.reference != pending }.forEach { message ->
@@ -203,43 +192,12 @@ class SendGif(
         }
     }
 
-    private fun remember(
-        reference: KeyBytes,
-        reaction: PendingReaction,
-    ) {
-        pendingReactions[reference] = reaction
-        while (pendingReactions.size > MAX_PENDING_REACTIONS) pendingReactions.remove(pendingReactions.keys.first())
-    }
-
-    /** The answer to a reaction: accepted, then it shows on its target; refused, then it is forgotten; anything else waits. */
-    private suspend fun settleReaction(
-        reference: KeyBytes,
-        outcome: SyncOutcome,
-    ) {
-        val pending = pendingReactions[reference] ?: return
-        when (outcome) {
-            is SyncOutcome.Sent -> {
-                // A store that fails here throws (the caller swallows it for a settle): the reaction then stays unapplied here.
-                pendingReactions.remove(reference)
-                store.react(pending.group, pending.target, pending.own, pending.emoji)
-            }
-
-            is SyncOutcome.Rejected -> {
-                pendingReactions.remove(reference)
-            }
-
-            else -> {
-                Unit
-            }
-        }
-    }
-
     private suspend fun settleOrThrow(
         group: KeyBytes,
         reference: KeyBytes,
         outcome: SyncOutcome,
     ) {
-        settleReaction(reference, outcome)
+        reactions.settle(reference, outcome)
         when (outcome) {
             is SyncOutcome.Sent -> store.setState(group, reference, DeliveryState.SENT, outcome.seq)
             is SyncOutcome.Rejected -> store.setState(group, reference, DeliveryState.FAILED)
@@ -247,5 +205,3 @@ class SendGif(
         }
     }
 }
-
-private const val MAX_PENDING_REACTIONS = 64

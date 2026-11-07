@@ -717,7 +717,7 @@ class EndToEndTest {
         val heart = "\u2764\uFE0F"
         refused(omar, "no stored GIF with that seq", "--group", group, "--seq", "99", stdin = heart)
         assertEquals(listOf("reacted at seq 3"), ok(omar, "chat-react", "--group", group, "--seq", "2", stdin = heart))
-        refused(omar, "that can't be done", "--group", group, "--seq", "2", stdin = heart)
+        refused(omar, "the reaction changes nothing", "--group", group, "--seq", "2", stdin = heart)
         assertTrue(
             ok(omar, "chat-history", "--group", group).contains("stored 2 e2e_nora -: $gif | reactions e2e_omar=$heart"),
             "omar's own reaction shows on the GIF after the server accepted it",

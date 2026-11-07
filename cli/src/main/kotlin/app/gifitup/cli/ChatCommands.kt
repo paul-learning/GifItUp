@@ -120,9 +120,9 @@ internal class ChatCommands(
             }
 
             is AuthResult.Ok -> {
-                outcome(sendGif.react(session, group, target, emoji, groups.value.own, sink)) { sent ->
-                    (if (emoji == null) "reaction taken back" else "reacted") + " at seq ${sent.seq}"
-                }
+                val result = sendGif.react(session, group, target, emoji, groups.value.own, sink)
+                if (result is AuthResult.Ok && result.value is SyncOutcome.InvalidRequest) throw CliError(NO_CHANGE_LINE, EXIT_REFUSED)
+                outcome(result) { sent -> (if (emoji == null) "reaction taken back" else "reacted") + " at seq ${sent.seq}" }
             }
         }
     }
@@ -187,3 +187,7 @@ internal class ChatCommands(
         return EXIT_OK
     }
 }
+
+private const val NO_CHANGE_LINE =
+    "that can't be done: the reaction changes nothing " +
+        "(the same emoji again, a message that is not a GIF, or 32 members have reacted already)"

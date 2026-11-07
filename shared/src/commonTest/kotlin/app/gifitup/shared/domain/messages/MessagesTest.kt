@@ -497,4 +497,101 @@ class MessagesTest {
             sender.react(session, group, target, null, own, sink)
             assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions)
         }
+
+    @Test
+    fun aReactionTheEngineSaysWasAcceptedIsAppliedByTheNextReconcile() =
+        runTest {
+            val target = storeGif(1)
+            val chat = FakeChat(SyncOutcome.Unavailable(ApiError.NETWORK), sealWith = ByteArray(32) { 50 })
+            val sender = sendGif(chat)
+            sender.react(session, group, target, heart, own, sink)
+            assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions, "unknown answer: not yet")
+            // The engine's own state: nothing pending, the reaction was the last accepted send.
+            chat.pending = null
+            chat.lastSent = ByteArray(32) { 50 }
+            chat.lastSentSeq = 12L
+            sender.resume(session, group, sink)
+            assertEquals(
+                listOf(own to heart),
+                store
+                    .messages(KeyBytes(group))
+                    .single()
+                    .reactions
+                    .map { it.by to it.emoji },
+            )
+        }
+
+    @Test
+    fun aReactionThatIsNeitherPendingNorTheLastAcceptedIsForgottenByTheReconcile() =
+        runTest {
+            val target = storeGif(1)
+            val chat = FakeChat(SyncOutcome.Unavailable(ApiError.NETWORK), sealWith = ByteArray(32) { 50 })
+            val sender = sendGif(chat)
+            sender.react(session, group, target, heart, own, sink)
+            chat.pending = null
+            chat.lastSent = ByteArray(32) { 99 } // some other message was the last accepted one
+            chat.lastSentSeq = 13L
+            sender.resume(session, group, sink)
+            // Even if the engine later reports the old reference as accepted, the reaction is no longer remembered.
+            chat.lastSent = ByteArray(32) { 50 }
+            chat.lastSentSeq = 14L
+            sender.resume(session, group, sink)
+            assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions)
+        }
+
+    /** A store whose first reaction write fails, like a record store that cannot write once. */
+    private class FlakyReactions(
+        private val inner: InMemoryMessageStore,
+    ) : MessageStore by inner {
+        var failNext = true
+
+        override suspend fun react(
+            groupId: KeyBytes,
+            target: KeyBytes,
+            by: String,
+            emoji: String?,
+        ): Boolean {
+            if (failNext) {
+                failNext = false
+                throw HistoryStoreException(HistoryStoreException.Kind.STORAGE)
+            }
+            return inner.react(groupId, target, by, emoji)
+        }
+    }
+
+    @Test
+    fun anAcceptedReactionWhoseWriteFailedIsAppliedByTheNextReconcile() =
+        runTest {
+            val target = storeGif(1)
+            val flaky = FlakyReactions(store)
+            val chat = FakeChat(SyncOutcome.Sent(9), sealWith = ByteArray(32) { 50 })
+            val sender = SendGif(chat, flaky) { NOW }
+            sender.react(session, group, target, heart, own, sink)
+            assertEquals(emptyList(), store.messages(KeyBytes(group)).single().reactions, "the write failed")
+            sender.resume(session, group, sink)
+            assertEquals(
+                listOf(own to heart),
+                store
+                    .messages(KeyBytes(group))
+                    .single()
+                    .reactions
+                    .map { it.by to it.emoji },
+            )
+        }
+
+    @Test
+    fun aReactionThatIsSettledFirstByTheNextSendIsApplied() =
+        runTest {
+            val target = storeGif(1)
+            val chat = FakeChat(SyncOutcome.Unavailable(ApiError.NETWORK), sealWith = ByteArray(32) { 50 })
+            val sender = sendGif(chat)
+            sender.react(session, group, target, heart, own, sink)
+            chat.earlier = SyncOutcome.Sent(10)
+            chat.sealWith = ByteArray(32) { 51 }
+            chat.outcome = SyncOutcome.Sent(11)
+            sender(session, group, reference, "next", sink)
+            val messages = store.messages(KeyBytes(group))
+            assertEquals(2, messages.size, "the GIF and the new message")
+            assertEquals(listOf(own to heart), messages.first().reactions.map { it.by to it.emoji })
+        }
 }
