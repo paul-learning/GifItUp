@@ -1,7 +1,7 @@
 package app.gifitup.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -45,6 +47,8 @@ import app.gifitup.shared.presentation.chat.MessageView
 private data class GifMedia(
     val tiles: GifTilesStateHolder,
     val tile: GifTile?,
+    /** Opens the message's reactions on a long press, or `null` where reacting is not possible right now. */
+    val onReact: (() -> Unit)? = null,
 )
 
 /** One message: a GIF bubble with its caption on it, and under it who sent it and when; or a plain line for a rename. */
@@ -63,7 +67,7 @@ internal fun MessageRow(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         when (val body = message.body) {
-            is MessageBody.Gif -> GifBubble(message, body, GifMedia(tiles, tile), sender, mine)
+            is MessageBody.Gif -> GifBubble(message, body, GifMedia(tiles, tile, reactions.holdAction(message)), sender, mine)
             is MessageBody.GroupMeta -> Text(ConversationTexts.renamed(body.name), style = MaterialTheme.typography.bodySmall)
             MessageBody.Unavailable -> Text(ConversationTexts.UNAVAILABLE, style = MaterialTheme.typography.bodySmall)
             MessageBody.UpdateNeeded -> Text(ConversationTexts.UPDATE_NEEDED, style = MaterialTheme.typography.bodySmall)
@@ -118,7 +122,7 @@ private fun GifBubble(
     sender: String,
     mine: Boolean,
 ) {
-    val (tiles, tile) = media
+    val (tiles, tile, onReact) = media
     // The bubble asks for its media while it is composed and gives it back when it leaves the screen.
     DisposableEffect(message.reference) {
         tiles.show(message.reference, body.reference)
@@ -137,6 +141,7 @@ private fun GifBubble(
                         tile,
                         body.reference,
                         ConversationTexts.gifDescription(sender, body.caption),
+                        onLongPress = onReact,
                     ) { tiles.tap(message.reference, body.reference) }
                     GifChip(Modifier.align(Alignment.TopStart).padding(12.dp))
                 }
@@ -187,13 +192,42 @@ private fun CaptionUnderGif(
     )
 }
 
+/**
+ * A tap and, when [onLongPress] is given, a long press that opens the reactions (ADR-0006 B10a). The long press has its own
+ * label for a screen reader and a short vibration on a touch screen. Without either action the modifier does nothing.
+ */
+@Composable
+private fun Modifier.pressable(
+    tapLabel: String?,
+    onTap: (() -> Unit)?,
+    onLongPress: (() -> Unit)?,
+): Modifier {
+    if (onTap == null && onLongPress == null) return this
+    val haptics = LocalHapticFeedback.current
+    return combinedClickable(
+        onClickLabel = tapLabel,
+        role = Role.Button,
+        onLongClickLabel = onLongPress?.let { ConversationTexts.REACT_TO_GIF },
+        onLongClick =
+            onLongPress?.let { hold ->
+                {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    hold()
+                }
+            },
+        onClick = onTap ?: {},
+    )
+}
+
 /** The GIF itself, or a placeholder of the same shape that says what is going on. */
+@Suppress("LongParameterList") // The tile, what it shows, and its two optional actions; three screens call it with defaults.
 @Composable
 internal fun GifTileView(
     tile: GifTile?,
     reference: GifReference,
     description: String,
     pausable: Boolean = true,
+    onLongPress: (() -> Unit)? = null,
     onTap: () -> Unit,
 ) {
     // The shape of a placeholder comes from the sender's size hint; once loaded, from the file itself. Both are clamped.
@@ -206,7 +240,7 @@ internal fun GifTileView(
     val shape = Modifier.fillMaxWidth().aspectRatio(ratio)
     when {
         tile is GifTile.Ready && !failed -> {
-            PausableGif(tile, description, shape, pausable) { failed = true }
+            PausableGif(tile, description, shape, pausable, onLongPress) { failed = true }
         }
 
         tile is GifTile.Unavailable -> {
@@ -219,15 +253,19 @@ internal fun GifTileView(
                     ConversationTexts.RETRY_GIF,
                 ),
                 onTap,
+                onLongPress,
             )
         }
 
         failed -> {
-            Placeholder(shape, description, PlaceholderWords(ConversationTexts.GIF_CANT_SHOW, null, null), null)
+            Placeholder(shape, description, PlaceholderWords(ConversationTexts.GIF_CANT_SHOW, null, null), null, onLongPress)
         }
 
         else -> {
-            Box(shape.semantics { contentDescription = ConversationTexts.LOADING_GIF }, contentAlignment = Alignment.Center) {
+            Box(
+                shape.pressable(null, null, onLongPress).semantics { contentDescription = ConversationTexts.LOADING_GIF },
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator(strokeWidth = 2.dp)
             }
         }
@@ -239,26 +277,22 @@ internal fun GifTileView(
  * tap means something else (the picker: a tap chooses the GIF). The state is the tile's: it starts again when the bubble
  * leaves the screen and comes back.
  */
+@Suppress("LongParameterList") // The tile's pieces, handed down from GifTileView.
 @Composable
 private fun PausableGif(
     tile: GifTile.Ready,
     description: String,
     shape: Modifier,
     pausable: Boolean,
+    onLongPress: (() -> Unit)?,
     onFailed: () -> Unit,
 ) {
     var paused by remember(tile) { mutableStateOf(false) }
     // With less motion asked for the GIF is a still picture already: there is nothing to pause.
-    val tap =
-        if (pausable && !prefersReducedMotion()) {
-            Modifier.clickable(
-                onClickLabel = if (paused) ConversationTexts.PLAY_GIF else ConversationTexts.PAUSE_GIF,
-                role = Role.Button,
-            ) { paused = !paused }
-        } else {
-            Modifier
-        }
-    Box(shape.then(tap), contentAlignment = Alignment.Center) {
+    val canPause = pausable && !prefersReducedMotion()
+    val label = if (paused) ConversationTexts.PLAY_GIF else ConversationTexts.PAUSE_GIF
+    val tap = shape.pressable(if (canPause) label else null, if (canPause) ({ paused = !paused }) else null, onLongPress)
+    Box(tap, contentAlignment = Alignment.Center) {
         AnimatedGif(tile.data, tile.info, description, Modifier.fillMaxSize(), paused, onFailed)
         if (paused) PausedChip()
     }
@@ -293,11 +327,11 @@ private fun Placeholder(
     description: String,
     words: PlaceholderWords,
     onTap: (() -> Unit)?,
+    onLongPress: (() -> Unit)?,
 ) {
     val (title, hint, tapLabel) = words
-    val tap = if (onTap != null) Modifier.clickable(onClickLabel = tapLabel, role = Role.Button, onClick = onTap) else Modifier
     Box(
-        modifier.then(tap).padding(8.dp).semantics(mergeDescendants = true) {
+        modifier.pressable(tapLabel, onTap, onLongPress).padding(8.dp).semantics(mergeDescendants = true) {
             contentDescription =
                 listOfNotNull(description, title, hint).joinToString(". ")
         },
