@@ -32,6 +32,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * - A login that throws anything (a bug, a platform error) is a closed `UNEXPECTED` failure for that attempt only.
  * One holder per endpoint (a [Session] carries its endpoint).
  */
+@Suppress("TooManyFunctions") // One small function per way to use the one session of the device.
 class SessionHolder(
     private val logIn: suspend () -> AuthResult<Session>,
     private val scope: CoroutineScope,
@@ -53,6 +54,22 @@ class SessionHolder(
     suspend fun <T> withSessionResult(call: suspend (Session) -> AuthResult<T>): AuthResult<T> {
         val first = attempt(call)
         return if (first.unauthorized) retryAfterLogin(first.used, call) else first.result
+    }
+
+    /**
+     * The current session, logging in if there is none (or it is about to expire). For a caller that needs the session itself
+     * and not a call made with it, like the live-updates socket (#27); the same single login as [withSession].
+     */
+    suspend fun session(): AuthResult<Session> = ensureSession()
+
+    /**
+     * Drops [rejected] if it is still the session in use, so the next [session] logs in again; a session that was already
+     * replaced, or dropped by [clear], is left alone. Never a wipe or a logout: only for a session the server refused (the
+     * socket's close code 4401). Every login counts against the device's budget (ADR-0009), so a caller does this at most once
+     * per refusal.
+     */
+    suspend fun invalidate(rejected: Session) {
+        mutex.withLock { if (session === rejected) session = null }
     }
 
     /** Marks "now" for [adopt]: take it before the work that yields the session (registration). */

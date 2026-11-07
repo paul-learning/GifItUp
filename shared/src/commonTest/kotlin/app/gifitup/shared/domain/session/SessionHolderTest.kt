@@ -320,4 +320,37 @@ class SessionHolderTest {
             val s = session()
             assertEquals(false, "t0" in s.toString())
         }
+
+    @Test
+    fun sessionGivesTheCurrentSessionAndLogsInOnlyOnce() =
+        runTest {
+            val holder = holder()
+            val first = assertIs<AuthResult.Ok<Session>>(holder.session()).value
+            val second = assertIs<AuthResult.Ok<Session>>(holder.session()).value
+            assertSame(first, second)
+            assertEquals(1, logins)
+        }
+
+    @Test
+    fun invalidateDropsTheRejectedSessionSoTheNextOneLogsInAgain() =
+        runTest {
+            val holder = holder()
+            val first = assertIs<AuthResult.Ok<Session>>(holder.session()).value
+            holder.invalidate(first)
+            val second = assertIs<AuthResult.Ok<Session>>(holder.session()).value
+            assertEquals(2, logins)
+            assertEquals(false, first === second)
+        }
+
+    @Test
+    fun invalidateLeavesAnotherSessionAloneThatReplacedTheRejectedOne() =
+        runTest {
+            val holder = holder()
+            val old = assertIs<AuthResult.Ok<Session>>(holder.session()).value
+            holder.invalidate(old)
+            val replacement = assertIs<AuthResult.Ok<Session>>(holder.session()).value
+            holder.invalidate(old) // a late call about the old one must not drop the replacement
+            assertSame(replacement, assertIs<AuthResult.Ok<Session>>(holder.session()).value)
+            assertEquals(2, logins)
+        }
 }
