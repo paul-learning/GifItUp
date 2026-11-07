@@ -23,7 +23,7 @@ The workflow `.github/workflows/release.yml` builds, signs and drafts a GitHub R
    - **Environment variable:** `RELEASE_CERT_SHA256` = the 64 lowercase hex digits from step 1.
    Then delete the base64 text from your clipboard and shell history.
 5. **Tag ruleset** (*Settings → Rules → Rulesets → New tag ruleset*): target tags `v*`, rules *restrict creations*, *restrict updates* and *restrict deletions*. Put yourself on the bypass list (the *Repository admin* role), or nobody can create a tag. The limit is the one in the threat model: the token agents run with has the same rights, so the ruleset keeps out everyone else and is policy, not a barrier, for an agent acting as you.
-6. **Immutable releases** (*Settings → General → Releases → Enable release immutability*, if your plan has it): a published release's assets can't be replaced or deleted afterwards. Without it, "never replace the APK of a version" is a rule, not a barrier (#251 SEC-18).
+6. **Immutable releases** (*Settings → General → Releases → Enable release immutability*; **on for this repo**: the owner, in chat on 2026-11-07, "the releases are already set to immutable", and the releases API shows `immutable: true` for the published ones): a published release's assets can't be replaced or deleted afterwards. Without it, "never replace the APK of a version" is a rule, not a barrier (#251 SEC-18).
 7. **`assetlinks.json` on the VM** (the Caddy site block, `deploy/caddy/gifitup.caddy`): replace `REPLACE_WITH_RELEASE_SHA256` with the certificate's SHA-256 **with colons, uppercase** (Android's format), and make sure it is the **only** fingerprint. Reload Caddy, then run `bash scripts/check-web-headers.sh https://<host> --assetlinks <that fingerprint>` from your machine.
 
 ## Making a release

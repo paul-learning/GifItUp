@@ -8,7 +8,8 @@ for this repo): a published release cannot be changed, only replaced by a newer 
 - [ ] All reaction PRs (#262 to #266) and the earlier ones are merged and `main` is deployed (Actions: Deploy, approve the
   `production` environment). The CI jobs on `main` are green, including `Gradle check` (it runs `:e2e:test`).
 - [ ] **Tag the release** (`docs/ops/release.md`): `git tag vX.Y.Z <commit-on-main> && git push origin vX.Y.Z`. Use the next free
-  number (`v0.1.5`; `v0.1.4` is used up by the empty release). Never create the release by hand on GitHub: the workflow makes
+  number (`v0.1.5`). `v0.1.4` stays an unpublished draft: its tag name was used by the empty release made by hand, and GitHub
+  would not publish it. Never create the release by hand on GitHub: the workflow makes
   the draft with the APK.
 - [ ] Actions: Release. Approve the `release` environment when asked.
 - [ ] Open the **draft** release. Download `gifitup-vX.Y.Z.apk`, install it on your own phone, and check the certificate
@@ -32,8 +33,8 @@ for this repo): a published release cannot be changed, only replaced by a newer 
 ## 3. Inviting friends
 
 - [ ] Create invites in the app (Create invite). One invite per person: single-use, and they expire.
-- [ ] Send each friend, in two separate messages: the invite link, and the release's certificate fingerprint. Add the link to
-  `docs/alpha-guide.md` (or paste its text): it says what is private and what is not.
+- [ ] Send each friend, in two separate messages: the invite link, and the release's certificate fingerprint. Also send them the
+  guide (`docs/alpha-guide.md` on GitHub): it says what is private and what is not. Invite links never go into the repo.
 - [ ] Tell them to compare the emojis with you on a call.
 
 ## 4. While the alpha runs
