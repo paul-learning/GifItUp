@@ -53,6 +53,7 @@ internal fun MessageRow(
     message: MessageView,
     tiles: GifTilesStateHolder,
     tile: GifTile?,
+    reactions: ReactionControls,
 ) {
     val mine = message.sender == null
     val sender = message.sender?.let(ChatTexts::isolated) ?: ConversationTexts.YOU
@@ -68,6 +69,7 @@ internal fun MessageRow(
             MessageBody.UpdateNeeded -> Text(ConversationTexts.UPDATE_NEEDED, style = MaterialTheme.typography.bodySmall)
             is MessageBody.Membership -> Text(ConversationTexts.membership(body), style = MaterialTheme.typography.bodySmall)
         }
+        if (message.canBeReactedTo()) ReactionBar(message, reactions)
         if (message.body !is MessageBody.Membership) SenderLine(message, sender, mine)
     }
 }

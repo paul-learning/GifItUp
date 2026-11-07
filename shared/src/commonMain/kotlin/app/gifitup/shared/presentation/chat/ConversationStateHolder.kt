@@ -15,6 +15,7 @@ import app.gifitup.shared.domain.messages.DeliveryState
 import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.MessageBody
+import app.gifitup.shared.domain.messages.Reaction
 import app.gifitup.shared.domain.messages.ResetResult
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,8 @@ class MessageView(
     val body: MessageBody,
     val state: DeliveryState?,
     val at: Long,
+    /** The reactions to this message, in the order the members first reacted (ADR-0006 B10a); only a GIF has any. */
+    val reactions: List<Reaction> = emptyList(),
 )
 
 /** Why the last send did not go as asked. */
@@ -81,6 +84,8 @@ data class ConversationState(
     val canResetHistory: Boolean = false,
     /** The last "reset history" did not finish: the history is as it was and the reset can be tried again. */
     val resetFailed: Boolean = false,
+    /** The user's own username, once the group list has said so; a reaction of theirs is told apart by it. */
+    val own: String? = null,
 ) {
     /** A message of ours was stored but not answered: [ConversationStateHolder.resend] posts it again. */
     val hasUnsettled: Boolean get() = messages.any { it.state == DeliveryState.SENDING }
@@ -127,7 +132,11 @@ class ConversationStateHolder(
      * Shows what is stored at once, settles what a crash left unsettled, then reads the log. The unsettled message is
      * posted again (`resume`) only when the conversation is usable and the history is readable (ADR-0017).
      */
-    fun open() = act { forVisit -> resumeUnsettled(forVisit) }
+    fun open() =
+        act { forVisit ->
+            loadOwn(forVisit)
+            resumeUnsettled(forVisit)
+        }
 
     /** The user's confirmed "reset history": the stored history of this device is deleted; the conversation is rebuilt. */
     fun resetHistory() {
@@ -171,6 +180,20 @@ class ConversationStateHolder(
             return
         }
         sendWith { sessions.withSessionResult { chat.sendGif(it, group.id, reference, checked.caption) } }
+    }
+
+    /**
+     * Reacts to the GIF [target] with [emoji], or takes the user's own reaction back (`null`) (ADR-0006 B10a). It goes through
+     * the same gate as a send. A reaction that would change nothing is not a problem and sends nothing.
+     */
+    fun react(
+        target: KeyBytes,
+        emoji: String?,
+    ) = sendWith {
+        when (val result = sessions.withSessionResult { chat.react(it, group.id, target, emoji) }) {
+            is AuthResult.Ok -> if (result.value == SyncOutcome.InvalidRequest) AuthResult.Ok(SyncOutcome.CaughtUp(0)) else result
+            is AuthResult.Failed -> result
+        }
     }
 
     /** Posts the unsettled message again. */
@@ -241,6 +264,13 @@ class ConversationStateHolder(
         }
     }
 
+    /** The user's own name comes from the group list (the engine's own state); a failure leaves it unknown. */
+    private suspend fun loadOwn(forVisit: Int) {
+        if (flow.value.own != null) return
+        val groups = sessions.withSessionResult { chat.groups(it) }
+        (groups as? AuthResult.Ok)?.let { list -> change(forVisit) { it.copy(own = list.value.own) } }
+    }
+
     private suspend fun readLog(forVisit: Int) {
         change(forVisit) { it.copy(refreshing = true) }
         when (val synced = sessions.withSessionResult { chat.sync(it, group.id) }) {
@@ -303,7 +333,7 @@ class ConversationStateHolder(
     }
 }
 
-private fun ChatMessage.toView() = MessageView(reference, sender, body, state, at)
+private fun ChatMessage.toView() = MessageView(reference, sender, body, state, at, reactions)
 
 private fun problemOf(result: AuthResult<SyncOutcome>): SendProblem? =
     when (result) {

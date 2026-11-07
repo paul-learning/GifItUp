@@ -51,12 +51,14 @@ fun App(
     screen: ScreenProtection = ScreenProtection.None,
 ) {
     GifItUpTheme {
-        // The window is edge to edge on Android: the surface paints to the edges, the content stays out of the status bar, the
-        // navigation bar, a display cutout and the keyboard (#217). On the web the insets are zero.
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                val storage = graph.deviceStorage
-                if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen)
+        ProvideGlyphs(graph.glyphs) {
+            // The window is edge to edge on Android: the surface paints to the edges, the content stays out of the status bar, the
+            // navigation bar, a display cutout and the keyboard (#217). On the web the insets are zero.
+            Surface(modifier = Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    val storage = graph.deviceStorage
+                    if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen)
+                }
             }
         }
     }

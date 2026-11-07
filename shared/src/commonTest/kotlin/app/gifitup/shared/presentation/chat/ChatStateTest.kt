@@ -133,12 +133,18 @@ class ChatStateTest {
             return answer(sendOutcome)
         }
 
+        val reacted = mutableListOf<Pair<KeyBytes, String?>>()
+        var reactOutcome: SyncOutcome = SyncOutcome.Sent(6)
+
         override suspend fun react(
             session: Session,
             groupId: KeyBytes,
             target: KeyBytes,
             emoji: String?,
-        ): AuthResult<SyncOutcome> = error("not used")
+        ): AuthResult<SyncOutcome> {
+            reacted += target to emoji
+            return answer(reactOutcome)
+        }
 
         override suspend fun resume(
             session: Session,
@@ -843,4 +849,84 @@ class ChatStateTest {
         assertEquals(ConversationProblem.STOPPED, GroupStatus.FROZEN_GAP.toProblem())
         assertEquals(ConversationProblem.STOPPED, GroupStatus.FROZEN_COMMIT_REFUSED.toProblem())
     }
+
+    private val heart = "\u2764\uFE0F"
+
+    @Test
+    fun theConversationKnowsTheOwnNameAndShowsTheReactionsOfAGif() =
+        runTest {
+            val info = group(1, "bob")
+            chat.groups = listOf(info)
+            store.insert(gif(1, 1, "bob", at = 5))
+            store.react(id(1), id(101), "bob", heart)
+            val holder = conversation(info)
+            holder.open()
+            advanceUntilIdle()
+            val state = holder.state.value
+            assertEquals("me", state.own)
+            assertEquals(
+                listOf("bob" to heart),
+                state.messages
+                    .single()
+                    .reactions
+                    .map { it.by to it.emoji },
+            )
+        }
+
+    @Test
+    fun aReactionGoesThroughTheSendGateAndTheViewShowsItAfterwards() =
+        runTest {
+            val info = group(1, "bob")
+            chat.groups = listOf(info)
+            store.insert(gif(1, 1, "bob", at = 5))
+            val holder = conversation(info)
+            holder.open()
+            advanceUntilIdle()
+            chat.onSync = { }
+            holder.react(id(101), heart)
+            store.react(id(1), id(101), "iris", heart) // what the use case does once the server accepted it
+            advanceUntilIdle()
+            assertEquals(listOf<Pair<KeyBytes, String?>>(id(101) to heart), chat.reacted)
+            assertNull(holder.state.value.sendProblem)
+            assertEquals(
+                listOf("iris"),
+                holder.state.value.messages
+                    .single()
+                    .reactions
+                    .map { it.by },
+            )
+            holder.react(id(101), null)
+            advanceUntilIdle()
+            assertEquals(listOf<Pair<KeyBytes, String?>>(id(101) to heart, id(101) to null), chat.reacted)
+        }
+
+    @Test
+    fun aReactionThatChangesNothingIsNoProblem() =
+        runTest {
+            val info = group(1, "bob")
+            chat.groups = listOf(info)
+            store.insert(gif(1, 1, "bob", at = 5))
+            val holder = conversation(info)
+            holder.open()
+            advanceUntilIdle()
+            chat.reactOutcome = SyncOutcome.InvalidRequest
+            holder.react(id(101), heart)
+            advanceUntilIdle()
+            assertNull(holder.state.value.sendProblem)
+        }
+
+    @Test
+    fun aReactionThatTheServerSlowsDownSaysSo() =
+        runTest {
+            val info = group(1, "bob")
+            chat.groups = listOf(info)
+            store.insert(gif(1, 1, "bob", at = 5))
+            val holder = conversation(info)
+            holder.open()
+            advanceUntilIdle()
+            chat.reactOutcome = SyncOutcome.InFlight(ApiError.RATE_LIMITED)
+            holder.react(id(101), heart)
+            advanceUntilIdle()
+            assertEquals(SendProblem.THROTTLED, holder.state.value.sendProblem)
+        }
 }
