@@ -15,6 +15,13 @@ class ApiEndpoint private constructor(
 ) {
     override fun toString(): String = "ApiEndpoint(origin=$origin, baseUrl=$baseUrl)"
 
+    /**
+     * Where the server's WebSocket is (`GET /ws`, ADR-0015): this endpoint's own address with the scheme swapped, so `https`
+     * is `wss`. Derived from here only, never from anything the server or a link says; a plain `ws` exists only for the dev
+     * loopback endpoint.
+     */
+    internal val socketUrl: String get() = baseUrl.replaceFirst("http", "ws") + "/ws"
+
     internal fun sameAs(other: ApiEndpoint): Boolean = origin == other.origin && baseUrl == other.baseUrl
 
     companion object {
