@@ -1,4 +1,4 @@
-Noto Color Emoji, subset (the 256 key-comparison emojis of ADR-0014). Copyright 2013-2017 Google Inc.
+Noto Color Emoji, subset (the 1156 reaction emojis of ADR-0006 B10a, which include the 256 key-comparison emojis of ADR-0014). Copyright 2013-2017 Google Inc.
 Source: Debian/Ubuntu package fonts-noto-color-emoji 2.047-0ubuntu0.24.04.1 (upstream https://github.com/googlefonts/noto-emoji).
 The font is licensed under the SIL Open Font License 1.1, copied below.
 
