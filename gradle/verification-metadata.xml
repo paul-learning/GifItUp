@@ -2404,7 +2404,7 @@
          </artifact>
       </component>
       <component group="com.squareup.okhttp3" name="okhttp-android" version="5.5.0">
-         <artifact name="okhttp-android-5.5.0.aar">
+         <artifact name="okhttp.aar">
             <sha256 value="6c7fd12f092e64ca2eae0b8a8023900c0d7ffec57888cf8abc8085c6f42e1dcc" origin="Maven Central file, sha1 cross-checked (#27 live updates)"/>
          </artifact>
          <artifact name="okhttp-android-5.5.0.module">
