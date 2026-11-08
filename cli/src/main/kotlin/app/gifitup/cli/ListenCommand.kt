@@ -8,6 +8,7 @@ import app.gifitup.shared.domain.events.SocketConnector
 import app.gifitup.shared.domain.events.Wake
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -54,7 +55,8 @@ internal class ListenCommand(
                     EXIT_FAILURE
                 }
             live.stop()
-            coroutineContext[kotlinx.coroutines.Job]?.children?.forEach { it.cancel() }
+            // The three watchers above wait for events that will not come now; this scope ends only when they do.
+            coroutineContext.cancelChildren()
             code
         }
 

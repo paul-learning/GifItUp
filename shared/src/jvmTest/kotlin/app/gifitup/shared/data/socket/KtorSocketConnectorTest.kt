@@ -75,6 +75,19 @@ class KtorSocketConnectorTest {
         }
 
     @Test
+    fun aPeerThatNeverAnswersTheUpgradeIsAFailureAfterTheTimeout() =
+        runBlocking<Unit> {
+            RawSocketServer { peer ->
+                peer.readRequest() // accepts, reads, and says nothing
+                peer.awaitEnd()
+            }.use { server ->
+                KtorSocketConnector(Java.create(), openTimeoutMillis = 500).use { connector ->
+                    assertEquals(SocketOpening.Failed, withTimeout(TIMEOUT) { connector.open(server.url, HELLO) })
+                }
+            }
+        }
+
+    @Test
     fun aClosedPortIsAFailureThatCarriesNothing() =
         runBlocking<Unit> {
             val port = RawSocketServer { }.use { it.port }

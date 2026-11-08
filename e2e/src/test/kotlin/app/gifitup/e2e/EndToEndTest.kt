@@ -471,6 +471,9 @@ class EndToEndTest {
         val deadline = System.nanoTime() + 60_000_000_000L
         while ("listening" !in listener.stdout() && System.nanoTime() < deadline) Thread.sleep(200)
         assertTrue("listening" in listener.stdout(), "the listener connected: ${listener.stdout()}")
+        // "listening" is the client's view; the server attaches the socket to its group fan-out right after its own check of
+        // the hello. Iris's process start alone is longer than that, and this pause makes it certain.
+        Thread.sleep(SOCKET_SETTLE_MILLIS)
         assertEquals(listOf("sent at seq 2"), ok(iris, "chat-send", "--group", group, stdin = say("hello jack")))
         val heard = listener.finish()
         assertEquals(0, heard.exit, "chat-listen exit code: ${heard.stderr}")
@@ -903,6 +906,7 @@ class EndToEndTest {
         const val EXIT_SERVER = 1
         const val EXIT_REFUSED = 3
         const val EXIT_FAILURE = 4
+        const val SOCKET_SETTLE_MILLIS = 1_500L
         const val MAX_OPEN_INVITES = 5
         const val UUID_LENGTH = 36
 

@@ -16,8 +16,10 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readReason
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeout
 import kotlin.concurrent.Volatile
 
 /**
@@ -32,6 +34,7 @@ import kotlin.concurrent.Volatile
  */
 class KtorSocketConnector(
     private val engine: HttpClientEngine,
+    private val openTimeoutMillis: Long = OPEN_TIMEOUT_MS,
 ) : SocketConnector,
     AutoCloseable {
     private val client =
@@ -53,15 +56,22 @@ class KtorSocketConnector(
     ): SocketOpening {
         var session: DefaultClientWebSocketSession? = null
         return try {
-            val opened = client.webSocketSession(url)
-            session = opened
-            opened.send(Frame.Text(hello))
-            SocketOpening.Opened(KtorSocketLink(opened))
+            // The whole opening (connect, upgrade, hello) is bounded: a peer that accepts the connection and then says
+            // nothing must not leave the loop waiting for ever.
+            withTimeout(openTimeoutMillis) {
+                val opened = client.webSocketSession(url)
+                session = opened
+                opened.send(Frame.Text(hello))
+                SocketOpening.Opened(KtorSocketLink(opened))
+            }
+        } catch (_: TimeoutCancellationException) {
+            session?.cancel()
+            SocketOpening.Failed
         } catch (e: CancellationException) {
-            session?.close()
+            session?.cancel()
             throw e
         } catch (_: Throwable) {
-            runCatching { session?.close() }
+            session?.cancel()
             SocketOpening.Failed
         }
     }
@@ -134,6 +144,9 @@ class KtorSocketConnector(
 
     companion object {
         const val CONNECT_TIMEOUT_MS = 10_000L
+
+        /** Connect, upgrade and hello together. */
+        const val OPEN_TIMEOUT_MS = 15_000L
 
         /** A real hint is under 120 bytes; the loop drops anything over 1024 characters anyway. */
         const val MAX_FRAME_BYTES = 1024L
