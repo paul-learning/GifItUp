@@ -23,8 +23,9 @@ import kotlin.concurrent.Volatile
 /**
  * Opens the push channel's socket (ADR-0015) over one injected engine. The engine decides how TLS and the trust store work;
  * this class adds nothing to it (no trust manager, no pinning). Hardening, all of it checked by tests:
- * - frames over [MAX_FRAME_BYTES] end the socket (the library closes with 1009), so a hostile server cannot make this device
- *   buffer big frames: a real hint is under 120 bytes;
+ * - a frame over [MAX_FRAME_BYTES] is never delivered and ends the socket (library limit plus a check here, because not every
+ *   engine enforces the limit). What an engine buffers before that is its own limit: OkHttp's 16 MiB message cap, the
+ *   browser's, the JDK's (dev CLI only); a real hint is under 120 bytes;
  * - redirects are not followed and only a connect timeout is set (a quiet socket is normal: the server pings every 25 s);
  * - no logging plugin is installed, and no failure's text leaves this class: the hello holds the session token and library
  *   exceptions can quote what they were doing.
@@ -85,11 +86,23 @@ class KtorSocketConnector(
             val frame = nextFrame()
             return when {
                 frame == null -> SocketFrame.Closed(if (closedHere) null else closeCode())
-                frame is Frame.Text -> SocketFrame.Text(frame.readText())
+                frame is Frame.Text -> text(frame)
                 frame is Frame.Close -> SocketFrame.Closed(frame.readReason()?.code?.toInt())
                 else -> null // Binary frames are not part of the protocol; pings and pongs are the library's.
             }
         }
+
+        /**
+         * The library's `maxFrameSize` is not enforced by every engine (the JDK's delivers a whole message), so the size is
+         * checked here too: a frame over the limit is never passed on, and it ends the socket.
+         */
+        private suspend fun text(frame: Frame.Text): SocketFrame =
+            if (frame.data.size > MAX_FRAME_BYTES) {
+                close()
+                SocketFrame.Closed(null)
+            } else {
+                SocketFrame.Text(frame.readText())
+            }
 
         /** The next frame, `null` once the channel is closed; a failure inside is the end, not an error. */
         @Suppress("TooGenericExceptionCaught")

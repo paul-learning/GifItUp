@@ -27,6 +27,10 @@ kotlin {
             implementation(libs.ktor.client.websockets)
             implementation(libs.kotlinx.coroutines.core)
         }
+        jvmTest.dependencies {
+            // The connector tests talk to a hand-made socket server over a real engine (#27).
+            implementation(libs.ktor.client.java)
+        }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.ktor.client.mock)
