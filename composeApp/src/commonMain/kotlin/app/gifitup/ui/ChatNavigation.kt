@@ -48,12 +48,14 @@ internal fun ChatHome(
     BoxWithConstraints {
         // A wide window (the web, a tablet) shows the list and the open conversation side by side.
         val wide = maxWidth >= WIDE_MIN_WIDTH
+        val connected by model.liveConnected.collectAsState()
         val open = { info: GroupInfo ->
             model.openConversation(info)
             if (!wide) nav.navigate(ROUTE_CONVERSATION)
         }
         val menu = MenuActions({ nav.navigate(ROUTE_PROFILE) }, { nav.navigate(ROUTE_INVITES) }, { nav.navigate(ROUTE_FRIENDS) })
-        val actions = ChatListActions({ nav.navigate(ROUTE_NEW_CHAT) }, menu, open, { openProfile(model, nav, it) }, customServer)
+        val actions =
+            ChatListActions({ nav.navigate(ROUTE_NEW_CHAT) }, menu, open, { openProfile(model, nav, it) }, customServer, connected)
         if (wide) {
             Row(Modifier.fillMaxSize()) {
                 ChatListScreen(model.chats, actions, Modifier.width(LIST_PANE_WIDTH), model.conversation?.id, notice)
@@ -140,20 +142,30 @@ internal fun NavGraphBuilder.chatRoutes(
     }
     composable(ROUTE_CONVERSATION) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
-        val holder = model.conversation
-        val leave = { if (nav.currentDestination?.route == ROUTE_CONVERSATION) nav.popBackStack() }
-        // A process that was recreated has no open conversation: back to the list.
-        if (holder == null) {
-            LaunchedEffect(Unit) { leave() }
-        } else {
-            ConversationScreen(
-                holder,
-                model.tiles,
-                PickerParts(model.picker, model.previews),
-                Navigation({ openProfile(model, nav, it) }, { openGroup(model, nav) }, { leave() }),
-            )
-        }
+        ConversationRoute(viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin"), nav)
+    }
+}
+
+/** The phone layout's conversation screen. */
+@Composable
+private fun ConversationRoute(
+    model: OnboardingViewModel,
+    nav: NavHostController,
+) {
+    val holder = model.conversation
+    val connected by model.liveConnected.collectAsState()
+    val leave = { if (nav.currentDestination?.route == ROUTE_CONVERSATION) nav.popBackStack() }
+    // A process that was recreated has no open conversation: back to the list.
+    if (holder == null) {
+        LaunchedEffect(Unit) { leave() }
+    } else {
+        ConversationScreen(
+            holder,
+            model.tiles,
+            PickerParts(model.picker, model.previews),
+            Navigation({ openProfile(model, nav, it) }, { openGroup(model, nav) }, { leave() }),
+            liveConnected = connected,
+        )
     }
 }
 
@@ -165,6 +177,7 @@ private fun OpenConversation(
     modifier: Modifier,
 ) {
     val holder = model.conversation
+    val connected by model.liveConnected.collectAsState()
     Box(modifier.fillMaxSize()) {
         if (holder == null) {
             Text(ConversationTexts.PICK_CHAT, modifier = Modifier.align(Alignment.Center).padding(24.dp))
@@ -175,6 +188,7 @@ private fun OpenConversation(
                     model.tiles,
                     PickerParts(model.picker, model.previews),
                     Navigation({ openProfile(model, nav, it) }, { openGroup(model, nav) }, null),
+                    liveConnected = connected,
                 )
             }
         }

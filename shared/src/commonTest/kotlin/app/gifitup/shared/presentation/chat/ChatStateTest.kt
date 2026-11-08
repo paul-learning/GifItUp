@@ -343,6 +343,45 @@ class ChatStateTest {
         }
 
     @Test
+    fun aHintRefreshReadsOnlyTheNamedGroupsAndJoinsOnlyWhenAsked() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"), group(2, "carol"), group(3, "dave"))
+            val holder = list()
+            holder.refreshOnly(setOf(id(2)))
+            advanceUntilIdle()
+            assertTrue(chat.synced.isEmpty() && holder.state.value == ChatListState(), "a list nobody shows builds nothing for a hint")
+            holder.refresh() // the screen's own first refresh makes the list visible
+            advanceUntilIdle()
+            chat.synced.clear()
+            chat.welcomed = 0
+            holder.refreshOnly(setOf(id(2)))
+            advanceUntilIdle()
+            assertEquals(listOf(id(2)), chat.synced)
+            assertEquals(0, chat.welcomed, "no welcome check unless the hint was one")
+            holder.refreshOnly(setOf(id(3)), welcomes = true)
+            advanceUntilIdle()
+            assertEquals(listOf(id(2), id(3)), chat.synced)
+            assertEquals(1, chat.welcomed)
+            holder.refreshOnly(emptySet())
+            advanceUntilIdle()
+            assertEquals(listOf(id(2), id(3)), chat.synced, "an empty set only rebuilds the list from the stored history")
+            assertEquals(3, holder.state.value.conversations.size)
+        }
+
+    @Test
+    fun aHintThatComesWhileARefreshRunsIsKeptAndRunsAfterIt() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"), group(2, "carol"), group(3, "dave"))
+            val holder = list()
+            holder.refresh()
+            holder.refreshOnly(setOf(id(2)))
+            holder.refreshOnly(setOf(id(3)))
+            advanceUntilIdle()
+            // The full refresh read all three; the merged hints follow it as one refresh of the two named groups.
+            assertEquals(listOf(id(1), id(2), id(3), id(2), id(3)), chat.synced)
+        }
+
+    @Test
     fun oneRefreshRunsAtATimeAndLeavingDropsTheState() =
         runTest {
             chat.groups = listOf(group(1, "bob"))

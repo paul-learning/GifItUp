@@ -28,6 +28,13 @@ for this repo): a published release cannot be changed, only replaced by a newer 
 - [ ] React on both sides; the chip appears for both; the dialog lists who reacted; change it; remove it.
 - [ ] Compare the 12 emojis and names on a call and save the key.
 - [ ] Make a group of three and rename it.
+- [ ] **Live updates** (needs the release that has them): with the app open on both devices, send a GIF and a reaction each way:
+  it shows within a second or two on the other side, not after 15 s. Put one device into the background for a minute and bring
+  it back: the chat is current again. Switch one device to flight mode and back: it catches up without a restart.
+- [ ] **Android socket check (owner, once, #27 SEC-4):** with the release build on a phone, add a user CA (Settings, Security,
+  Encryption and credentials, Install a certificate) that signs a test host and check the app refuses to talk to a server
+  that uses it; and check a plain `http://` or `ws://` server address is refused. The socket uses the platform's trust store
+  like every other request (ADR-0020); this is the manual proof, as no automated test runs on a device.
 - [ ] Try the limits: nothing should say something is broken when it is only the server asking you to slow down.
 
 ## 3. Inviting friends

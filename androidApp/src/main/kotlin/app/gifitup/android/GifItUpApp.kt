@@ -27,6 +27,7 @@ class GifItUpApp : Application() {
             mlsClientFactory = { UniffiMlsClientFactory },
             deviceStorage = storage,
             engine = { Android.create() },
+            socketEngine = { SocketEngine.create() },
             random = { size -> ByteArray(size).also(random::nextBytes) },
             clipboard = AndroidClipboard(this),
             glyphs = AndroidGlyphs,

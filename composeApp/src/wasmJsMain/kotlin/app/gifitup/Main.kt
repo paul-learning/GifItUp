@@ -57,6 +57,7 @@ fun main() {
                     mlsClientFactory = { loadWasmMlsClientFactory() },
                     deviceStorage = it,
                     engine = { Js.create() },
+                    socketEngine = { Js.create() },
                     random = WebSecureRandom,
                     clipboard = WebClipboard,
                     glyphs = glyphs,

@@ -33,6 +33,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,8 +60,8 @@ import kotlin.time.Clock
 
 /**
  * The chat list: renders the holder's state and sends the user's actions to it; it decides nothing (ADR-0013). It reads
- * for new messages when it opens and then every [REFRESH_MILLIS] while it is on screen (polling; push comes with a
- * socket client later). Leaving the screen drops its state.
+ * for new messages when it opens and when the push channel says something arrived (#27), and as a fallback every
+ * [REFRESH_MILLIS] ([CONNECTED_REFRESH_MILLIS] while the socket is connected) while it is on screen. Leaving the screen drops its state.
  */
 @Composable
 internal fun ChatListScreen(
@@ -71,10 +72,12 @@ internal fun ChatListScreen(
     notice: (@Composable () -> Unit)? = null,
 ) {
     val state by holder.state.collectAsState()
+    // The timer is the fallback of the push channel (#27): slow while the socket is connected.
+    val refreshMillis by rememberUpdatedState(if (actions.liveConnected) CONNECTED_REFRESH_MILLIS else REFRESH_MILLIS)
     LaunchedEffect(holder) {
         while (true) {
             holder.refresh()
-            delay(REFRESH_MILLIS)
+            delay(refreshMillis)
         }
     }
     DisposableEffect(holder) { onDispose { holder.leave() } }
@@ -269,4 +272,5 @@ private fun UnreadBadge(count: String) {
 }
 
 private const val REFRESH_MILLIS = 15_000L
+private const val CONNECTED_REFRESH_MILLIS = 30_000L
 private val FAB_ROOM = 96.dp
