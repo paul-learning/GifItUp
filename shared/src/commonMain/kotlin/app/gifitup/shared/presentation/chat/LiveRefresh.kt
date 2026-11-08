@@ -2,6 +2,7 @@ package app.gifitup.shared.presentation.chat
 
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.events.Wake
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -33,7 +34,7 @@ class LiveRefresh(
 ) {
     /** The screens' side: what exists to refresh, and how. */
     interface Target {
-        /** The groups this device knows (local data, no request). */
+        /** The groups this device knows: a snapshot, never one listing per hint. */
         suspend fun knownGroups(): List<KeyBytes>
 
         /** The group of the open conversation, if one is open. */
@@ -96,7 +97,16 @@ class LiveRefresh(
     private suspend fun drain() {
         while (true) {
             val step = next() ?: return
-            step()
+            // One failed read must not end the worker for the rest of the session; a cancellation still ends it.
+            try {
+                step()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (
+                @Suppress("TooGenericExceptionCaught") _: Exception,
+            ) {
+                // The read's own result already reports its problem to the screen; a hint decides nothing.
+            }
             delay(tickMillis)
         }
     }

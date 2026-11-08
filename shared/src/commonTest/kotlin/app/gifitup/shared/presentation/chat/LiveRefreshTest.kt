@@ -101,6 +101,33 @@ class LiveRefreshTest {
         }
 
     @Test
+    fun aFailingReadDoesNotEndTheWorker() =
+        runTest {
+            val wakes = Channel<Wake>(Channel.UNLIMITED)
+            val reads = mutableListOf<String>()
+            val target =
+                object : LiveRefresh.Target {
+                    override suspend fun knownGroups() = emptyList<KeyBytes>()
+
+                    override fun openGroup(): KeyBytes? = null
+
+                    override suspend fun refreshOpen() = Unit
+
+                    override suspend fun refreshGroup(group: KeyBytes) {
+                        reads += "group ${group.bytes[0]}"
+                        if (group == id(1)) error("a store failure")
+                    }
+
+                    override suspend fun refreshWelcomes() = Unit
+                }
+            LiveRefresh(backgroundScope, { wakes.receive() }, target).start()
+            wakes.send(Wake(setOf(id(1), id(2)), welcomes = false, everything = false))
+            runCurrent()
+            advanceTimeBy(5_000)
+            assertEquals(listOf("group 1", "group 2"), reads)
+        }
+
+    @Test
     fun stopForgetsWhatWaitsAndReadsNothingMore() =
         runTest {
             val (wakes, target, refresh) = setup()

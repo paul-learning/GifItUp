@@ -40,7 +40,9 @@ import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
 import app.gifitup.shared.presentation.chat.GroupInfoStateHolder
+import app.gifitup.shared.presentation.chat.KnownGroups
 import app.gifitup.shared.presentation.chat.LiveRefresh
+import app.gifitup.shared.presentation.chat.LiveSwitch
 import app.gifitup.shared.presentation.chat.NewChatStateHolder
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
 import app.gifitup.shared.presentation.gif.GifPickerStateHolder
@@ -141,11 +143,18 @@ internal class OnboardingViewModel(
     private suspend fun knownGroups(): List<GroupInfo> =
         (sessions.withSessionResult { chatService.groups(it) } as? AuthResult.Ok)?.value?.groups.orEmpty()
 
-    private suspend fun isKnownGroup(id: KeyBytes): Boolean = knownGroups().any { it.id == id }
+    // A snapshot, not a listing per hint (#274 CR-2): one listing per 5 s at most, whatever the socket says.
+    private val known =
+        KnownGroups(
+            { knownGroups().filter { it.status == GroupStatus.ACTIVE }.map { it.id } },
+            { Clock.System.now().toEpochMilliseconds() },
+        )
+
+    private suspend fun isKnownGroup(id: KeyBytes): Boolean = known.contains(id)
 
     /** What a hint refreshes: the open conversation through its own read, the list only while it is on screen. */
     private inner class LiveTarget : LiveRefresh.Target {
-        override suspend fun knownGroups() = this@OnboardingViewModel.knownGroups().filter { it.status == GroupStatus.ACTIVE }.map { it.id }
+        override suspend fun knownGroups() = known.all()
 
         override fun openGroup() = conversation?.id
 
@@ -156,7 +165,10 @@ internal class OnboardingViewModel(
 
         override suspend fun refreshGroup(group: KeyBytes) = chats.refreshOnly(setOf(group))
 
-        override suspend fun refreshWelcomes() = chats.refreshOnly(emptySet(), welcomes = true)
+        override suspend fun refreshWelcomes() {
+            known.forget() // a Welcome may have joined a group the next hint names
+            chats.refreshOnly(emptySet(), welcomes = true)
+        }
     }
 
     private var foreground = false
@@ -182,23 +194,31 @@ internal class OnboardingViewModel(
         lifecycle.addObserver(observer)
     }
 
+    // Start and stop go through one queue, in the order the lifecycle asked (#274 SEC-1).
+    private val liveSwitch =
+        LiveSwitch(
+            viewModelScope,
+            open = {
+                liveRefresh.start()
+                live.start()
+            },
+            close = {
+                live.stop()
+                liveRefresh.stop()
+            },
+        )
+
     private fun liveStart() {
         foreground = true
         viewModelScope.launch {
             holder.state.first { it is OnboardingState.Done }
-            if (foreground) {
-                liveRefresh.start()
-                live.start()
-            }
+            if (foreground) liveSwitch.set(true)
         }
     }
 
     private fun liveStop() {
         foreground = false
-        viewModelScope.launch {
-            live.stop()
-            liveRefresh.stop()
-        }
+        liveSwitch.set(false)
     }
 
     /** The new-chat flow's logic: the friends are the contact book's saved contacts. */
