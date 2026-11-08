@@ -31,6 +31,8 @@ class AppGraph(
     val mlsClientFactory: suspend () -> MlsClientFactory,
     val deviceStorage: DeviceStorage?,
     val engine: () -> HttpClientEngine,
+    /** The engine of the push channel's socket only (#27, ADR-0020); it may differ from [engine] (Android: OkHttp). */
+    val socketEngine: () -> HttpClientEngine,
     val random: SecureRandomSource,
     val clipboard: SensitiveClipboard,
     val glyphs: GlyphSupport,

@@ -21,6 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
@@ -150,6 +151,8 @@ private fun Navigation(
 ) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
+    // The app's own lifecycle (not a destination's: a destination stops when another opens on top of it), for the live socket.
+    val appLifecycle = LocalLifecycleOwner.current.lifecycle
     var shownOrigin by rememberSaveable {
         mutableStateOf(current.origin)
     } // survives a rotation like the back stack (#131 SEC-26); not a secret
@@ -169,6 +172,7 @@ private fun Navigation(
                     OnboardingViewModel(services.graph, services.storage, services.mls, current.origin, services.setting)
                 }
             val state by model.holder.state.collectAsState()
+            LaunchedEffect(model, appLifecycle) { model.bindLifecycle(appLifecycle) }
             LaunchedEffect(state is OnboardingState.EnterInvite) {
                 if (state is OnboardingState.EnterInvite) inbox.take()?.let(model.holder::submitInvite)
             }

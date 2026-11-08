@@ -26,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -52,7 +53,8 @@ import kotlinx.coroutines.flow.filter
 
 /**
  * One conversation: renders the holders' state and sends the user's actions to them; it decides nothing (ADR-0013). It
- * reads for new messages when it opens and then every [REFRESH_MILLIS] while it is on screen. Leaving drops the state
+ * reads for new messages when it opens, when the push channel says something arrived (#27), and as a fallback every
+ * [REFRESH_MILLIS] ([CONNECTED_REFRESH_MILLIS] while the socket is connected) while it is on screen. Leaving drops the state
  * of the conversation and of the GIFs on screen.
  */
 @Composable
@@ -61,6 +63,7 @@ internal fun ConversationScreen(
     tiles: GifTilesStateHolder,
     picker: PickerParts,
     nav: Navigation,
+    liveConnected: Boolean = false,
 ) {
     val state by holder.state.collectAsState()
     var pickerOpen by rememberSaveable { mutableStateOf(false) }
@@ -69,10 +72,12 @@ internal fun ConversationScreen(
     // The message whose reactions are open; looked up again from the state, so the dialog follows a change (ADR-0006 B10a).
     var reacting by remember { mutableStateOf<KeyBytes?>(null) }
     val controls = ReactionControls(state.own, state.canSend) { reacting = it }
+    // The timer is the fallback of the push channel (#27): slow while the socket is connected, as before when it is not.
+    val refreshMillis by rememberUpdatedState(if (liveConnected) CONNECTED_REFRESH_MILLIS else REFRESH_MILLIS)
     LaunchedEffect(holder) {
         holder.open()
         while (true) {
-            delay(REFRESH_MILLIS)
+            delay(refreshMillis)
             holder.refresh()
         }
     }
@@ -245,6 +250,7 @@ private fun SendArea(
 }
 
 private const val REFRESH_MILLIS = 15_000L
+private const val CONNECTED_REFRESH_MILLIS = 30_000L
 
 /** A change of this text is announced by a screen reader. */
 internal fun Modifier.polite(): Modifier = semantics { liveRegion = LiveRegionMode.Polite }

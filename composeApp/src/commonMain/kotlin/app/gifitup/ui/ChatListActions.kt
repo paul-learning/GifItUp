@@ -14,6 +14,8 @@ internal class ChatListActions(
     val onProfile: (String) -> Unit = {},
     /** The server is not the default: the top bar carries a marker that opens the Profile (ADR-0013). */
     val customServer: Boolean = false,
+    /** The push channel's socket is connected: the list's fallback timer slows down (#27). */
+    val liveConnected: Boolean = false,
 )
 
 /** The destinations of the burger menu. */

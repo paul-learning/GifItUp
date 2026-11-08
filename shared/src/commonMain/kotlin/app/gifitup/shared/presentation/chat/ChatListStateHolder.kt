@@ -81,6 +81,7 @@ data class ChatListState(
  * - A group that is stopped, read-only or gone is listed with its problem and not synced.
  * - [leave] drops the state (the screen is gone); an answer for an older visit is dropped.
  */
+@Suppress("TooManyFunctions") // The list's actions, the refresh and the hint refresh (#27) share one single-flight state.
 class ChatListStateHolder(
     private val scope: CoroutineScope,
     private val sessions: SessionHolder,
@@ -91,6 +92,9 @@ class ChatListStateHolder(
     private val flow = MutableStateFlow(ChatListState())
     val state: StateFlow<ChatListState> = flow.asStateFlow()
     private var visit = 0
+
+    /** The list is on screen: set by the screen's first [refresh], cleared by [leave]. */
+    private var visible = false
     private var running = false
 
     /** A retry came while a refresh was running: one more refresh follows it, so the tap is never dropped. */
@@ -137,23 +141,63 @@ class ChatListStateHolder(
         }
     }
 
+    /** What one refresh does: [groups] `null` is every group; [welcomes] joins the groups the user was added to first. */
+    private class Request(
+        val groups: Set<KeyBytes>?,
+        val welcomes: Boolean,
+    ) {
+        fun merge(other: Request) =
+            Request(
+                if (groups == null || other.groups == null) null else groups + other.groups,
+                welcomes || other.welcomes,
+            )
+    }
+
+    /** A push hint came while a refresh was running (#27): what it asked for follows, merged, so the hint is never dropped. */
+    private var queued: Request? = null
+
+    /**
+     * The refresh a push hint asks for (#27): reads only the log of [groups] (and joins new groups if [welcomes]) and
+     * rebuilds the list from what is stored. An empty set reads nothing and only rebuilds the list, which is what follows
+     * the open conversation's own read. A hint names no more than the one group it is about, so this costs one request per
+     * group, not one per chat.
+     */
+    fun refreshOnly(
+        groups: Set<KeyBytes>,
+        welcomes: Boolean = false,
+    ) {
+        // A hint refreshes the list only while the list is on screen, like the timer: a state nobody shows is not built.
+        if (!visible) return
+        val request = Request(groups, welcomes)
+        if (running) queued = queued?.merge(request) ?: request else start(request)
+    }
+
     /** Joins new groups, reads every active group's log, and rebuilds the list. */
     fun refresh() {
+        visible = true
         if (running) return
+        start(Request(null, true))
+    }
+
+    private fun start(request: Request) {
         running = true
         val forVisit = visit
         flow.value = flow.value.copy(refreshing = true)
         scope.launch {
             try {
-                run(forVisit)
+                run(forVisit, request)
             } finally {
                 // After leave() a newer refresh may be running: this one no longer owns the flag.
                 if (forVisit == visit) {
                     running = false
                     flow.value = flow.value.copy(refreshing = false)
+                    val next = queued
+                    queued = null
                     if (refreshAgain) {
                         refreshAgain = false
                         refresh()
+                    } else if (next != null) {
+                        start(next)
                     }
                 }
             }
@@ -161,13 +205,18 @@ class ChatListStateHolder(
     }
 
     fun leave() {
+        visible = false
         visit++
         running = false
         refreshAgain = false
+        queued = null
         flow.value = ChatListState(filter = filter)
     }
 
-    private suspend fun run(forVisit: Int) {
+    private suspend fun run(
+        forVisit: Int,
+        request: Request,
+    ) {
         var problem: ChatProblem? = null
         // A history that can't be used is not fed: every message would fail and stall, once per group and tick (ADR-0017).
         val usable = store.usable()
@@ -175,7 +224,7 @@ class ChatListStateHolder(
         // and the refresh below only updates it (#27). The previous problem stays on screen until the later publish, which
         // carries this refresh's own (#261 CR-2).
         (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.let { publish(forVisit, it.value.groups, flow.value.problem) }
-        if (usable) {
+        if (usable && request.welcomes) {
             when (val joined = sessions.withSessionResult { chat.welcomes(it) }) {
                 is AuthResult.Failed -> problem = joined.error.toChatProblem()
 
@@ -193,7 +242,7 @@ class ChatListStateHolder(
 
             is AuthResult.Ok -> {
                 if (usable) {
-                    for (info in groups.value.groups.filter { it.status.toProblem() == null }) {
+                    for (info in groups.value.groups.filter { it.status.toProblem() == null && request.groups?.contains(it.id) != false }) {
                         problem = problem ?: syncProblem(info)
                     }
                 }

@@ -3,6 +3,8 @@ package app.gifitup.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.gifitup.AppGraph
@@ -10,15 +12,20 @@ import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.gif.KlipyGifProvider
 import app.gifitup.shared.data.network.ApiEndpoint
 import app.gifitup.shared.data.network.GifItUpApi
+import app.gifitup.shared.data.socket.KtorSocketConnector
+import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.auth.DeviceAuth
 import app.gifitup.shared.domain.auth.DeviceStorage
 import app.gifitup.shared.domain.auth.FetchGifProviderKey
 import app.gifitup.shared.domain.auth.HistoryCloser
 import app.gifitup.shared.domain.chat.ChatService
 import app.gifitup.shared.domain.chat.ReadMarks
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.events.LiveUpdates
 import app.gifitup.shared.domain.gif.GifKeyHolder
 import app.gifitup.shared.domain.gif.GifKeyRefresher
 import app.gifitup.shared.domain.groups.GroupInfo
+import app.gifitup.shared.domain.groups.GroupStatus
 import app.gifitup.shared.domain.invite.CreateInvite
 import app.gifitup.shared.domain.invite.ListInvites
 import app.gifitup.shared.domain.invite.RevokeInvite
@@ -33,6 +40,9 @@ import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ConversationStateHolder
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
 import app.gifitup.shared.presentation.chat.GroupInfoStateHolder
+import app.gifitup.shared.presentation.chat.KnownGroups
+import app.gifitup.shared.presentation.chat.LiveRefresh
+import app.gifitup.shared.presentation.chat.LiveSwitch
 import app.gifitup.shared.presentation.chat.NewChatStateHolder
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
 import app.gifitup.shared.presentation.gif.GifPickerStateHolder
@@ -41,7 +51,11 @@ import app.gifitup.shared.presentation.onboarding.OnboardingState
 import app.gifitup.shared.presentation.onboarding.OnboardingStateHolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
@@ -115,6 +129,97 @@ internal class OnboardingViewModel(
 
     /** The chat list's logic (#25), over the same session, API and engine. */
     val chats = ChatListStateHolder(viewModelScope, sessions, chatService, history, marks)
+
+    // Live updates (#27, ADR-0015, ADR-0020): one socket while the app is in the foreground. A hint only makes this device ask,
+    // through the same reads the timers use; the screens' timers stay as the fallback.
+    private val socket = KtorSocketConnector(graph.socketEngine())
+    val live =
+        LiveUpdates(socket, sessions, viewModelScope, ::isKnownGroup, { Clock.System.now().toEpochMilliseconds() })
+
+    /** Whether the socket is connected: the screens' timers slow down while it is. */
+    val liveConnected: StateFlow<Boolean> = live.status.map { it.connected }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    private val liveRefresh = LiveRefresh(viewModelScope, live::nextWake, LiveTarget())
+
+    private suspend fun knownGroups(): List<GroupInfo> =
+        (sessions.withSessionResult { chatService.groups(it) } as? AuthResult.Ok)?.value?.groups.orEmpty()
+
+    // A snapshot, not a listing per hint (#274 CR-2): one listing per 5 s at most, whatever the socket says.
+    private val known =
+        KnownGroups(
+            { knownGroups().filter { it.status == GroupStatus.ACTIVE }.map { it.id } },
+            { Clock.System.now().toEpochMilliseconds() },
+        )
+
+    private suspend fun isKnownGroup(id: KeyBytes): Boolean = known.contains(id)
+
+    /** What a hint refreshes: the open conversation through its own read, the list only while it is on screen. */
+    private inner class LiveTarget : LiveRefresh.Target {
+        override suspend fun knownGroups() = known.all()
+
+        override fun openGroup() = conversation?.id
+
+        override suspend fun refreshOpen() {
+            conversation?.refresh()
+            chats.refreshOnly(emptySet())
+        }
+
+        override suspend fun refreshGroup(group: KeyBytes) = chats.refreshOnly(setOf(group))
+
+        override suspend fun refreshWelcomes() {
+            known.forget() // a Welcome may have joined a group the next hint names
+            chats.refreshOnly(emptySet(), welcomes = true)
+        }
+    }
+
+    private var foreground = false
+    private var lifecycleObserver: LifecycleEventObserver? = null
+    private var observed: Lifecycle? = null
+
+    /**
+     * Ties the socket to the app's own lifecycle (once): it opens when the app is in the foreground and the account is ready,
+     * and closes when the app leaves the foreground, so no socket runs in the background (ADR-0015).
+     */
+    fun bindLifecycle(lifecycle: Lifecycle) {
+        if (observed != null) return
+        observed = lifecycle
+        val observer =
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_START -> liveStart()
+                    Lifecycle.Event.ON_STOP -> liveStop()
+                    else -> Unit
+                }
+            }
+        lifecycleObserver = observer
+        lifecycle.addObserver(observer)
+    }
+
+    // Start and stop go through one queue, in the order the lifecycle asked (#274 SEC-1).
+    private val liveSwitch =
+        LiveSwitch(
+            viewModelScope,
+            open = {
+                liveRefresh.start()
+                live.start()
+            },
+            close = {
+                live.stop()
+                liveRefresh.stop()
+            },
+        )
+
+    private fun liveStart() {
+        foreground = true
+        viewModelScope.launch {
+            holder.state.first { it is OnboardingState.Done }
+            if (foreground) liveSwitch.set(true)
+        }
+    }
+
+    private fun liveStop() {
+        foreground = false
+        liveSwitch.set(false)
+    }
 
     /** The new-chat flow's logic: the friends are the contact book's saved contacts. */
     val newChat = NewChatStateHolder(viewModelScope, sessions, chatService, auth.friendNames, history)
@@ -203,6 +308,10 @@ internal class OnboardingViewModel(
         picker.close()
         previews.leave()
         endGifSession()
+        lifecycleObserver?.let { observed?.removeObserver(it) }
+        foreground = false
+        // The socket closes with this view model; the scope that runs its loop ends with it as well.
+        socket.close()
         (providerFetcher as? AutoCloseable)?.close()
         (mediaFetcher as? AutoCloseable)?.close()
         // The history key and the decrypted cache leave memory with the view model (the wipe has closed it already).
