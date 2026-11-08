@@ -87,6 +87,51 @@ class Processes(
         return Finished(process.exitValue(), out.readText(), err.readText())
     }
 
+    /**
+     * Starts [command] without waiting: the output goes to files like [run]'s, so a test can read what the process printed
+     * so far with [Started.stdout] while it runs, and collect the end with [Started.finish].
+     */
+    fun start(
+        name: String,
+        command: List<String>,
+        env: Map<String, String>,
+        stdin: String = "",
+    ): Started {
+        val n = ++count
+        val out = work.resolve("$n-$name.stdout")
+        val err = work.resolve("$n-$name.stderr")
+        captured += "$name stdout" to { out.readText() }
+        captured += "$name stderr" to { err.readText() }
+        val process =
+            ProcessBuilder(command)
+                .apply {
+                    environment().clear()
+                    environment().putAll(baseEnvironment + env)
+                }.redirectOutput(out.toFile())
+                .redirectError(err.toFile())
+                .start()
+        process.outputStream.use { it.write(stdin.toByteArray()) }
+        return Started(name, process, out, err)
+    }
+
+    class Started(
+        private val name: String,
+        private val process: Process,
+        private val out: Path,
+        private val err: Path,
+    ) {
+        /** What the process has printed so far. */
+        fun stdout(): String = if (Files.exists(out)) out.readText() else ""
+
+        fun finish(): Finished {
+            if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                fail("$name didn't finish within $TIMEOUT_SECONDS s")
+            }
+            return Finished(process.exitValue(), out.readText(), err.readText())
+        }
+    }
+
     /** A file only the owner can read, as Docker mounts a secret. */
     fun secretFile(
         name: String,

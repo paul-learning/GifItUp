@@ -65,6 +65,7 @@ class CliTest {
         listOf("chat-send", "chat-sync", "chat-resume", "chat-history", "chat-rename").forEach {
             assertEquals(it, Invocation.parse(listOf(it) + base + listOf("--group", group)).command)
         }
+        assertEquals(45L, Invocation.parse(listOf("chat-listen") + base + listOf("--group", group, "--timeout", "45")).timeoutSeconds)
         val react = Invocation.parse(listOf("chat-react") + base + listOf("--group", group, "--seq", "3"))
         assertEquals(3L, react.seq)
         assertEquals("chat-welcomes", Invocation.parse(listOf("chat-welcomes") + base).command)
@@ -78,6 +79,7 @@ class CliTest {
                 "chat-rename",
                 "chat-react",
                 "chat-sync",
+                "chat-listen",
                 "chat-history",
                 "chat-resume",
                 "chat-welcomes",
@@ -126,6 +128,11 @@ class CliTest {
                 listOf("invite-revoke") + base + listOf("--id", ID.uppercase()), // ids are canonical
                 listOf("invite-revoke") + base + listOf("--id", "../devices"), // never a path
                 listOf("invites") + base + listOf("--id", ID),
+                listOf("chat-listen") + base + listOf("--group", GROUP), // no timeout
+                listOf("chat-listen") + base + listOf("--group", GROUP, "--timeout", "0"),
+                listOf("chat-listen") + base + listOf("--group", GROUP, "--timeout", "301"),
+                listOf("chat-listen") + base + listOf("--group", GROUP, "--timeout", "-5"),
+                listOf("chat-sync") + base + listOf("--group", GROUP, "--timeout", "5"), // a timeout only for chat-listen
             )
         cases.forEach { assertEquals(EXIT_USAGE, assertFailsWith<CliError>("$it") { Invocation.parse(it) }.exit) }
     }
@@ -152,6 +159,7 @@ class CliTest {
     }
 
     private companion object {
+        const val GROUP = "AQIDBAUGBwgJCgsMDQ4PEA"
         const val ID = "0b6f3c1e-8a3e-4d1c-9a54-3f1a2b4c5d6e"
     }
 }

@@ -465,7 +465,20 @@ class EndToEndTest {
         assertEquals(listOf("group $group active with e2e_iris"), ok(jack, "chat-groups"), "the joiner too")
         assertEquals(listOf("no groups"), ok(kim, "chat-groups"))
         refused(iris, "chat-send", EXIT_REFUSED, "that can't be done", "--group", group, stdin = "x".repeat(121))
+        // The push channel (ADR-0015, #27): jack listens, and iris's message reaches him as a hint within the second the
+        // server paces them, long before any 15 s poll. A hint names the group and nothing else.
+        val listener = cli.start("chat-listen", jack, "--group", group, "--timeout", "60")
+        val deadline = System.nanoTime() + 60_000_000_000L
+        while ("listening" !in listener.stdout() && System.nanoTime() < deadline) Thread.sleep(200)
+        assertTrue("listening" in listener.stdout(), "the listener connected: ${listener.stdout()}")
         assertEquals(listOf("sent at seq 2"), ok(iris, "chat-send", "--group", group, stdin = say("hello jack")))
+        val heard = listener.finish()
+        assertEquals(0, heard.exit, "chat-listen exit code: ${heard.stderr}")
+        assertEquals(listOf("listening", "hint for group $group"), heard.stdout.lines().filter { it.isNotBlank() })
+        // Nothing is sent to kim, who is not in the group: no hint, a closed line and a failure exit.
+        val quiet = cli.run("chat-listen", kim, "--group", group, "--timeout", "3")
+        assertEquals(EXIT_FAILURE, quiet.exit, "chat-listen without a hint")
+        assertEquals(listOf("listening", "no hint within 3 s"), quiet.stdout.lines().filter { it.isNotBlank() })
         assertEquals(
             listOf("message 2 from e2e_iris: gif e2e-test-gif \"hello jack\"", "synced, 1 log entries"),
             ok(jack, "chat-sync", "--group", group),
@@ -854,11 +867,24 @@ class EndToEndTest {
             vararg args: String,
             stdin: String = "",
             origin: String = ORIGIN,
-        ): Finished {
+        ): Finished = processes.run("cli $command", commandLine(command, stateDir, origin, args), emptyMap(), stdin = stdin + "\n")
+
+        /** Starts the command and returns at once (the push channel's listener, which has to be running while others act). */
+        fun start(
+            command: String,
+            stateDir: Path,
+            vararg args: String,
+        ): Processes.Started = processes.start("cli $command", commandLine(command, stateDir, ORIGIN, args), emptyMap(), stdin = "\n")
+
+        private fun commandLine(
+            command: String,
+            stateDir: Path,
+            origin: String,
+            args: Array<out String>,
+        ): List<String> {
             val script = cliHome.resolve("bin").resolve(if (Processes.windows) "gifitup-cli.bat" else "gifitup-cli").toString()
             val launcher = if (Processes.windows) listOf("cmd", "/c", script) else listOf(script)
-            val line = listOf(command, "--server", "http://127.0.0.1:$port", "--origin", origin, "--state-dir", "$stateDir") + args
-            return processes.run("cli $command", launcher + line, emptyMap(), stdin = stdin + "\n")
+            return launcher + listOf(command, "--server", "http://127.0.0.1:$port", "--origin", origin, "--state-dir", "$stateDir") + args
         }
     }
 
@@ -876,6 +902,7 @@ class EndToEndTest {
         const val POLL_MILLIS = 200L
         const val EXIT_SERVER = 1
         const val EXIT_REFUSED = 3
+        const val EXIT_FAILURE = 4
         const val MAX_OPEN_INVITES = 5
         const val UUID_LENGTH = 36
 
