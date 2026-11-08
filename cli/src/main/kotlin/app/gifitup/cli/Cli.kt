@@ -9,6 +9,7 @@ import app.gifitup.shared.data.gif.KtorProviderFetcher
 import app.gifitup.shared.data.network.ApiError
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
+import app.gifitup.shared.data.socket.KtorSocketConnector
 import app.gifitup.shared.data.storage.RestoreCounter
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.AuthResult
@@ -50,6 +51,7 @@ data class Invocation(
     val seq: Long? = null,
     val welcome: String? = null,
     val query: String? = null,
+    val timeoutSeconds: Long? = null,
 ) {
     companion object {
         private val NONE = emptySet<String>()
@@ -93,6 +95,8 @@ data class Invocation(
                 "chat-rename" to (setOf("--group") to NONE),
                 "chat-react" to (setOf("--group", "--seq") to NONE),
                 "chat-sync" to (setOf("--group") to NONE),
+                // The push channel (ADR-0015, #27): waits for one hint about the group, at most --timeout seconds.
+                "chat-listen" to (setOf("--group", "--timeout") to NONE),
                 "chat-history" to (setOf("--group") to NONE),
                 "chat-resume" to (setOf("--group") to NONE),
                 "chat-welcomes" to (NONE to NONE),
@@ -153,6 +157,7 @@ data class Invocation(
                 seq = values["--seq"]?.toLong(),
                 welcome = values["--welcome"],
                 query = values["--query"],
+                timeoutSeconds = values["--timeout"]?.toLong(),
             )
 
         private fun idsAreCanonical(values: Map<String, String>): Boolean =
@@ -170,7 +175,11 @@ data class Invocation(
 
         private fun valuesHaveTheirShape(values: Map<String, String>): Boolean =
             (values["--group"]?.let { groupIdOf(it) != null } != false) &&
-                (values["--seq"]?.let { it.length in 1..SEQ_DIGITS && it.all(Char::isDigit) } != false)
+                (values["--seq"]?.let { it.length in 1..SEQ_DIGITS && it.all(Char::isDigit) } != false) &&
+                (
+                    values["--timeout"]?.let { it.length in 1..TIMEOUT_DIGITS && it.all(Char::isDigit) && it.toLong() in 1..MAX_TIMEOUT } !=
+                        false
+                )
 
         /** A group id as printed by the CLI: base64url, 16 to 64 bytes. */
         private fun groupIdOf(text: String): ByteArray? =
@@ -181,6 +190,8 @@ data class Invocation(
             }.getOrNull()?.takeIf { it.size in MIN_GROUP_ID..MAX_GROUP_ID }
 
         private const val SEQ_DIGITS = 15
+        private const val TIMEOUT_DIGITS = 3
+        private const val MAX_TIMEOUT = 300L
 
         private fun usage(): Nothing = throw CliError(USAGE, EXIT_USAGE)
 
@@ -213,6 +224,7 @@ data class Invocation(
   chat-react --group <id> --seq <n>    react to the stored GIF with that seq (see chat-history) with the emoji on stdin; an empty line takes the reaction back
   chat-rename --group <id>             name the group with the line on stdin (a group name makes a chat a group)
   chat-sync --group <id>               fetch, decrypt and apply the group's log; prints each message with its sender
+  chat-listen --group <id> --timeout <s>   wait up to s seconds (1 to 300) on the push channel for a hint about the group: prints "listening", then the hint
   chat-history --group <id>            the stored (sealed on disk) messages of the group, oldest first
   chat-resume --group <id>             post a pending message or commit again; chat-welcomes: join pending welcomes
   chat-groups                          list the groups on this device: id, state and the other members
@@ -231,6 +243,7 @@ Every command logs in and out again; the server allows 10 logins per device per 
 @Suppress("LongParameterList", "TooManyFunctions")
 class Cli(
     private val engine: () -> HttpClientEngine,
+    private val socketEngine: () -> HttpClientEngine = engine,
     private val mls: MlsClientFactory,
     private val random: SecureRandomSource,
     private val readInvite: () -> String,
@@ -263,6 +276,8 @@ class Cli(
             "register" -> register(invocation, api, register)
 
             "reset" -> report(register.discardPending()) { out.println("pending registration discarded") }
+
+            "chat-listen" -> loggedIn(invocation, api, state) { session -> listen(invocation, session) }
 
             else -> loggedIn(invocation, api, state) { session -> afterLogin(invocation, api, state, session) }
         }
@@ -323,6 +338,15 @@ class Cli(
             err.println("gifitup-cli: warning: logout failed; the session expires at ${Instant.ofEpochSecond(session.expiresAt)}")
         }
     }
+
+    /** The push channel's listener (#27): its own socket engine, no state dir needed beyond the login. */
+    private suspend fun listen(
+        invocation: Invocation,
+        session: Session,
+    ): Int =
+        KtorSocketConnector(socketEngine()).use { connector ->
+            ListenCommand(connector, out).run(session, checkNotNull(invocation.group), checkNotNull(invocation.timeoutSeconds))
+        }
 
     private suspend fun afterLogin(
         invocation: Invocation,

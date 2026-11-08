@@ -42,6 +42,25 @@ elif [ "$toml" != "$lock" ] || [ "$toml" != "$cli" ] || [ "$toml" != "$deploy_wb
   fail "wasm-bindgen versions differ: Cargo.toml=$toml Cargo.lock=$lock ci.yml=$cli deploy.yml=$deploy_wb"
 fi
 
+# One HTTP engine for the push channel's socket (#27, #272 SEC-4): OkHttp is created in exactly one place, and nothing
+# in the app sources touches TLS trust (no custom socket factory, trust manager, hostname verifier or pinner), so the
+# platform's trust store and the network security config decide for every connection. Text checks of the common spellings.
+okhttp_users=$(git grep -lE 'io\.ktor\.client\.engine\.okhttp|okhttp3\.' -- 'androidApp/src' 'composeApp/src' 'shared/src' 'mls/src' 'cli/src' 'protocol/src' || true)
+if [ -n "$okhttp_users" ] && [ "$okhttp_users" != "androidApp/src/main/kotlin/app/gifitup/android/SocketEngine.kt" ]; then
+  echo "$okhttp_users"
+  fail "OkHttp is used outside androidApp/.../SocketEngine.kt (the one socket engine factory)"
+fi
+if git ls-files -z -- 'androidApp/src' 'composeApp/src' 'shared/src' 'mls/src' 'cli/src' |
+  grep_files 'sslSocketFactory|X509TrustManager|TrustManagerFactory|HostnameVerifier|CertificatePinner|trustManager|SSLContext|SSLSocketFactory|preconfigured|OkHttpClient\.Builder|connectionSpecs|network\.tls|webSocketFactory'; then
+  fail "TLS trust is configured in app sources; the platform's trust store must decide (#27 SEC-4)"
+fi
+# The Android classpath must not carry another TLS provider: Conscrypt, BouncyCastle or okhttp-tls would change who
+# validates certificates for the socket.
+# (The Android Gradle plugin's lint tool carries BouncyCastle; that configuration is a build tool, not the app.)
+if grep -E '^(org\.conscrypt|org\.bouncycastle|com\.squareup\.okhttp3:okhttp-tls)' androidApp/gradle.lockfile | grep -vE '=androidLintTool$'; then
+  fail "androidApp/gradle.lockfile holds a TLS provider (Conscrypt, BouncyCastle or okhttp-tls); see ADR for the socket engine"
+fi
+
 # Server never sees message content (ADR-0006): the encrypted content schema lives in :shared, so neither :server nor
 # :protocol (the server's only project dependency) may depend on it. A text check: catches type-safe accessors and
 # any ":shared" project path, not every build-script construct.
