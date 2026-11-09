@@ -144,7 +144,7 @@ Inside `:shared`, `domain` calls `data` (244 imports) and `data` implements doma
 
 ## Tracking
 
-Each actionable finding becomes a `review-finding` issue (the owner opens them; agents cannot create issues): ARCH-M2-1 to ARCH-M2-12. Open M1 findings already tracked: ARCH-M1-1 is #160 (now ARCH-M2-2), ARCH-M1-2 is #161 (ARCH-M2-4), ARCH-M1-3 is #162 (ARCH-M2-3); they are linked instead of duplicated. Suggested order before M3: ARCH-M2-1 (security-critical file), ARCH-M2-5 (decide the rule), ARCH-M2-3 and ARCH-M2-2 (UI scope and tests), ARCH-M2-7 (interop, or say why not); the lows when files are next touched.
+Each actionable finding becomes a `review-finding` issue (the owner opens them: the cloud session that committed this report has no way to create issues, `scripts/gh-rest.sh` only opens and edits PRs and comments): ARCH-M2-1 to ARCH-M2-12. Open M1 findings already tracked: ARCH-M1-1 is #160 (now ARCH-M2-2), ARCH-M1-2 is #161 (ARCH-M2-4), ARCH-M1-3 is #162 (ARCH-M2-3); they are linked instead of duplicated. Suggested order before M3: ARCH-M2-1 (security-critical file), ARCH-M2-5 (decide the rule), ARCH-M2-3 and ARCH-M2-2 (UI scope and tests), ARCH-M2-7 (interop, or say why not); the lows when files are next touched.
 
 No `critical` or `high` findings: nothing blocks the milestone on architecture grounds. The five mediums are debt that grows with every feature.
 
