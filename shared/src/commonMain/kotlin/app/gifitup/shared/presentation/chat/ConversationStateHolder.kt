@@ -139,7 +139,7 @@ class ConversationStateHolder(
      * posted again (`resume`) only when the conversation is usable and the history is readable (ADR-0017).
      */
     fun open() =
-        act { forVisit ->
+        act(ReadKind.OTHER) { forVisit ->
             loadOwn(forVisit)
             resumeUnsettled(forVisit)
         }
@@ -173,7 +173,31 @@ class ConversationStateHolder(
         }
     }
 
-    fun refresh() = act { }
+    fun refresh() = act(ReadKind.OTHER) { }
+
+    /**
+     * Called when a **fallback timer read** found new messages (#27): with a connected socket every message is announced by a
+     * hint first, so news only the timer finds means the socket is open but quiet, and the owner of this holder may reconnect
+     * it. Set by the view model; the holder decides nothing about it.
+     */
+    var onUnannouncedNews: (() -> Unit)? = null
+
+    private enum class ReadKind { OTHER, POLL }
+
+    /** A hint arrived and its read has not finished: news the timer finds meanwhile was announced, not missed. */
+    private var hintPending = false
+
+    /** The screen's fallback timer read: like [refresh], and its news counts for [onUnannouncedNews]. */
+    fun poll() = act(ReadKind.POLL) { }
+
+    /**
+     * The read a push hint asked for: its news was announced, so it says nothing about the socket. A hint that arrives while a
+     * read runs is not dropped: one more read follows it, and until that read ends the news is treated as announced.
+     */
+    fun refreshAnnounced() {
+        hintPending = true
+        if (running) refreshAgain = true else refresh()
+    }
 
     /** Sends [reference] with an optional [caption]; a caption that fails [captions] sends nothing. */
     fun send(
@@ -252,12 +276,16 @@ class ConversationStateHolder(
         visit++
         running = false
         refreshAgain = false
+        hintPending = false
         sendRunning = false
         flow.value =
             ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.status.toProblem())
     }
 
-    private fun act(block: suspend (Int) -> Unit) {
+    private fun act(
+        kind: ReadKind,
+        block: suspend (Int) -> Unit,
+    ) {
         if (running) return
         running = true
         val forVisit = visit
@@ -266,10 +294,11 @@ class ConversationStateHolder(
                 show(forVisit)
                 block(forVisit)
                 // A broken history is not fed: receiving into it would only fail and stall the log (ADR-0017).
-                if (flow.value.conversationProblem == null && flow.value.problem != ChatProblem.HISTORY) readLog(forVisit)
+                if (flow.value.conversationProblem == null && flow.value.problem != ChatProblem.HISTORY) readLog(forVisit, kind)
             } finally {
                 if (forVisit == visit) {
                     running = false
+                    if (kind != ReadKind.POLL) hintPending = false
                     show(forVisit)
                     change(forVisit) { it.copy(refreshing = false, loaded = true) }
                     if (refreshAgain) {
@@ -288,7 +317,10 @@ class ConversationStateHolder(
         (groups as? AuthResult.Ok)?.let { list -> change(forVisit) { it.copy(own = list.value.own) } }
     }
 
-    private suspend fun readLog(forVisit: Int) {
+    private suspend fun readLog(
+        forVisit: Int,
+        kind: ReadKind,
+    ) {
         change(forVisit) { it.copy(refreshing = true) }
         when (val synced = sessions.withSessionResult { chat.sync(it, group.id) }) {
             is AuthResult.Failed -> {
@@ -297,6 +329,9 @@ class ConversationStateHolder(
 
             is AuthResult.Ok -> {
                 change(forVisit) { it.copy(problem = synced.value.toListProblem()) }
+                val news = (synced.value as? SyncOutcome.CaughtUp)?.applied ?: 0
+                val timerNews = news > 0 && kind == ReadKind.POLL && !hintPending
+                if (timerNews && forVisit == visit) onUnannouncedNews?.invoke()
             }
         }
     }

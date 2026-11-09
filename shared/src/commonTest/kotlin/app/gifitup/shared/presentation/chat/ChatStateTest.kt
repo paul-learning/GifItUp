@@ -382,6 +382,69 @@ class ChatStateTest {
         }
 
     @Test
+    fun onlyNewsThatTheFallbackTimerFindsIsASignOfAQuietSocket() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            chat.syncOutcome = SyncOutcome.CaughtUp(2)
+            val holder = conversation(chat.groups.single())
+            var quiet = 0
+            holder.onUnannouncedNews = { quiet++ }
+            holder.open()
+            advanceUntilIdle()
+            holder.refreshAnnounced()
+            advanceUntilIdle()
+            assertEquals(0, quiet, "opening and a hint's read are not signs of a quiet socket")
+            holder.poll()
+            advanceUntilIdle()
+            assertEquals(1, quiet, "the timer found messages no hint announced")
+            chat.syncOutcome = SyncOutcome.CaughtUp(0)
+            holder.poll()
+            advanceUntilIdle()
+            assertEquals(1, quiet, "a timer read that finds nothing says nothing")
+        }
+
+    @Test
+    fun aHintThatArrivesDuringATimerReadMakesItsNewsAnnouncedAndIsNotDropped() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            chat.syncOutcome = SyncOutcome.CaughtUp(1)
+            val holder = conversation(chat.groups.single())
+            var quiet = 0
+            holder.onUnannouncedNews = { quiet++ }
+            holder.open()
+            advanceUntilIdle()
+            val before = chat.synced.size
+            chat.onSync = { if (chat.synced.size == before + 1) holder.refreshAnnounced() } // the hint comes while the read runs
+            holder.poll()
+            advanceUntilIdle()
+            assertEquals(0, quiet, "the hint announced that news")
+            assertEquals(before + 2, chat.synced.size, "the hint's own read followed")
+            chat.onSync = {}
+            holder.poll()
+            advanceUntilIdle()
+            assertEquals(1, quiet, "after the hint's read, a timer read that finds news counts again")
+        }
+
+    @Test
+    fun aFailedTimerReadLeavesNothingBehindForTheNextRead() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            val holder = conversation(chat.groups.single())
+            var quiet = 0
+            holder.onUnannouncedNews = { quiet++ }
+            holder.open()
+            advanceUntilIdle()
+            chat.failWith = AuthError.Local.NOT_REGISTERED
+            holder.poll()
+            advanceUntilIdle()
+            chat.failWith = null
+            chat.syncOutcome = SyncOutcome.CaughtUp(3)
+            holder.refresh() // a read of another kind (a retry, a reset) is not the timer
+            advanceUntilIdle()
+            assertEquals(0, quiet)
+        }
+
+    @Test
     fun oneRefreshRunsAtATimeAndLeavingDropsTheState() =
         runTest {
             chat.groups = listOf(group(1, "bob"))
