@@ -78,7 +78,7 @@ internal fun ConversationScreen(
         holder.open()
         while (true) {
             delay(refreshMillis)
-            holder.refresh()
+            holder.poll()
         }
     }
     DisposableEffect(holder) {

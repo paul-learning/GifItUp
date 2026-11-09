@@ -175,6 +175,29 @@ class ConversationStateHolder(
 
     fun refresh() = act { }
 
+    /**
+     * Called when a **fallback timer read** found new messages (#27): with a connected socket every message is announced by a
+     * hint first, so news only the timer finds means the socket is open but quiet, and the owner of this holder may reconnect
+     * it. Set by the view model; the holder decides nothing about it.
+     */
+    var onUnannouncedNews: (() -> Unit)? = null
+
+    private enum class ReadKind { OTHER, POLL, ANNOUNCED }
+
+    private var nextRead = ReadKind.OTHER
+
+    /** The screen's fallback timer read: like [refresh], and its news counts for [onUnannouncedNews]. */
+    fun poll() = readAs(ReadKind.POLL)
+
+    /** The read a push hint asked for: its news was announced, so it says nothing about the socket. */
+    fun refreshAnnounced() = readAs(ReadKind.ANNOUNCED)
+
+    private fun readAs(kind: ReadKind) {
+        if (running) return
+        nextRead = kind
+        refresh()
+    }
+
     /** Sends [reference] with an optional [caption]; a caption that fails [captions] sends nothing. */
     fun send(
         reference: GifReference,
@@ -297,6 +320,9 @@ class ConversationStateHolder(
 
             is AuthResult.Ok -> {
                 change(forVisit) { it.copy(problem = synced.value.toListProblem()) }
+                val news = (synced.value as? SyncOutcome.CaughtUp)?.applied ?: 0
+                if (news > 0 && nextRead == ReadKind.POLL) onUnannouncedNews?.invoke()
+                nextRead = ReadKind.OTHER
             }
         }
     }

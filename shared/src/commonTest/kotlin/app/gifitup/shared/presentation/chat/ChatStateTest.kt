@@ -382,6 +382,28 @@ class ChatStateTest {
         }
 
     @Test
+    fun onlyNewsThatTheFallbackTimerFindsIsASignOfAQuietSocket() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            chat.syncOutcome = SyncOutcome.CaughtUp(2)
+            val holder = conversation(chat.groups.single())
+            var quiet = 0
+            holder.onUnannouncedNews = { quiet++ }
+            holder.open()
+            advanceUntilIdle()
+            holder.refreshAnnounced()
+            advanceUntilIdle()
+            assertEquals(0, quiet, "opening and a hint's read are not signs of a quiet socket")
+            holder.poll()
+            advanceUntilIdle()
+            assertEquals(1, quiet, "the timer found messages no hint announced")
+            chat.syncOutcome = SyncOutcome.CaughtUp(0)
+            holder.poll()
+            advanceUntilIdle()
+            assertEquals(1, quiet, "a timer read that finds nothing says nothing")
+        }
+
+    @Test
     fun oneRefreshRunsAtATimeAndLeavingDropsTheState() =
         runTest {
             chat.groups = listOf(group(1, "bob"))

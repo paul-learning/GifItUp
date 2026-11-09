@@ -159,7 +159,7 @@ internal class OnboardingViewModel(
         override fun openGroup() = conversation?.id
 
         override suspend fun refreshOpen() {
-            conversation?.refresh()
+            conversation?.refreshAnnounced()
             chats.refreshOnly(emptySet())
         }
 
@@ -278,7 +278,11 @@ internal class OnboardingViewModel(
     fun openConversation(info: GroupInfo) {
         conversation?.leave()
         tiles.leave()
-        conversation = ConversationStateHolder(viewModelScope, sessions, chatService, history, marks, info, captions)
+        conversation =
+            ConversationStateHolder(viewModelScope, sessions, chatService, history, marks, info, captions).also {
+                // A read the timer made found messages no hint announced: the socket is quiet but not working (rate limited inside).
+                it.onUnannouncedNews = { viewModelScope.launch { live.reconnect() } }
+            }
     }
 
     init {
