@@ -37,11 +37,17 @@ class GroupSyncEngine(
     private val flag = AheadFlag()
     private val live = TrackedClient(mls, flag)
     private val store = SyncStore(live, saver, flag)
-    private val messages = MessageReceiver(live, delivery, pinsSource, sink, store)
-    private val welcomes = WelcomeReceiver(live, delivery, pinsSource, store, sink)
+
+    // The one place the "request" rule is enforced for incoming content (#279 round 0, SEC-2): nothing of a requested group
+    // reaches any sink (not the history store, not the CLI's printing, not a screen), whoever the caller is.
+    private val guarded = RequestGuardSink(sink) { store.find(KeyBytes(it))?.requestedBy != null }
+    private val messages = MessageReceiver(live, delivery, pinsSource, guarded, store)
+    private val welcomes = WelcomeReceiver(live, delivery, pinsSource, store, guarded)
     private val poster = Poster(live, delivery, store)
     private val sender = SendSide(live, store, poster, random)
     private val commits = CommitSide(live, store, poster, messages, random, flag)
+
+    private fun requested(groupId: ByteArray) = store.find(KeyBytes(groupId))?.requestedBy != null
 
     /** Set when a call ended with the live client ahead of the stored snapshot: this engine does nothing more (below). */
     private var dead: SyncOutcome? = null
@@ -70,7 +76,19 @@ class GroupSyncEngine(
         groupId: ByteArray,
         plaintext: ByteArray,
         observer: SendObserver = SendObserver.None,
-    ): SyncOutcome = mutex.withLock { halting { sender.send(KeyBytes(groupId), plaintext, observer) } }
+    ): SyncOutcome =
+        mutex.withLock {
+            halting {
+                if (requested(
+                        groupId,
+                    )
+                ) {
+                    SyncOutcome.InvalidRequest
+                } else {
+                    sender.send(KeyBytes(groupId), plaintext, observer)
+                }
+            }
+        }
 
     /** Posts the pending message or commit of a group again, unchanged. */
     suspend fun resume(
@@ -80,7 +98,11 @@ class GroupSyncEngine(
         mutex.withLock {
             halting {
                 val id = KeyBytes(groupId)
-                if (store.find(id)?.pending?.kind == MessageKind.COMMIT) commits.resume(id) else sender.resume(id, observer)
+                when {
+                    requested(groupId) -> SyncOutcome.InvalidRequest
+                    store.find(id)?.pending?.kind == MessageKind.COMMIT -> commits.resume(id)
+                    else -> sender.resume(id, observer)
+                }
             }
         }
 
@@ -100,13 +122,17 @@ class GroupSyncEngine(
     suspend fun addMembers(
         groupId: ByteArray,
         members: List<NewMember>,
-    ): SyncOutcome = mutex.withLock { halting { commits.add(KeyBytes(groupId), members) } }
+    ): SyncOutcome =
+        mutex.withLock {
+            halting { if (requested(groupId)) SyncOutcome.InvalidRequest else commits.add(KeyBytes(groupId), members) }
+        }
 
     /** Removes 1 to 10 members (by device id and signature key) with one commit; a ghost leaf can be removed too. */
     suspend fun removeMembers(
         groupId: ByteArray,
         targets: List<RemoveTarget>,
-    ): SyncOutcome = mutex.withLock { halting { commits.remove(KeyBytes(groupId), targets) } }
+    ): SyncOutcome =
+        mutex.withLock { halting { if (requested(groupId)) SyncOutcome.InvalidRequest else commits.remove(KeyBytes(groupId), targets) } }
 
     /**
      * Counts a failed attempt on [seq] of a group; used by the caller after a `Poisoned` outcome, on a freshly restored
@@ -122,6 +148,26 @@ class GroupSyncEngine(
                 // Only the message the cursor stands in front of can have been the one that killed the client.
                 if (store.find(id)?.cursor == seq - 1) store.countFailure(id, seq)
                 SyncOutcome.Retry(seq)
+            }
+        }
+
+    /**
+     * The user accepts a request (#279): the mark is cleared and saved before this returns, so a screen shows the chat as a normal
+     * one only once it is durable. Only an explicit call does this; nothing the server or the group says can. What was said
+     * while the group was a request was never stored (see [RequestGuardSink]).
+     */
+    suspend fun acceptRequest(groupId: ByteArray): SyncOutcome =
+        mutex.withLock {
+            halting {
+                val id = KeyBytes(groupId)
+                val record = store.find(id)
+                if (record?.requestedBy == null) {
+                    SyncOutcome.InvalidRequest
+                } else {
+                    store.put(id, record.copy(requestedBy = null))
+                    store.persist()
+                    SyncOutcome.CaughtUp(0)
+                }
             }
         }
 

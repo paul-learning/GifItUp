@@ -242,7 +242,7 @@ class ChatListStateHolder(
 
             is AuthResult.Ok -> {
                 if (usable) {
-                    for (info in groups.value.groups.filter { it.status.toProblem() == null && request.groups?.contains(it.id) != false }) {
+                    for (info in groups.value.groups.filter { it.problem() == null && request.groups?.contains(it.id) != false }) {
                         problem = problem ?: syncProblem(info)
                     }
                 }
@@ -290,7 +290,7 @@ class ChatListStateHolder(
                 Preview.Nothing,
                 null,
                 0,
-                info.status.toProblem(),
+                info.problem(),
                 historyProblem = true,
                 unreadable = 1,
             )
@@ -303,7 +303,7 @@ class ChatListStateHolder(
             preview = previewOf(last),
             lastAt = last?.at,
             unread = unread,
-            problem = info.status.toProblem(),
+            problem = info.problem(),
             unreadable = unreadable,
         )
     }

@@ -36,6 +36,20 @@ class ChatService(
         groupId: KeyBytes,
     ): AuthResult<SyncOutcome> = actions.sync(session, groupId.bytes, intake)
 
+    /** The server's list, then this device's keys, then the stored history (after the engine, so nothing is written back). */
+    override suspend fun leave(
+        session: Session,
+        groupId: KeyBytes,
+    ): AuthResult<SyncOutcome> =
+        actions.leave(session, groupId.bytes, intake).also { left ->
+            if (left is AuthResult.Ok && left.value is SyncOutcome.CaughtUp) store.forget(groupId)
+        }
+
+    override suspend fun acceptRequest(
+        session: Session,
+        groupId: KeyBytes,
+    ): AuthResult<SyncOutcome> = actions.acceptRequest(session, groupId.bytes, intake)
+
     override suspend fun create(
         session: Session,
         target: String,

@@ -4,6 +4,8 @@ import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.crypto.SecureRandomSource
+import app.gifitup.shared.data.network.ApiError
+import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.GifItUpApi
 import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.data.storage.IdentityStore
@@ -111,6 +113,31 @@ class ChatActions(
         sink: IncomingSink,
     ): AuthResult<WelcomesReport> = engine(session, sink) { engine, _ -> engine.processWelcomes() }
 
+    /**
+     * Leaves the group (the server's list first, then this device's keys and state). Only ever called for a user's confirmed
+     * action, never for a sync outcome, a welcome or a server answer (#279 round 0, SEC-6). A server that says the group is
+     * not there counts as left; any other failure forgets nothing, so the chat is still there to try again. The caller
+     * deletes the group's stored history afterwards.
+     */
+    suspend fun leave(
+        session: Session,
+        groupId: ByteArray,
+        sink: IncomingSink,
+    ): AuthResult<SyncOutcome> =
+        engine(session, sink) { engine, _ ->
+            when (val left = SessionDeliveryPort(api, session).leave(groupId)) {
+                is ApiResult.Ok -> engine.forget(groupId)
+                is ApiResult.Failed -> if (left.error == ApiError.NOT_FOUND) engine.forget(groupId) else SyncOutcome.Unavailable(left.error)
+            }
+        }
+
+    /** The user accepts a request: from now on it is a normal chat (see [GroupSyncEngine.accept]). */
+    suspend fun acceptRequest(
+        session: Session,
+        groupId: ByteArray,
+        sink: IncomingSink,
+    ): AuthResult<SyncOutcome> = engine(session, sink) { engine, _ -> engine.acceptRequest(groupId) }
+
     private suspend fun <T> withMembers(
         session: Session,
         target: String,
@@ -154,7 +181,7 @@ class ChatActions(
                                 .orEmpty()
                                 .toSet(),
                         )
-                    GroupInfo(id, status, leaves.map { it.username }.distinct().sorted(), leaves)
+                    GroupInfo(id, status, leaves.map { it.username }.distinct().sorted(), leaves, engine.recordOf(id.bytes)?.requestedBy)
                 },
             )
         }
@@ -196,6 +223,8 @@ class GroupInfo(
     val others: List<String>,
     /** The other leaves of the group's MLS roster, with the keys (empty where the roster is gone), for key checks (#31). */
     val leaves: List<RosterLeaf> = emptyList(),
+    /** The welcome sender's name if this is a **request** (#279), else `null`: nothing of it is shown or sent until accepted. */
+    val requestedBy: String? = null,
 )
 
 /** One other leaf of a group: its username and signature key from the MLS roster; [unverified] if the engine flagged it. */

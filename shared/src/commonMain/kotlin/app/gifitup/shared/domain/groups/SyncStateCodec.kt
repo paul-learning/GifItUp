@@ -9,18 +9,23 @@ import app.gifitup.shared.domain.contacts.KeyBytes
  * id 16 ‖ kind u8 ‖ epoch flag + i64 ‖ added and removed device ids (u8 count, then u8 length + text) ‖ welcome
  * (flag, u32 length, bytes) ‖ payload (u32 length, bytes)) ‖ own seqs (u16 count, then i64)`. The whole state is at most
  * [MAX_BYTES]. Version 3 adds the message reference to a pending send and the last accepted send (reference and seq) to a
- * group; version 2 is still read (without them) and version 3 is the only one written, so the format is one-way: an older
- * build reads a version 3 state as damaged.
+ * group; version 4 adds the request mark (the welcome sender's name, #279). Versions 2 and 3 are still read (without what came
+ * later) and version 4 is the only one written, so the format is one-way: an older build reads a version 4 state as damaged,
+ * and so never turns a request into a normal chat by losing the mark.
  * Decoding is strict: unknown versions, counts over their caps, unknown statuses, duplicates and trailing bytes are
  * all [SyncStateException]. The result is at most about 40 KiB for 50 groups, far below the 256 KiB cap of the crate.
  */
 internal object SyncStateCodec {
-    const val VERSION = 3
+    const val VERSION = 4
     private const val OLDEST_READABLE = 2
 
     /** The first version that stores message references. */
     const val REFERENCES_FROM = 3
     private const val REFERENCE_BYTES = 32
+
+    /** The first version that stores the request mark. */
+    const val REQUEST_FROM = 4
+    private val USERNAME = Regex("^[a-z0-9_]{3,32}$")
     const val MAX_GROUPS = 50
     const val MAX_FAILURES = 8
     const val MAX_QUARANTINED = 100
@@ -96,7 +101,28 @@ internal object SyncStateCodec {
             out.raw(it.tail)
         }
         writeLastSent(out, record)
+        writeRequestedBy(out, record.requestedBy)
     }
+
+    private fun writeRequestedBy(
+        out: ByteWriter,
+        name: String?,
+    ) {
+        if (name == null) {
+            out.u8(0)
+        } else {
+            if (!USERNAME.matches(name)) invalid()
+            out.u8(1)
+            out.text(name)
+        }
+    }
+
+    private fun readRequestedBy(reader: ByteReader): String? =
+        when (reader.u8()) {
+            0 -> null
+            1 -> reader.text().also { if (!USERNAME.matches(it)) invalid() }
+            else -> invalid()
+        }
 
     private fun writeLastSent(
         out: ByteWriter,
@@ -135,8 +161,21 @@ internal object SyncStateCodec {
         val lastSentReference = if (version >= REFERENCES_FROM) reader.optional(REFERENCE_BYTES) else null
         val lastSentSeq = if (lastSentReference != null) reader.i64() else null
         if (lastSentSeq != null && lastSentSeq < 0) invalid()
+        val requestedBy = if (version >= REQUEST_FROM) readRequestedBy(reader) else null
         val failures = failureList.toMap()
         if (!allDistinct(failureList.size to failures.size, quarantined, unverified, ownSeqs)) invalid()
-        return GroupRecord(cursor, status, failures, quarantined, unverified, last, pending, ownSeqs, lastSentReference, lastSentSeq)
+        return GroupRecord(
+            cursor,
+            status,
+            failures,
+            quarantined,
+            unverified,
+            last,
+            pending,
+            ownSeqs,
+            lastSentReference,
+            lastSentSeq,
+            requestedBy,
+        )
     }
 }

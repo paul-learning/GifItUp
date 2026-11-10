@@ -135,6 +135,10 @@ internal object ChatTexts {
             ConversationProblem.GONE -> {
                 "You are no longer in this chat."
             }
+
+            ConversationProblem.REQUEST -> {
+                "Someone who is not one of your friends started this chat. Nothing of it is shown until you accept."
+            }
         }
 
     fun listProblem(problem: ChatProblem): String =

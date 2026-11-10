@@ -80,6 +80,12 @@ enum class ConversationProblem {
 
     /** The group is gone for this device (removed, or deleted). */
     GONE,
+
+    /**
+     * Someone who is not a saved friend started this chat (#279): nothing of it is read, shown or sent until the user accepts it.
+     * Decided from the stored record, not from anything the group or the server says.
+     */
+    REQUEST,
 }
 
 /** Why a refresh or an action did not work. */
@@ -127,6 +133,9 @@ internal fun AuthError.toChatProblem(): ChatProblem =
             if (this == AuthError.Local.NOT_REGISTERED) ChatProblem.NOT_SIGNED_IN else ChatProblem.FAILED
         }
     }
+
+/** What a screen must say about [this] group: a request first (it is held back whatever its sync status), else its status. */
+internal fun GroupInfo.problem(): ConversationProblem? = if (requestedBy != null) ConversationProblem.REQUEST else status.toProblem()
 
 internal fun GroupStatus.toProblem(): ConversationProblem? =
     when (this) {

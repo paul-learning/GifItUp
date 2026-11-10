@@ -46,18 +46,61 @@ internal class ChatCommands(
     ): Int {
         val group = invocation.group
         return when (invocation.command) {
-            "chat-create" -> create(session, checkNotNull(invocation.target))
-            "chat-add" -> change(session, checkNotNull(group), checkNotNull(invocation.target), add = true)
-            "chat-remove" -> change(session, checkNotNull(group), checkNotNull(invocation.target), add = false)
-            "chat-send" -> send(session, checkNotNull(group))
-            "chat-rename" -> rename(session, checkNotNull(group))
-            "chat-react" -> react(session, checkNotNull(group), checkNotNull(invocation.seq))
-            "chat-sync" -> outcome(chat.sync(session, checkNotNull(group), sink)) { "synced, ${it.applied} log entries" }
-            "chat-resume" -> outcome(chat.resume(session, checkNotNull(group), sink)) { "nothing was pending" }
-            "chat-groups" -> groups(session)
-            else -> welcomes(session)
+            "chat-create" -> {
+                create(session, checkNotNull(invocation.target))
+            }
+
+            "chat-add" -> {
+                change(session, checkNotNull(group), checkNotNull(invocation.target), add = true)
+            }
+
+            "chat-remove" -> {
+                change(session, checkNotNull(group), checkNotNull(invocation.target), add = false)
+            }
+
+            "chat-send" -> {
+                send(session, checkNotNull(group))
+            }
+
+            "chat-rename" -> {
+                rename(session, checkNotNull(group))
+            }
+
+            "chat-react" -> {
+                react(session, checkNotNull(group), checkNotNull(invocation.seq))
+            }
+
+            "chat-sync" -> {
+                outcome(chat.sync(session, checkNotNull(group), sink)) { "synced, ${it.applied} log entries" }
+            }
+
+            "chat-resume" -> {
+                outcome(chat.resume(session, checkNotNull(group), sink)) { "nothing was pending" }
+            }
+
+            "chat-groups" -> {
+                groups(session)
+            }
+
+            else -> {
+                requestOrWelcomes(invocation.command, session, group)
+            }
         }
     }
+
+    /** The request commands (#279), and the welcomes as the last command of the family. */
+    private suspend fun requestOrWelcomes(
+        command: String,
+        session: Session,
+        group: ByteArray?,
+    ): Int =
+        when (command) {
+            "chat-requests" -> requests(session)
+            "chat-accept" -> acceptRequest(session, checkNotNull(group))
+            "chat-decline" -> leave(session, checkNotNull(group), onlyRequests = true)
+            "chat-leave" -> leave(session, checkNotNull(group), onlyRequests = false)
+            else -> welcomes(session)
+        }
 
     private suspend fun create(
         session: Session,
@@ -137,10 +180,64 @@ internal class ChatCommands(
                 if (result.value.groups.isEmpty()) out.println("no groups")
                 result.value.groups.forEach {
                     out.println(
-                        "group ${base64.encodeToString(it.id.bytes)} ${it.status.name.lowercase()} with ${it.others.joinToString(",")}",
+                        if (it.requestedBy != null) {
+                            "group ${base64.encodeToString(it.id.bytes)} request from ${it.requestedBy}"
+                        } else {
+                            "group ${base64.encodeToString(it.id.bytes)} ${it.status.name.lowercase()} with ${it.others.joinToString(",")}"
+                        },
                     )
                 }
                 EXIT_OK
+            }
+        }
+
+    private suspend fun acceptRequest(
+        session: Session,
+        group: ByteArray,
+    ): Int = outcome(chat.acceptRequest(session, group, sink)) { "accepted group ${base64.encodeToString(group)}" }
+
+    private suspend fun requests(session: Session): Int =
+        when (val result = chat.groups(session, sink)) {
+            is AuthResult.Failed -> {
+                report(result)
+            }
+
+            is AuthResult.Ok -> {
+                val asked = result.value.groups.filter { it.requestedBy != null }
+                if (asked.isEmpty()) out.println("no requests")
+                asked.forEach { out.println("request ${base64.encodeToString(it.id.bytes)} from ${it.requestedBy}") }
+                EXIT_OK
+            }
+        }
+
+    /** Leaves [group] and deletes its history; with [onlyRequests] only a request can be declined this way. */
+    private suspend fun leave(
+        session: Session,
+        group: ByteArray,
+        onlyRequests: Boolean,
+    ): Int {
+        val groups = (chat.groups(session, sink) as? AuthResult.Ok)?.value?.groups
+        val info = groups?.firstOrNull { it.id.bytes.contentEquals(group) }
+        return when {
+            info == null -> finish(SyncOutcome.NotJoined) { "" }
+            onlyRequests && info.requestedBy == null -> finish(SyncOutcome.InvalidRequest) { "" }
+            else -> leaveChat(session, group, if (onlyRequests) "declined" else "left")
+        }
+    }
+
+    private suspend fun leaveChat(
+        session: Session,
+        group: ByteArray,
+        verb: String,
+    ): Int =
+        when (val left = chat.leave(session, group, sink)) {
+            is AuthResult.Failed -> {
+                report(left)
+            }
+
+            is AuthResult.Ok -> {
+                if (left.value is SyncOutcome.CaughtUp) store.forget(KeyBytes(group))
+                finish(left.value) { "$verb group ${base64.encodeToString(group)}" }
             }
         }
 

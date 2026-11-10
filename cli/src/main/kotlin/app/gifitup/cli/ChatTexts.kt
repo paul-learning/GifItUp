@@ -23,6 +23,10 @@ internal fun welcomeLine(
             "joined group ${base64.encodeToString(result.groupId)}"
         }
 
+        is WelcomeOutcome.Requested -> {
+            "joined group ${base64.encodeToString(result.groupId)} as a request from ${result.by}"
+        }
+
         is WelcomeOutcome.AlreadyMember -> {
             "already in group ${base64.encodeToString(result.groupId)}"
         }
@@ -36,6 +40,7 @@ internal fun welcomeLine(
                 RejectReason.UNUSABLE -> "dropped a welcome that could not be used"
                 RejectReason.CONTACT_MISMATCH -> "dropped a welcome: a member's key does not match the contact book's pin"
                 RejectReason.STALE -> "dropped a welcome for a group this device is no longer in"
+                RejectReason.REQUEST_LIMIT -> "dropped a request: too many requests are waiting"
             }
         }
     }

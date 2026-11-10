@@ -101,6 +101,11 @@ data class Invocation(
                 "chat-resume" to (setOf("--group") to NONE),
                 "chat-welcomes" to (NONE to NONE),
                 "chat-groups" to (NONE to NONE),
+                // Requests (#279): chats a non-friend started wait until accepted or declined; leave works on any chat.
+                "chat-requests" to (NONE to NONE),
+                "chat-accept" to (setOf("--group") to NONE),
+                "chat-decline" to (setOf("--group") to NONE),
+                "chat-leave" to (setOf("--group") to NONE),
             )
         private val GLOBAL_OPTIONS = setOf("--server", "--state-dir", "--origin")
         private val VALUE_OPTIONS = GLOBAL_OPTIONS + SPEC.values.flatMap { it.first + it.second }
@@ -228,6 +233,9 @@ data class Invocation(
   chat-history --group <id>            the stored (sealed on disk) messages of the group, oldest first
   chat-resume --group <id>             post a pending message or commit again; chat-welcomes: join pending welcomes
   chat-groups                          list the groups on this device: id, state and the other members
+  chat-requests                        list the chats a non-friend started (nothing of them is shown or stored until accepted)
+  chat-accept|chat-decline --group <id>   accept a request, or decline it (leave and forget it)
+  chat-leave --group <id>              leave a chat and delete it from this device
 --server is https://<origin>, or http://127.0.0.1:<port> / http://[::1]:<port> together with --origin.
 Only test origins (*.invalid, *.test, localhost) unless --remote-test-account and a cli_ username are given.
 Every command logs in and out again; the server allows 10 logins per device per hour."""

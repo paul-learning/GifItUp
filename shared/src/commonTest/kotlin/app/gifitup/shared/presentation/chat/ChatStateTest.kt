@@ -146,6 +146,16 @@ class ChatStateTest {
             return answer(reactOutcome)
         }
 
+        override suspend fun leave(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+
+        override suspend fun acceptRequest(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+
         override suspend fun resume(
             session: Session,
             groupId: KeyBytes,
@@ -610,6 +620,42 @@ class ChatStateTest {
                 holder.resend()
                 assertEquals(SendProblem.STOPPED, holder.state.value.sendProblem)
             }
+        }
+
+    @Test
+    fun aRequestIsNotReadNotShownAndNothingIsSentFromIt() =
+        runTest {
+            val request = GroupInfo(id(1), GroupStatus.ACTIVE, listOf("stranger"), requestedBy = "stranger")
+            val holder = conversation(request)
+            assertEquals(ConversationProblem.REQUEST, holder.state.value.conversationProblem)
+            holder.open()
+            holder.refresh()
+            holder.send(reference, null)
+            advanceUntilIdle()
+            assertTrue(chat.synced.isEmpty() && chat.sent.isEmpty(), "nothing is read from or sent into a request")
+            assertFalse(holder.state.value.canSend)
+            assertTrue(
+                holder.state.value.messages
+                    .isEmpty(),
+            )
+        }
+
+    @Test
+    fun aRequestIsAListRowWithTheRequestProblemAndNoPreviewOrUnreadCount() =
+        runTest {
+            chat.groups = listOf(GroupInfo(id(1), GroupStatus.ACTIVE, listOf("stranger"), requestedBy = "stranger"), group(2, "bob"))
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(listOf(id(2)), chat.synced, "only the normal chat is read")
+            val rows =
+                holder.state.value.conversations
+                    .associateBy { it.id }
+            val row = rows.getValue(id(1))
+            assertEquals(ConversationProblem.REQUEST, row.problem)
+            assertEquals(0, row.unread)
+            assertEquals(null, row.lastAt)
+            assertEquals("stranger", row.info.requestedBy)
         }
 
     @Test
