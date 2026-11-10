@@ -85,12 +85,30 @@ internal class WelcomeReceiver(
                 return rejected(welcome.id, e.code, RejectReason.UNUSABLE)
             }
         val checks = (info.members + info.sender).map { it to pins.check(it.username, it.signatureKey) }
-        return if (checks.any { it.second == PinCheck.MISMATCH }) {
-            crate { mls.discardWelcome(info.token) }
-            rejected(welcome.id, null, RejectReason.CONTACT_MISMATCH)
-        } else {
-            val unverified = CommitJudge.unverifiedKeys(info.members.map { it to pins.check(it.username, it.signatureKey) }, emptyList())
-            joined(welcome, info, joinPoint, unverified)
+        // A welcome from someone who is not a saved friend is a request (#279): joined, but held back until the user accepts. The
+        // rule is the authenticated sender only: a friend who adds strangers vouches for them (they show as unverified).
+        val request = pins.check(info.sender.username, info.sender.signatureKey) == PinCheck.STRANGER
+        val requestsHeld =
+            store.state.groups.values
+                .count { it.requestedBy != null }
+        return when {
+            checks.any { it.second == PinCheck.MISMATCH } -> {
+                crate { mls.discardWelcome(info.token) }
+                rejected(welcome.id, null, RejectReason.CONTACT_MISMATCH)
+            }
+
+            // Over the cap a stranger's welcome is parsed and dropped, never left pending: pending ones would fill the 20-welcome
+            // inbox of the server and block friends' welcomes behind them (#279 round 0, SEC-1).
+            request && requestsHeld >= MAX_REQUESTS -> {
+                crate { mls.discardWelcome(info.token) }
+                rejected(welcome.id, null, RejectReason.REQUEST_LIMIT)
+            }
+
+            else -> {
+                val unverified =
+                    CommitJudge.unverifiedKeys(info.members.map { it to pins.check(it.username, it.signatureKey) }, emptyList())
+                joined(welcome, info, joinPoint, unverified, requestedBy = if (request) info.sender.username else null)
+            }
         }
     }
 
@@ -121,17 +139,19 @@ internal class WelcomeReceiver(
         info: WelcomeInfo,
         joinPoint: Long,
         unverified: List<KeyBytes>,
+        requestedBy: String?,
     ): WelcomeOutcome {
         try {
             mls.joinWelcome(info.token)
         } catch (e: MlsException) {
             return rejected(welcome.id, e.code, RejectReason.UNUSABLE)
         }
-        announceJoin(welcome.groupId, info, joinPoint)
-        store.put(KeyBytes(welcome.groupId), GroupRecord.joinedAt(joinPoint, unverified))
+        // A request announces nothing: no notice of a stranger's chat reaches the history before the user has accepted it.
+        if (requestedBy == null) announceJoin(welcome.groupId, info, joinPoint)
+        store.put(KeyBytes(welcome.groupId), GroupRecord.joinedAt(joinPoint, unverified, requestedBy))
         store.persist()
         drop(welcome.id)
-        return WelcomeOutcome.Joined(welcome.groupId)
+        return if (requestedBy == null) WelcomeOutcome.Joined(welcome.groupId) else WelcomeOutcome.Requested(welcome.groupId, requestedBy)
     }
 
     /** "You joined": the roster size and the welcome's authenticated sender, told to the sink once the join succeeded. */
@@ -162,5 +182,10 @@ internal class WelcomeReceiver(
     /** Acknowledging only removes the welcome from the server; a failure leaves it pending and harmless. */
     private suspend fun drop(welcomeId: String) {
         delivery.ackWelcome(welcomeId)
+    }
+
+    companion object {
+        /** Requests held at once; they count toward the 50 groups, so friends always keep at least 40 slots. */
+        const val MAX_REQUESTS = 10
     }
 }

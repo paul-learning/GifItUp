@@ -60,7 +60,7 @@ class SyncStateCodecTest {
     @Test
     fun unknownVersionsStatusesAndOversizedCountsAreRefused() {
         val bytes = SyncStateCodec.encode(sample())
-        assertFailsWith<SyncStateException> { SyncStateCodec.decode(bytes.copyOf().also { it[0] = 4 }) }
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(bytes.copyOf().also { it[0] = 5 }) }
         val statusAt = 1 + 2 + 1 + 16 + Long.SIZE_BYTES
         assertFailsWith<SyncStateException> {
             SyncStateCodec.decode(
@@ -172,13 +172,13 @@ class SyncStateCodecTest {
     @Test
     fun aVersionTwoStateStillReadsWithoutReferences() {
         val v3 = SyncStateCodec.encode(SyncState(mapOf(id(1) to record())))
-        // Version 2 lacks the one flag byte the last accepted send adds at the end of the group (none here).
-        val v2 = v3.copyOf(v3.size - 1).also { it[0] = 2 }
+        // Version 2 lacks the flag byte the last accepted send adds and the one the request mark adds (none here).
+        val v2 = v3.copyOf(v3.size - 2).also { it[0] = 2 }
         val read = SyncStateCodec.decode(v2).groups.getValue(id(1))
         assertEquals(7L, read.cursor)
         assertEquals(null, read.lastSentReference)
         assertEquals(null, read.lastSentSeq)
-        assertFailsWith<SyncStateException> { SyncStateCodec.decode(v3.copyOf().also { it[0] = 4 }) }
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(v3.copyOf().also { it[0] = 5 }) }
         assertFailsWith<SyncStateException> { SyncStateCodec.decode(v3.copyOf().also { it[0] = 1 }) }
     }
 
@@ -193,5 +193,40 @@ class SyncStateCodecTest {
         assertFailsWith<SyncStateException> {
             SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(lastSentReference = ByteArray(32)))))
         }
+    }
+
+    @Test
+    fun theRequestMarkRoundTripsAndAnOlderStateReadsWithoutIt() {
+        val asked = SyncState(mapOf(id(1) to record().copy(requestedBy = "alice_01"), id(2) to record()))
+        val read = SyncStateCodec.decode(SyncStateCodec.encode(asked))
+        assertEquals("alice_01", read.groups.getValue(id(1)).requestedBy)
+        assertEquals(null, read.groups.getValue(id(2)).requestedBy)
+        // A version 3 state (no mark byte at the end of each group) reads as "not a request".
+        val plain = SyncStateCodec.encode(SyncState(mapOf(id(1) to record())))
+        val v3 = plain.copyOf(plain.size - 1).also { it[0] = 3 }
+        assertEquals(
+            null,
+            SyncStateCodec
+                .decode(v3)
+                .groups
+                .getValue(id(1))
+                .requestedBy,
+        )
+    }
+
+    @Test
+    fun aBadRequestMarkIsRefused() {
+        val bytes = SyncStateCodec.encode(SyncState(mapOf(id(1) to record())))
+        // The mark's flag byte is the last byte: 0 or 1 only.
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(bytes.copyOf().also { it[it.size - 1] = 2 }) }
+        // A name that is not a username, on the way out and on the way in.
+        for (name in listOf("", "ab", "Alice", "a b c", "x".repeat(33))) {
+            assertFailsWith<SyncStateException>(name) {
+                SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(requestedBy = name))))
+            }
+        }
+        val named = SyncStateCodec.encode(SyncState(mapOf(id(1) to record().copy(requestedBy = "alice"))))
+        val upper = named.copyOf().also { it[it.size - 5] = 'A'.code.toByte() }
+        assertFailsWith<SyncStateException> { SyncStateCodec.decode(upper) }
     }
 }

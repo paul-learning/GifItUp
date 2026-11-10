@@ -156,6 +156,9 @@ class GroupSyncTest {
         runTest {
             val (alice, bob, groupId) = joinedPair()
             val otherBob = Party("bob", ds, deviceSuffix = "-2")
+            // Bob's saved key is the first device's; the second device's key is not pinned.
+            val second = otherBob.mls.publicIdentity().signaturePublicKey
+            bob.pins = ContactPins { _, key -> if (key.contentEquals(second)) PinCheck.STRANGER else PinCheck.PINNED }
             alice.add(groupId, otherBob)
             assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
             val flagged =
@@ -171,6 +174,9 @@ class GroupSyncTest {
         runTest {
             val (alice, bob, groupId) = joinedPair()
             val otherBob = Party("bob", ds, deviceSuffix = "-2")
+            // Bob's saved key is the first device's; the second device's key is not pinned.
+            val second = otherBob.mls.publicIdentity().signaturePublicKey
+            bob.pins = ContactPins { _, key -> if (key.contentEquals(second)) PinCheck.STRANGER else PinCheck.PINNED }
             alice.add(groupId, otherBob)
             bob.engine.sync(groupId)
             assertEquals(
@@ -312,6 +318,104 @@ class GroupSyncTest {
             ds.relabel(groupId, ds.lastSeq(groupId), bob.deviceId)
             assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
             assertEquals(3, bob.mls.memberCount(groupId))
+        }
+
+    @Test
+    fun aWelcomeFromAStrangerIsARequestThatShowsStoresAndSendsNothingUntilItIsAccepted() =
+        runTest {
+            val alice = party("alice")
+            val bob = party("bob")
+            bob.pins = ContactPins { _, _ -> PinCheck.STRANGER }
+            val groupId = alice.createGroupWith(bob)
+            assertEquals(
+                WelcomeOutcome.Requested(groupId, "alice").by,
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .filterIsInstance<WelcomeOutcome.Requested>()
+                    .single()
+                    .by,
+            )
+            assertEquals("alice", bob.engine.recordOf(groupId)?.requestedBy)
+            assertTrue(bob.membership.isEmpty() && bob.received.isEmpty(), "a request announces nothing")
+            // A request is not read at all: what alice says waits on the server, nothing is delivered or acknowledged.
+            val joinPoint = ds.ackedSeq(groupId, bob.deviceId)
+            alice.say(groupId, "hello stranger")
+            assertEquals(SyncOutcome.CaughtUp(0), bob.engine.sync(groupId))
+            assertTrue(bob.received.isEmpty(), "nothing of a requested group is delivered")
+            assertEquals(joinPoint, ds.ackedSeq(groupId, bob.deviceId), "and nothing is acknowledged")
+            // Nothing can be sent, added or removed in it.
+            assertEquals(SyncOutcome.InvalidRequest, bob.engine.send(groupId, "no".encodeToByteArray()))
+            assertEquals(SyncOutcome.InvalidRequest, bob.engine.addMembers(groupId, emptyList()))
+            assertEquals(SyncOutcome.InvalidRequest, bob.engine.removeMembers(groupId, emptyList()))
+            assertEquals(SyncOutcome.InvalidRequest, bob.engine.resume(groupId))
+            // The mark survives a restart (it is part of the stored state).
+            bob.restart()
+            assertEquals("alice", bob.engine.recordOf(groupId)?.requestedBy)
+            // Accepting clears it for good; the chat is then read from the join point, so the first messages show.
+            assertEquals(SyncOutcome.CaughtUp(0), bob.engine.acceptRequest(groupId))
+            assertEquals(null, bob.engine.recordOf(groupId)?.requestedBy)
+            assertEquals(1, bob.membership.size, "the join is announced once the user said yes")
+            assertEquals("alice", bob.membership.single().by)
+            assertEquals(2, bob.membership.single().joined)
+            bob.restart()
+            assertEquals(null, bob.engine.recordOf(groupId)?.requestedBy)
+            alice.say(groupId, "after accepting")
+            assertEquals(SyncOutcome.CaughtUp(2), bob.engine.sync(groupId))
+            assertEquals(listOf("hello stranger", "after accepting"), bob.received.map { it.plaintext.decodeToString() })
+            assertEquals(SyncOutcome.InvalidRequest, bob.engine.acceptRequest(groupId), "nothing left to accept")
+        }
+
+    @Test
+    fun aFriendJoinsAtOnceEvenWhenStrangersAreInTheGroup() =
+        runTest {
+            val fred = party("fred")
+            val bob = party("bob")
+            val stranger = party("stranger")
+            bob.pins = ContactPins { name, _ -> if (name == "stranger") PinCheck.STRANGER else PinCheck.PINNED }
+            val groupId = fred.createGroupWith(bob, stranger)
+            assertIs<WelcomeOutcome.Joined>(
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .single(),
+            )
+            assertEquals(null, bob.engine.recordOf(groupId)?.requestedBy, "the friend vouches for the group")
+        }
+
+    @Test
+    fun requestsAreCappedAtTenAndAFriendsWelcomeBehindThemStillJoins() =
+        runTest {
+            val bob = party("bob")
+            bob.pins = ContactPins { name, _ -> if (name.startsWith("stranger")) PinCheck.STRANGER else PinCheck.PINNED }
+            val strangers = (1..11).map { party("stranger$it") }
+            val requested = strangers.map { it.createGroupWith(bob) }
+            val friendGroup = party("fred").createGroupWith(bob)
+            val results = bob.engine.processWelcomes().results
+            assertEquals(10, results.count { it is WelcomeOutcome.Requested })
+            assertEquals(listOf(WelcomeOutcome.Rejected(RejectReason.REQUEST_LIMIT)), results.filterIsInstance<WelcomeOutcome.Rejected>())
+            assertEquals(listOf(KeyBytes(friendGroup)), results.filterIsInstance<WelcomeOutcome.Joined>().map { KeyBytes(it.groupId) })
+            assertTrue(
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .isEmpty(),
+                "every welcome was acknowledged: none is left to fill the inbox",
+            )
+            assertEquals(null, bob.engine.recordOf(requested.last()), "the 11th stranger was not joined")
+            // Declining one frees a slot for the next stranger.
+            assertEquals(SyncOutcome.CaughtUp(0), bob.engine.forget(requested.first()))
+            val again = party("stranger12").createGroupWith(bob)
+            assertEquals(
+                "stranger12",
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .filterIsInstance<WelcomeOutcome.Requested>()
+                    .single()
+                    .by,
+            )
+            assertEquals("stranger12", bob.engine.recordOf(again)?.requestedBy)
         }
 
     @Test

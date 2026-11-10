@@ -10,6 +10,7 @@ import app.gifitup.shared.domain.groups.GroupList
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.groups.WelcomesReport
 import app.gifitup.shared.domain.messages.HistoryAccess
+import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.MessageIntake
 import app.gifitup.shared.domain.messages.SendGif
 
@@ -35,6 +36,28 @@ class ChatService(
         session: Session,
         groupId: KeyBytes,
     ): AuthResult<SyncOutcome> = actions.sync(session, groupId.bytes, intake)
+
+    /** The server's list, then this device's keys, then the stored history (after the engine, so nothing is written back). */
+    override suspend fun leave(
+        session: Session,
+        groupId: KeyBytes,
+    ): AuthResult<SyncOutcome> {
+        val left = actions.leave(session, groupId.bytes, intake)
+        if (left !is AuthResult.Ok || left.value !is SyncOutcome.CaughtUp) return left
+        // The keys are gone by now. If the stored messages cannot be deleted the user is told so (nothing says "deleted"), and a
+        // second try finds the group gone on the server and the keys already forgotten, and deletes the messages (#295 SEC-12).
+        return try {
+            store.forget(groupId)
+            left
+        } catch (_: HistoryStoreException) {
+            AuthResult.Ok(SyncOutcome.StorageFailed)
+        }
+    }
+
+    override suspend fun acceptRequest(
+        session: Session,
+        groupId: KeyBytes,
+    ): AuthResult<SyncOutcome> = actions.acceptRequest(session, groupId.bytes, intake)
 
     override suspend fun create(
         session: Session,

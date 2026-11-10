@@ -39,7 +39,9 @@ class Party(
     var saved: ByteArray = mls.exportState()
     val received = mutableListOf<DeliveredMessage>()
     var saves = 0
-    var pins: ContactPins? = ContactPins { _, _ -> PinCheck.STRANGER }
+
+    /** Everyone is a saved friend unless a test says otherwise (#279: a welcome from a stranger is a request). */
+    var pins: ContactPins? = ContactPins { _, _ -> PinCheck.PINNED }
     var failSave = false
 
     /** Where decrypted messages go; the default records them in [received]. */

@@ -123,7 +123,7 @@ class ConversationStateHolder(
 
     private val flow =
         MutableStateFlow(
-            ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.status.toProblem()),
+            ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.problem()),
         )
     val state: StateFlow<ConversationState> = flow.asStateFlow()
     private var visit = 0
@@ -279,7 +279,7 @@ class ConversationStateHolder(
         hintPending = false
         sendRunning = false
         flow.value =
-            ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.status.toProblem())
+            ConversationState(ConversationTitle.Members(group.others), group.others, conversationProblem = group.problem())
     }
 
     private fun act(

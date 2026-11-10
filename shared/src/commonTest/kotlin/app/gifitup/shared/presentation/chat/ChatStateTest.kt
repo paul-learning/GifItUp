@@ -14,7 +14,9 @@ import app.gifitup.shared.domain.groups.GroupCreation
 import app.gifitup.shared.domain.groups.GroupInfo
 import app.gifitup.shared.domain.groups.GroupList
 import app.gifitup.shared.domain.groups.GroupStatus
+import app.gifitup.shared.domain.groups.RejectReason
 import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.groups.WelcomeOutcome
 import app.gifitup.shared.domain.groups.WelcomesReport
 import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.domain.messages.ChatMessage
@@ -75,6 +77,7 @@ class ChatStateTest {
         val synced = mutableListOf<KeyBytes>()
         val sent = mutableListOf<Pair<GifReference, String?>>()
         var welcomed = 0
+        var welcomeResults: List<WelcomeOutcome> = emptyList()
         var welcomesStoppedBy: SyncOutcome? = null
         var resumed = 0
 
@@ -84,7 +87,7 @@ class ChatStateTest {
 
         override suspend fun welcomes(session: Session): AuthResult<WelcomesReport> {
             welcomed++
-            return answer(WelcomesReport(emptyList(), welcomesStoppedBy))
+            return answer(WelcomesReport(welcomeResults, welcomesStoppedBy))
         }
 
         override suspend fun sync(
@@ -144,6 +147,25 @@ class ChatStateTest {
         ): AuthResult<SyncOutcome> {
             reacted += target to emoji
             return answer(reactOutcome)
+        }
+
+        val left = mutableListOf<KeyBytes>()
+        val accepted = mutableListOf<KeyBytes>()
+
+        override suspend fun leave(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> {
+            left += groupId
+            return answer(SyncOutcome.CaughtUp(0))
+        }
+
+        override suspend fun acceptRequest(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> {
+            accepted += groupId
+            return answer(SyncOutcome.CaughtUp(0))
         }
 
         override suspend fun resume(
@@ -610,6 +632,91 @@ class ChatStateTest {
                 holder.resend()
                 assertEquals(SendProblem.STOPPED, holder.state.value.sendProblem)
             }
+        }
+
+    @Test
+    fun aRequestIsNotReadNotShownAndNothingIsSentFromIt() =
+        runTest {
+            val request = GroupInfo(id(1), GroupStatus.ACTIVE, listOf("stranger"), requestedBy = "stranger")
+            val holder = conversation(request)
+            assertEquals(ConversationProblem.REQUEST, holder.state.value.conversationProblem)
+            holder.open()
+            holder.refresh()
+            holder.send(reference, null)
+            advanceUntilIdle()
+            assertTrue(chat.synced.isEmpty() && chat.sent.isEmpty(), "nothing is read from or sent into a request")
+            assertFalse(holder.state.value.canSend)
+            assertTrue(
+                holder.state.value.messages
+                    .isEmpty(),
+            )
+        }
+
+    @Test
+    fun aRequestIsAListRowWithTheRequestProblemAndNoPreviewOrUnreadCount() =
+        runTest {
+            chat.groups = listOf(GroupInfo(id(1), GroupStatus.ACTIVE, listOf("stranger"), requestedBy = "stranger"), group(2, "bob"))
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(listOf(id(2)), chat.synced, "only the normal chat is read")
+            val rows =
+                holder.state.value.conversations
+                    .associateBy { it.id }
+            val row = rows.getValue(id(1))
+            assertEquals(ConversationProblem.REQUEST, row.problem)
+            assertEquals(0, row.unread)
+            assertEquals(null, row.lastAt)
+            assertEquals("stranger", row.info.requestedBy)
+        }
+
+    @Test
+    fun acceptingOrDecliningARequestCallsThePortAndRebuildsTheListAndAFailureIsSaid() =
+        runTest {
+            val request = GroupInfo(id(1), GroupStatus.ACTIVE, listOf("stranger"), requestedBy = "stranger")
+            chat.groups = listOf(request, group(2, "bob"))
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(
+                listOf(id(1)),
+                holder.state.value.requests
+                    .map { it.id },
+            )
+            assertEquals(
+                listOf(id(2)),
+                holder.state.value.visible
+                    .map { it.id },
+                "a request is not in the filtered list",
+            )
+            holder.acceptRequest(id(1))
+            advanceUntilIdle()
+            assertEquals(listOf(id(1)), chat.accepted)
+            assertFalse(holder.state.value.actionFailed)
+            chat.failWith = AuthError.Api(ApiError.NETWORK)
+            holder.leaveChat(id(1))
+            advanceUntilIdle()
+            assertEquals(listOf(id(1)), chat.left)
+            assertTrue(holder.state.value.actionFailed, "a failure is said, and nothing is dropped from the list")
+            assertEquals(2, holder.state.value.conversations.size)
+        }
+
+    @Test
+    fun welcomesThatWaitForASlotOrWereDroppedAtTheRequestCapAreShownNotSilent() =
+        runTest {
+            chat.groups = listOf(group(1, "bob"))
+            chat.welcomeResults =
+                listOf(
+                    WelcomeOutcome.Skipped(byteArrayOf(9)),
+                    WelcomeOutcome.Rejected(RejectReason.REQUEST_LIMIT),
+                    WelcomeOutcome.Rejected(RejectReason.REQUEST_LIMIT),
+                    WelcomeOutcome.Rejected(RejectReason.STALE),
+                )
+            val holder = list()
+            holder.refresh()
+            advanceUntilIdle()
+            assertEquals(1, holder.state.value.welcomesWaiting)
+            assertEquals(2, holder.state.value.requestsDropped)
         }
 
     @Test

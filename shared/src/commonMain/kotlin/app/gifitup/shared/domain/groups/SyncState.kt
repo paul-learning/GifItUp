@@ -99,6 +99,12 @@ class GroupRecord(
     /** The reference and seq of the last application message the server accepted, so a history left SENDING can be settled. */
     val lastSentReference: ByteArray? = null,
     val lastSentSeq: Long? = null,
+    /**
+     * The authenticated name of the welcome's sender when this group is a **request** (the sender was not a saved friend, #279),
+     * else `null`. Set only by the welcome receiver; cleared only by an explicit accept. While it is set nothing of the group's
+     * content reaches a sink, and nothing is sent in it.
+     */
+    val requestedBy: String? = null,
 ) {
     @Suppress("LongParameterList") // Mirrors the constructor.
     fun copy(
@@ -112,13 +118,27 @@ class GroupRecord(
         ownSeqs: List<OwnSend> = this.ownSeqs,
         lastSentReference: ByteArray? = this.lastSentReference,
         lastSentSeq: Long? = this.lastSentSeq,
-    ) = GroupRecord(cursor, status, failures, quarantined, unverified, lastMsgId, pending, ownSeqs, lastSentReference, lastSentSeq)
+        requestedBy: String? = this.requestedBy,
+    ) = GroupRecord(
+        cursor,
+        status,
+        failures,
+        quarantined,
+        unverified,
+        lastMsgId,
+        pending,
+        ownSeqs,
+        lastSentReference,
+        lastSentSeq,
+        requestedBy,
+    )
 
     companion object {
         fun joinedAt(
             cursor: Long,
             unverified: List<KeyBytes>,
-        ) = GroupRecord(cursor, GroupStatus.ACTIVE, emptyMap(), emptyList(), unverified, null, null, emptyList())
+            requestedBy: String? = null,
+        ) = GroupRecord(cursor, GroupStatus.ACTIVE, emptyMap(), emptyList(), unverified, null, null, emptyList(), requestedBy = requestedBy)
     }
 }
 

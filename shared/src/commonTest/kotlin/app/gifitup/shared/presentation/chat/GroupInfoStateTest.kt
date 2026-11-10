@@ -94,6 +94,22 @@ class GroupInfoStateTest {
             emoji: String?,
         ): AuthResult<SyncOutcome> = error("not used")
 
+        var leaveOutcome: AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+        var leftGroups = listOf<KeyBytes>()
+
+        override suspend fun leave(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> {
+            leftGroups = leftGroups + groupId
+            return leaveOutcome
+        }
+
+        override suspend fun acceptRequest(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+
         override suspend fun resume(
             session: Session,
             groupId: KeyBytes,
@@ -315,5 +331,40 @@ class GroupInfoStateTest {
             advanceUntilIdle()
             assertEquals(listOf("bob", "carol", "dave"), holder.state.value.members)
             assertNull(holder.state.value.standing["dave"], "a saved name without a leaf is not a friend by its name")
+        }
+
+    @Test
+    fun leavingAChatSaysSoOnlyWhenItWorkedAndAFailureKeepsTheChatAndOffersAnotherTry() =
+        runTest {
+            val holder = opened("bob")
+            chat.leaveOutcome = AuthResult.Ok(SyncOutcome.Unavailable(ApiError.NETWORK))
+            holder.leaveChat()
+            advanceUntilIdle()
+            assertFalse(holder.state.value.left)
+            assertEquals(GroupInfoProblem.LEAVE_FAILED, holder.state.value.problem)
+            chat.leaveOutcome = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+            holder.leaveChat()
+            advanceUntilIdle()
+            assertTrue(holder.state.value.left)
+            assertEquals(listOf(groupId, groupId), chat.leftGroups)
+            holder.leaveChat()
+            advanceUntilIdle()
+            assertEquals(2, chat.leftGroups.size, "a chat that was left is not left twice")
+        }
+
+    @Test
+    fun aLeaveThatCouldNotDeleteTheMessagesIsAFailureNotADeletionAndCanBeTriedAgain() =
+        runTest {
+            val holder = opened("bob")
+            // What ChatService answers when the stored messages cannot be deleted after the keys are gone.
+            chat.leaveOutcome = AuthResult.Ok(SyncOutcome.StorageFailed)
+            holder.leaveChat()
+            advanceUntilIdle()
+            assertFalse(holder.state.value.left, "nothing says it was deleted")
+            assertEquals(GroupInfoProblem.LEAVE_FAILED, holder.state.value.problem)
+            chat.leaveOutcome = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+            holder.leaveChat()
+            advanceUntilIdle()
+            assertTrue(holder.state.value.left, "the screen is not stuck: a second try goes through")
         }
 }

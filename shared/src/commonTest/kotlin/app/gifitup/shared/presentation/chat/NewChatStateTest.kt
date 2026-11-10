@@ -110,6 +110,16 @@ class NewChatStateTest {
             emoji: String?,
         ): AuthResult<SyncOutcome> = error("not used")
 
+        override suspend fun leave(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+
+        override suspend fun acceptRequest(
+            session: Session,
+            groupId: KeyBytes,
+        ): AuthResult<SyncOutcome> = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+
         override suspend fun resume(
             session: Session,
             groupId: KeyBytes,

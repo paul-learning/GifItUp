@@ -74,6 +74,7 @@ class EndToEndTest {
             history(cli, dbEnv)
             reactions(cli, dbEnv)
             staleWelcome(cli, dbEnv)
+            requests(cli, dbEnv)
             gifProvider(cli, dbEnv, port, gifKey)
             server.stopAndWait()
             assertNoSecretInOutput()
@@ -457,13 +458,14 @@ class EndToEndTest {
             "e2e_jack",
         )
 
-        assertEquals(listOf("joined group $group"), ok(jack, "chat-welcomes"))
+        assertEquals(listOf("joined group $group as a request from e2e_iris"), ok(jack, "chat-welcomes"))
+        assertEquals(listOf("accepted group $group"), ok(jack, "chat-accept", "--group", group))
         assertEquals(
             listOf("group $group active with e2e_jack"),
             ok(iris, "chat-groups"),
             "the creator lists the group with the other member",
         )
-        assertEquals(listOf("group $group active with e2e_iris"), ok(jack, "chat-groups"), "the joiner too")
+        // (Jack's own chat-groups check was dropped for his login budget: every command logs in, a device may log in 10 times an hour.)
         assertEquals(listOf("no groups"), ok(kim, "chat-groups"))
         refused(iris, "chat-send", EXIT_REFUSED, "that can't be done", "--group", group, stdin = "x".repeat(121))
         // The push channel (ADR-0015, #27): jack listens, and iris's message reaches him as a hint within the second the
@@ -496,7 +498,8 @@ class EndToEndTest {
             listOf("message 3 from e2e_jack: gif e2e-test-gif \"hi iris\"", "added the devices of e2e_kim, commit at seq 4"),
             added,
         )
-        assertEquals(listOf("joined group $group"), ok(kim, "chat-welcomes"))
+        assertEquals(listOf("joined group $group as a request from e2e_iris"), ok(kim, "chat-welcomes"))
+        assertEquals(listOf("accepted group $group"), ok(kim, "chat-accept", "--group", group))
         assertEquals(listOf("sent at seq 5"), ok(kim, "chat-send", "--group", group, stdin = say("hey all")))
         refused(kim, "chat-remove", EXIT_REFUSED, "that can't be done", "--group", group, "--target", "e2e_nobody")
         assertEquals(
@@ -606,7 +609,8 @@ class EndToEndTest {
         plaintexts += "history one"
         val created = ok(lena, "chat-create", "--target", "e2e_milo").single()
         val group = Regex("^created group (\\S+) at seq 1$").matchEntire(created)?.groupValues?.get(1) ?: fail("chat-create: $created")
-        assertEquals(listOf("joined group $group"), ok(milo, "chat-welcomes"))
+        assertEquals(listOf("joined group $group as a request from e2e_lena"), ok(milo, "chat-welcomes"))
+        assertEquals(listOf("accepted group $group"), ok(milo, "chat-accept", "--group", group))
         assertEquals(listOf("sent at seq 2"), ok(lena, "chat-send", "--group", group, stdin = "history one"))
         val gif = "gif e2e-test-gif \"history one\""
         // A group name is a message too (#217), sent after the members are in; this pair of accounts has login budget to spare.
@@ -681,6 +685,76 @@ class EndToEndTest {
     }
 
     /**
+     * Requests and leaving (#279, ADR-0016): a chat a non-friend starts is held back (nothing of it is printed or stored, nothing
+     * can be sent in it) until accepted; declining and leaving remove it from this device. A friend (a contact the recipient
+     * has pinned by claiming their KeyPackages) joins at once. Fresh accounts.
+     */
+    @Suppress("LongMethod") // One scripted scenario with three accounts; splitting it would hide the order that matters.
+    private fun requests(
+        cli: Cli,
+        dbEnv: Map<String, String>,
+    ) {
+        fun register(name: String): Path {
+            val state = work.resolve("state-$name")
+            assertEquals(0, cli.run("register", state, "--username", "e2e_$name", stdin = createInvite(dbEnv)).exit, "register $name")
+            return state
+        }
+
+        fun ok(
+            state: Path,
+            command: String,
+            vararg args: String,
+            stdin: String = "",
+        ): List<String> {
+            val finished = cli.run(command, state, *args, stdin = stdin)
+            assertEquals(0, finished.exit, "$command exit code: ${finished.stderr}")
+            return finished.stdout.lines().filter { it.isNotBlank() }
+        }
+
+        fun created(lines: List<String>): String =
+            Regex("^created group (\\S+) at seq 1$").matchEntire(lines.single())?.groupValues?.get(1) ?: fail("chat-create: $lines")
+
+        plaintexts += listOf("a request nobody has accepted")
+        val wes = register("wes")
+        val xena = register("xena")
+        val yan = register("yan")
+        assertEquals(0, cli.run("keypackages-refill", wes).exit, "wes refills")
+        assertEquals(0, cli.run("keypackages-refill", xena).exit, "xena refills")
+        assertEquals(0, cli.run("keypackages-refill", yan).exit, "yan refills")
+
+        // A stranger starts a chat with xena: it is a request, nothing of it is printed or stored, nothing can be sent in it.
+        val asked = created(ok(wes, "chat-create", "--target", "e2e_xena"))
+        assertEquals(listOf("joined group $asked as a request from e2e_wes"), ok(xena, "chat-welcomes"))
+        assertEquals(listOf("request $asked from e2e_wes"), ok(xena, "chat-requests"))
+        assertEquals(listOf("group $asked request from e2e_wes"), ok(xena, "chat-groups"))
+        assertEquals(listOf("sent at seq 2"), ok(wes, "chat-send", "--group", asked, stdin = "a request nobody has accepted"))
+        assertEquals(
+            listOf("synced, 0 log entries"),
+            ok(xena, "chat-sync", "--group", asked),
+            "a request is not read at all",
+        )
+        assertTrue(
+            ok(xena, "chat-history", "--group", asked).none { "request nobody" in it || it.startsWith("stored") },
+            "nothing was stored",
+        )
+        val refused = cli.run("chat-send", xena, "--group", asked, stdin = "reply\n")
+        assertEquals(EXIT_REFUSED, refused.exit, "chat-send in a request")
+        assertTrue("gifitup-cli: that can't be done" in refused.stderr, "chat-send in a request: the closed message: ${refused.stderr}")
+        // Declining leaves and forgets it; the stranger's chat is gone from this device.
+        assertEquals(listOf("declined group $asked"), ok(xena, "chat-decline", "--group", asked))
+        assertEquals(listOf("no groups"), ok(xena, "chat-groups"))
+        assertEquals(listOf("no requests"), ok(xena, "chat-requests"))
+
+        // A friend: yan pins wes by claiming his KeyPackages, so wes's chat joins at once, and yan can leave it.
+        assertTrue(CLAIMED_USABLE_ANY.matches(ok(yan, "keypackages-claim", "--target", "e2e_wes").single()), "yan pins wes")
+        val friends = created(ok(wes, "chat-create", "--target", "e2e_yan"))
+        assertEquals(listOf("joined group $friends"), ok(yan, "chat-welcomes"))
+        assertEquals(listOf("no requests"), ok(yan, "chat-requests"))
+        assertEquals(listOf("left group $friends"), ok(yan, "chat-leave", "--group", friends))
+        assertEquals(listOf("no groups"), ok(yan, "chat-groups"))
+    }
+
+    /**
      * A welcome whose target was removed before it synced must not block the welcomes behind it (#280): the server drops it
      * with the membership, so the next `chat-welcomes` joins only the group the target is still in. Fresh accounts.
      */
@@ -719,7 +793,7 @@ class EndToEndTest {
         )
         val live = created(ok(vic, "chat-create", "--target", "e2e_uma"))
         assertEquals(
-            listOf("joined group $live"),
+            listOf("joined group $live as a request from e2e_vic"),
             ok(uma, "chat-welcomes"),
             "only the group uma is still in is joined; the stale welcome is gone",
         )
@@ -772,7 +846,8 @@ class EndToEndTest {
         plaintexts += "react to this"
         val created = ok(nora, "chat-create", "--target", "e2e_omar").single()
         val group = Regex("^created group (\\S+) at seq 1$").matchEntire(created)?.groupValues?.get(1) ?: fail("chat-create: $created")
-        assertEquals(listOf("joined group $group"), ok(omar, "chat-welcomes"))
+        assertEquals(listOf("joined group $group as a request from e2e_nora"), ok(omar, "chat-welcomes"))
+        assertEquals(listOf("accepted group $group"), ok(omar, "chat-accept", "--group", group))
         assertEquals(listOf("sent at seq 2"), ok(nora, "chat-send", "--group", group, stdin = "react to this"))
         val gif = "gif e2e-test-gif \"react to this\""
         assertEquals(listOf("message 2 from e2e_nora: $gif", "synced, 1 log entries"), ok(omar, "chat-sync", "--group", group))

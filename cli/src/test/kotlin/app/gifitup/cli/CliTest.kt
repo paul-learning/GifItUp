@@ -54,6 +54,7 @@ class CliTest {
     }
 
     @Test
+    @Suppress("LongMethod") // One table of the chat commands and their options; splitting it would hide what is not covered.
     fun parsesTheChatCommandsWithExactlyTheirOptions() {
         val group = "AQIDBAUGBwgJCgsMDQ4PEA"
         assertEquals("ben", Invocation.parse(listOf("chat-create") + base + listOf("--target", "ben")).target)
@@ -62,7 +63,16 @@ class CliTest {
             assertEquals("ben", parsed.target)
             assertEquals(16, parsed.group?.size)
         }
-        listOf("chat-send", "chat-sync", "chat-resume", "chat-history", "chat-rename").forEach {
+        listOf(
+            "chat-send",
+            "chat-sync",
+            "chat-resume",
+            "chat-history",
+            "chat-rename",
+            "chat-accept",
+            "chat-decline",
+            "chat-leave",
+        ).forEach {
             assertEquals(it, Invocation.parse(listOf(it) + base + listOf("--group", group)).command)
         }
         assertEquals(45L, Invocation.parse(listOf("chat-listen") + base + listOf("--group", group, "--timeout", "45")).timeoutSeconds)
@@ -84,6 +94,10 @@ class CliTest {
                 "chat-resume",
                 "chat-welcomes",
                 "chat-groups",
+                "chat-requests",
+                "chat-accept",
+                "chat-decline",
+                "chat-leave",
             ),
             Invocation.CHAT_COMMANDS,
         )

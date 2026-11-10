@@ -4,6 +4,7 @@ import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.MessageKind
 import app.gifitup.shared.domain.contacts.KeyBytes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -37,11 +38,17 @@ class GroupSyncEngine(
     private val flag = AheadFlag()
     private val live = TrackedClient(mls, flag)
     private val store = SyncStore(live, saver, flag)
-    private val messages = MessageReceiver(live, delivery, pinsSource, sink, store)
-    private val welcomes = WelcomeReceiver(live, delivery, pinsSource, store, sink)
+
+    // The one place the "request" rule is enforced for incoming content (#279 round 0, SEC-2): nothing of a requested group
+    // reaches any sink (not the history store, not the CLI's printing, not a screen), whoever the caller is.
+    private val guarded = RequestGuardSink(sink) { store.find(KeyBytes(it))?.requestedBy != null }
+    private val messages = MessageReceiver(live, delivery, pinsSource, guarded, store)
+    private val welcomes = WelcomeReceiver(live, delivery, pinsSource, store, guarded)
     private val poster = Poster(live, delivery, store)
     private val sender = SendSide(live, store, poster, random)
     private val commits = CommitSide(live, store, poster, messages, random, flag)
+
+    private fun requested(groupId: ByteArray) = store.find(KeyBytes(groupId))?.requestedBy != null
 
     /** Set when a call ended with the live client ahead of the stored snapshot: this engine does nothing more (below). */
     private var dead: SyncOutcome? = null
@@ -51,7 +58,14 @@ class GroupSyncEngine(
 
     fun recordOf(groupId: ByteArray): GroupRecord? = store.find(KeyBytes(groupId))
 
-    suspend fun sync(groupId: ByteArray): SyncOutcome = mutex.withLock { halting { messages.sync(KeyBytes(groupId)) } }
+    /**
+     * Reads and applies the group's log. A **requested** group (#279) is not read at all until it is accepted: nothing is fetched,
+     * delivered or acknowledged, so what the sender wrote waits on the server, and on accept the chat is read from the join point
+     * (the sender's first messages then show, after the user said yes). A request left for long enough that the server dropped
+     * the log is read as a gap when accepted, and the chat has to be started again.
+     */
+    suspend fun sync(groupId: ByteArray): SyncOutcome =
+        mutex.withLock { halting { if (requested(groupId)) SyncOutcome.CaughtUp(0) else messages.sync(KeyBytes(groupId)) } }
 
     suspend fun processWelcomes(): WelcomesReport =
         mutex.withLock {
@@ -70,7 +84,19 @@ class GroupSyncEngine(
         groupId: ByteArray,
         plaintext: ByteArray,
         observer: SendObserver = SendObserver.None,
-    ): SyncOutcome = mutex.withLock { halting { sender.send(KeyBytes(groupId), plaintext, observer) } }
+    ): SyncOutcome =
+        mutex.withLock {
+            halting {
+                if (requested(
+                        groupId,
+                    )
+                ) {
+                    SyncOutcome.InvalidRequest
+                } else {
+                    sender.send(KeyBytes(groupId), plaintext, observer)
+                }
+            }
+        }
 
     /** Posts the pending message or commit of a group again, unchanged. */
     suspend fun resume(
@@ -80,7 +106,11 @@ class GroupSyncEngine(
         mutex.withLock {
             halting {
                 val id = KeyBytes(groupId)
-                if (store.find(id)?.pending?.kind == MessageKind.COMMIT) commits.resume(id) else sender.resume(id, observer)
+                when {
+                    requested(groupId) -> SyncOutcome.InvalidRequest
+                    store.find(id)?.pending?.kind == MessageKind.COMMIT -> commits.resume(id)
+                    else -> sender.resume(id, observer)
+                }
             }
         }
 
@@ -100,13 +130,17 @@ class GroupSyncEngine(
     suspend fun addMembers(
         groupId: ByteArray,
         members: List<NewMember>,
-    ): SyncOutcome = mutex.withLock { halting { commits.add(KeyBytes(groupId), members) } }
+    ): SyncOutcome =
+        mutex.withLock {
+            halting { if (requested(groupId)) SyncOutcome.InvalidRequest else commits.add(KeyBytes(groupId), members) }
+        }
 
     /** Removes 1 to 10 members (by device id and signature key) with one commit; a ghost leaf can be removed too. */
     suspend fun removeMembers(
         groupId: ByteArray,
         targets: List<RemoveTarget>,
-    ): SyncOutcome = mutex.withLock { halting { commits.remove(KeyBytes(groupId), targets) } }
+    ): SyncOutcome =
+        mutex.withLock { halting { if (requested(groupId)) SyncOutcome.InvalidRequest else commits.remove(KeyBytes(groupId), targets) } }
 
     /**
      * Counts a failed attempt on [seq] of a group; used by the caller after a `Poisoned` outcome, on a freshly restored
@@ -124,6 +158,47 @@ class GroupSyncEngine(
                 SyncOutcome.Retry(seq)
             }
         }
+
+    /**
+     * The user accepts a request (#279): the mark is cleared and saved before this returns, so a screen shows the chat as a normal
+     * one only once it is durable. Only an explicit call does this; nothing the server or the group says can. The chat is read
+     * from the join point afterwards, so what the sender wrote while it was a request shows then (see [sync]).
+     */
+    suspend fun acceptRequest(groupId: ByteArray): SyncOutcome =
+        mutex.withLock {
+            halting {
+                val id = KeyBytes(groupId)
+                val record = store.find(id)
+                // Only an active request can be accepted; one whose group is stopped or gone can only be declined (deleted).
+                if (record?.requestedBy == null || record.status != GroupStatus.ACTIVE) {
+                    SyncOutcome.InvalidRequest
+                } else {
+                    store.put(id, record.copy(requestedBy = null))
+                    store.persist()
+                    announceAccepted(groupId, record)
+                    SyncOutcome.CaughtUp(0)
+                }
+            }
+        }
+
+    /**
+     * "You joined", written once the user has said yes (the join itself was not announced while the group was a request): the
+     * welcome's authenticated sender and the roster size, as for any join. A failure here must not undo the accept.
+     */
+    private suspend fun announceAccepted(
+        groupId: ByteArray,
+        record: GroupRecord,
+    ) {
+        val sender = record.requestedBy ?: return
+        try {
+            val size = live.members(groupId).size
+            guarded.membership(MembershipChange(groupId, record.cursor, sender, emptyList(), emptyList(), size))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            // The notice is only a convenience, as at a normal join.
+        }
+    }
 
     /**
      * Deletes everything of a group on this device: its MLS state (if any is left) and its sync record. The first step

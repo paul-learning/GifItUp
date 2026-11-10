@@ -11,6 +11,7 @@ import app.gifitup.shared.presentation.chat.Preview
  * The fixed words of the chat screens (#25). Text a friend wrote (a caption, a group name) is wrapped in Unicode
  * isolates, so its direction can't reorder the words around it (ADR-0006 B3a); it is plain text, never a link.
  */
+@Suppress("TooManyFunctions") // The chat screens' phrases: one function per phrase that needs a name or a count.
 internal object ChatTexts {
     const val TITLE = "Chats"
     const val NEW_CHAT = "New chat or group"
@@ -41,6 +42,31 @@ internal object ChatTexts {
 
     const val NO_MESSAGES = "No messages yet"
     const val REFRESHING = "Looking for new messages…"
+    const val REQUESTS = "Requests"
+    const val ACCEPT = "Accept"
+
+    fun welcomesWaiting(count: Int) =
+        if (count == 1) {
+            "A chat is waiting to join. This device holds as many chats as it can: leave or delete one and it joins."
+        } else {
+            "$count chats are waiting to join. This device holds as many chats as it can: leave or delete some and they join."
+        }
+
+    fun requestsDropped(count: Int) =
+        if (count == 1) {
+            "A request was dropped because ten are already waiting. Accept or decline some; the sender can ask again."
+        } else {
+            "$count requests were dropped because ten are already waiting. Accept or decline some; the senders can ask again."
+        }
+
+    const val DECLINE = "Decline"
+    const val ACTION_FAILED = "That did not work. Nothing was deleted; you can try again."
+
+    /** The line of a request: the sender's name is authenticated by the chat's keys, but this is not one of your friends. */
+    fun requestFrom(name: String) =
+        "${isolated(name)} is not one of your friends and started a chat with you. Nothing of it is shown, and nothing can be sent, " +
+            "until you accept. Declining leaves the chat and deletes it from this device."
+
     const val BACK = "Back"
     const val DONE = "Done"
     const val CHAT_EXISTS = "You already have a chat with them"
@@ -134,6 +160,10 @@ internal object ChatTexts {
 
             ConversationProblem.GONE -> {
                 "You are no longer in this chat."
+            }
+
+            ConversationProblem.REQUEST -> {
+                "Someone who is not one of your friends started this chat. Nothing of it is shown until you accept."
             }
         }
 

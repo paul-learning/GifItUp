@@ -1,5 +1,6 @@
 package app.gifitup.shared.presentation.chat
 
+import app.gifitup.shared.data.network.Session
 import app.gifitup.shared.domain.auth.AuthResult
 import app.gifitup.shared.domain.chat.ChatKind
 import app.gifitup.shared.domain.chat.ChatPort
@@ -7,7 +8,9 @@ import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.chat.chatKind
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.groups.GroupInfo
+import app.gifitup.shared.domain.groups.RejectReason
 import app.gifitup.shared.domain.groups.SyncOutcome
+import app.gifitup.shared.domain.groups.WelcomeOutcome
 import app.gifitup.shared.domain.messages.ChatMessage
 import app.gifitup.shared.domain.messages.HistoryAccess
 import app.gifitup.shared.domain.messages.HistoryStoreException
@@ -67,9 +70,18 @@ data class ChatListState(
     /** The last "reset history" did not finish: the history is as it was and the reset can be tried again. */
     val resetFailed: Boolean = false,
     val filter: ChatFilter = ChatFilter.ALL,
+    /** The last accept, decline or leave did not finish: nothing was deleted, and it can be tried again (#279). */
+    val actionFailed: Boolean = false,
+    /** Welcomes left waiting because the device holds 50 chats (or one of them is stopped): deleting a chat lets them join (#279). */
+    val welcomesWaiting: Int = 0,
+    /** Requests dropped by the last welcome check because 10 were already waiting: the senders can add again later (#279). */
+    val requestsDropped: Int = 0,
 ) {
-    /** [conversations] the [filter] lets through, in the same order. */
-    val visible: List<ConversationSummary> get() = conversations.filter { filter.matches(it) }
+    /** [conversations] the [filter] lets through, without the requests, in the same order. */
+    val visible: List<ConversationSummary> get() = conversations.filter { it.info.requestedBy == null && filter.matches(it) }
+
+    /** The chats non-friends started (#279): shown apart from the filter, with the sender's name and nothing else. */
+    val requests: List<ConversationSummary> get() = conversations.filter { it.info.requestedBy != null }
 }
 
 /**
@@ -92,6 +104,10 @@ class ChatListStateHolder(
     private val flow = MutableStateFlow(ChatListState())
     val state: StateFlow<ChatListState> = flow.asStateFlow()
     private var visit = 0
+
+    // What the last welcome check left waiting or dropped (#279); shown by the next list.
+    private var welcomesWaiting = 0
+    private var requestsDropped = 0
 
     /** The list is on screen: set by the screen's first [refresh], cleared by [leave]. */
     private var visible = false
@@ -172,6 +188,24 @@ class ChatListStateHolder(
         if (running) queued = queued?.merge(request) ?: request else start(request)
     }
 
+    /** The user accepts a request (#279): from now on it is a normal chat. */
+    fun acceptRequest(id: KeyBytes) = act { chat.acceptRequest(it, id) }
+
+    /** The user declines a request or leaves a chat (#279): left on the server, keys and stored messages deleted. */
+    fun leaveChat(id: KeyBytes) = act { chat.leave(it, id) }
+
+    private fun act(call: suspend (Session) -> AuthResult<SyncOutcome>) {
+        flow.value = flow.value.copy(actionFailed = false)
+        scope.launch {
+            val done = sessions.withSessionResult(call)
+            if (done is AuthResult.Ok && done.value is SyncOutcome.CaughtUp) {
+                refreshOnly(emptySet())
+            } else {
+                flow.value = flow.value.copy(actionFailed = true)
+            }
+        }
+    }
+
     /** Joins new groups, reads every active group's log, and rebuilds the list. */
     fun refresh() {
         visible = true
@@ -224,15 +258,7 @@ class ChatListStateHolder(
         // and the refresh below only updates it (#27). The previous problem stays on screen until the later publish, which
         // carries this refresh's own (#261 CR-2).
         (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.let { publish(forVisit, it.value.groups, flow.value.problem) }
-        if (usable && request.welcomes) {
-            when (val joined = sessions.withSessionResult { chat.welcomes(it) }) {
-                is AuthResult.Failed -> problem = joined.error.toChatProblem()
-
-                // A welcome step that stopped part-way (friends list unreadable, the server slowing us down, ...) used to be
-                // dropped here, and new chats silently never opened (#27).
-                is AuthResult.Ok -> problem = joined.value.stoppedBy?.toListProblem()
-            }
-        }
+        if (usable && request.welcomes) problem = welcomeStep()
         when (val groups = sessions.withSessionResult { chat.groups(it) }) {
             is AuthResult.Failed -> {
                 // What is known stays on screen; only the problem is new.
@@ -242,7 +268,7 @@ class ChatListStateHolder(
 
             is AuthResult.Ok -> {
                 if (usable) {
-                    for (info in groups.value.groups.filter { it.status.toProblem() == null && request.groups?.contains(it.id) != false }) {
+                    for (info in groups.value.groups.filter { it.problem() == null && request.groups?.contains(it.id) != false }) {
                         problem = problem ?: syncProblem(info)
                     }
                 }
@@ -250,6 +276,23 @@ class ChatListStateHolder(
             }
         }
     }
+
+    /** Joins the groups the user was added to; remembers what was left waiting or dropped (#279); the problem, if any. */
+    private suspend fun welcomeStep(): ChatProblem? =
+        when (val joined = sessions.withSessionResult { chat.welcomes(it) }) {
+            is AuthResult.Failed -> {
+                joined.error.toChatProblem()
+            }
+
+            // A welcome step that stopped part-way (friends list unreadable, the server slowing us down, ...) used to be
+            // dropped here, and new chats silently never opened (#27).
+            is AuthResult.Ok -> {
+                val results = joined.value.results
+                welcomesWaiting = results.count { it is WelcomeOutcome.Skipped }
+                requestsDropped = results.count { it is WelcomeOutcome.Rejected && it.reason == RejectReason.REQUEST_LIMIT }
+                joined.value.stoppedBy?.toListProblem()
+            }
+        }
 
     private suspend fun syncProblem(info: GroupInfo): ChatProblem? =
         when (val synced = sessions.withSessionResult { chat.sync(it, info.id) }) {
@@ -269,7 +312,15 @@ class ChatListStateHolder(
         if (forVisit ==
             visit
         ) {
-            flow.value = flow.value.copy(loaded = true, conversations = rows, problem = shown, canResetHistory = resettable)
+            flow.value =
+                flow.value.copy(
+                    loaded = true,
+                    conversations = rows,
+                    problem = shown,
+                    canResetHistory = resettable,
+                    welcomesWaiting = welcomesWaiting,
+                    requestsDropped = requestsDropped,
+                )
         }
     }
 
@@ -290,7 +341,7 @@ class ChatListStateHolder(
                 Preview.Nothing,
                 null,
                 0,
-                info.status.toProblem(),
+                info.problem(),
                 historyProblem = true,
                 unreadable = 1,
             )
@@ -303,7 +354,7 @@ class ChatListStateHolder(
             preview = previewOf(last),
             lastAt = last?.at,
             unread = unread,
-            problem = info.status.toProblem(),
+            problem = info.problem(),
             unreadable = unreadable,
         )
     }

@@ -94,6 +94,15 @@ sealed interface WelcomeOutcome {
         val groupId: ByteArray,
     ) : WelcomeOutcome
 
+    /**
+     * Joined as a **request** (#279): the welcome's authenticated sender [by] is not a saved friend, so nothing of the group is
+     * shown or stored and nothing is sent until the user accepts it (`GroupSyncEngine.accept`) or declines it (leave).
+     */
+    class Requested(
+        val groupId: ByteArray,
+        val by: String,
+    ) : WelcomeOutcome
+
     /** Already a member (a repeat after a crash between storing and acknowledging). */
     class AlreadyMember(
         val groupId: ByteArray,
@@ -113,7 +122,7 @@ sealed interface WelcomeOutcome {
     ) : WelcomeOutcome
 }
 
-enum class RejectReason { UNUSABLE, CONTACT_MISMATCH, STALE }
+enum class RejectReason { UNUSABLE, CONTACT_MISMATCH, STALE, REQUEST_LIMIT }
 
 /** The results for the welcomes handled, and why the run stopped early, if it did. */
 class WelcomesReport(

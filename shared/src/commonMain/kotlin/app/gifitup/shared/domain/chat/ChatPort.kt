@@ -14,6 +14,7 @@ import app.gifitup.shared.domain.groups.WelcomesReport
  * call that reads the Delivery Service feeds what it decrypts to the [app.gifitup.shared.domain.messages.MessageStore].
  * [ChatService] is the app's implementation; tests use a fake.
  */
+@Suppress("TooManyFunctions") // One function per chat use case; the screens' fakes implement them all.
 interface ChatPort {
     suspend fun groups(session: Session): AuthResult<GroupList>
 
@@ -75,6 +76,21 @@ interface ChatPort {
 
     /** Posts the group's unsettled message again. */
     suspend fun resume(
+        session: Session,
+        groupId: KeyBytes,
+    ): AuthResult<SyncOutcome>
+
+    /**
+     * Leaves the chat and deletes it from this device (keys, sync state and stored history). A user's confirmed action only. A
+     * failure of the server's side forgets nothing.
+     */
+    suspend fun leave(
+        session: Session,
+        groupId: KeyBytes,
+    ): AuthResult<SyncOutcome>
+
+    /** Accepts a request: it becomes a normal chat. */
+    suspend fun acceptRequest(
         session: Session,
         groupId: KeyBytes,
     ): AuthResult<SyncOutcome>
