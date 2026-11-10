@@ -338,11 +338,12 @@ class GroupSyncTest {
             )
             assertEquals("alice", bob.engine.recordOf(groupId)?.requestedBy)
             assertTrue(bob.membership.isEmpty() && bob.received.isEmpty(), "a request announces nothing")
-            // What alice says is read (MLS needs it in order) and acknowledged, but reaches no sink.
-            val first = alice.say(groupId, "hello stranger")
-            assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
+            // A request is not read at all: what alice says waits on the server, nothing is delivered or acknowledged.
+            val joinPoint = ds.ackedSeq(groupId, bob.deviceId)
+            alice.say(groupId, "hello stranger")
+            assertEquals(SyncOutcome.CaughtUp(0), bob.engine.sync(groupId))
             assertTrue(bob.received.isEmpty(), "nothing of a requested group is delivered")
-            assertEquals(first, ds.ackedSeq(groupId, bob.deviceId))
+            assertEquals(joinPoint, ds.ackedSeq(groupId, bob.deviceId), "and nothing is acknowledged")
             // Nothing can be sent, added or removed in it.
             assertEquals(SyncOutcome.InvalidRequest, bob.engine.send(groupId, "no".encodeToByteArray()))
             assertEquals(SyncOutcome.InvalidRequest, bob.engine.addMembers(groupId, emptyList()))
@@ -351,14 +352,14 @@ class GroupSyncTest {
             // The mark survives a restart (it is part of the stored state).
             bob.restart()
             assertEquals("alice", bob.engine.recordOf(groupId)?.requestedBy)
-            // Accepting clears it for good, and only what comes after is delivered.
+            // Accepting clears it for good; the chat is then read from the join point, so the first messages show.
             assertEquals(SyncOutcome.CaughtUp(0), bob.engine.acceptRequest(groupId))
             assertEquals(null, bob.engine.recordOf(groupId)?.requestedBy)
             bob.restart()
             assertEquals(null, bob.engine.recordOf(groupId)?.requestedBy)
             alice.say(groupId, "after accepting")
-            assertEquals(SyncOutcome.CaughtUp(1), bob.engine.sync(groupId))
-            assertEquals(listOf("after accepting"), bob.received.map { it.plaintext.decodeToString() })
+            assertEquals(SyncOutcome.CaughtUp(2), bob.engine.sync(groupId))
+            assertEquals(listOf("hello stranger", "after accepting"), bob.received.map { it.plaintext.decodeToString() })
             assertEquals(SyncOutcome.InvalidRequest, bob.engine.acceptRequest(groupId), "nothing left to accept")
         }
 

@@ -57,7 +57,14 @@ class GroupSyncEngine(
 
     fun recordOf(groupId: ByteArray): GroupRecord? = store.find(KeyBytes(groupId))
 
-    suspend fun sync(groupId: ByteArray): SyncOutcome = mutex.withLock { halting { messages.sync(KeyBytes(groupId)) } }
+    /**
+     * Reads and applies the group's log. A **requested** group (#279) is not read at all until it is accepted: nothing is fetched,
+     * delivered or acknowledged, so what the sender wrote waits on the server, and on accept the chat is read from the join point
+     * (the sender's first messages then show, after the user said yes). A request left for long enough that the server dropped
+     * the log is read as a gap when accepted, and the chat has to be started again.
+     */
+    suspend fun sync(groupId: ByteArray): SyncOutcome =
+        mutex.withLock { halting { if (requested(groupId)) SyncOutcome.CaughtUp(0) else messages.sync(KeyBytes(groupId)) } }
 
     suspend fun processWelcomes(): WelcomesReport =
         mutex.withLock {
@@ -153,15 +160,16 @@ class GroupSyncEngine(
 
     /**
      * The user accepts a request (#279): the mark is cleared and saved before this returns, so a screen shows the chat as a normal
-     * one only once it is durable. Only an explicit call does this; nothing the server or the group says can. What was said
-     * while the group was a request was never stored (see [RequestGuardSink]).
+     * one only once it is durable. Only an explicit call does this; nothing the server or the group says can. The chat is read
+     * from the join point afterwards, so what the sender wrote while it was a request shows then (see [sync]).
      */
     suspend fun acceptRequest(groupId: ByteArray): SyncOutcome =
         mutex.withLock {
             halting {
                 val id = KeyBytes(groupId)
                 val record = store.find(id)
-                if (record?.requestedBy == null) {
+                // Only an active request can be accepted; one whose group is stopped or gone can only be declined (deleted).
+                if (record?.requestedBy == null || record.status != GroupStatus.ACTIVE) {
                     SyncOutcome.InvalidRequest
                 } else {
                     store.put(id, record.copy(requestedBy = null))

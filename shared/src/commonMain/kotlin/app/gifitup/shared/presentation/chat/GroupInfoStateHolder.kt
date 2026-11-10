@@ -131,14 +131,17 @@ class GroupInfoStateHolder(
         if (running || flow.value.adding || flow.value.left) return
         running = true
         scope.launch {
-            val done = sessions.withSessionResult { chat.leave(it, group.id) }
-            running = false
-            flow.value =
-                if (done is AuthResult.Ok && done.value is SyncOutcome.CaughtUp) {
-                    flow.value.copy(left = true, problem = null)
-                } else {
-                    flow.value.copy(problem = GroupInfoProblem.LEAVE_FAILED)
-                }
+            try {
+                val done = sessions.withSessionResult { chat.leave(it, group.id) }
+                flow.value =
+                    if (done is AuthResult.Ok && done.value is SyncOutcome.CaughtUp) {
+                        flow.value.copy(left = true, problem = null)
+                    } else {
+                        flow.value.copy(problem = GroupInfoProblem.LEAVE_FAILED)
+                    }
+            } finally {
+                running = false
+            }
         }
     }
 

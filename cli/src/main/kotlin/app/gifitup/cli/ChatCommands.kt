@@ -216,8 +216,9 @@ internal class ChatCommands(
         group: ByteArray,
         onlyRequests: Boolean,
     ): Int {
-        val groups = (chat.groups(session, sink) as? AuthResult.Ok)?.value?.groups
-        val info = groups?.firstOrNull { it.id.bytes.contentEquals(group) }
+        val listed = chat.groups(session, sink)
+        if (listed is AuthResult.Failed) return report(listed)
+        val info = (listed as AuthResult.Ok).value.groups.firstOrNull { it.id.bytes.contentEquals(group) }
         return when {
             info == null -> finish(SyncOutcome.NotJoined) { "" }
             onlyRequests && info.requestedBy == null -> finish(SyncOutcome.InvalidRequest) { "" }

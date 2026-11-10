@@ -729,9 +729,9 @@ class EndToEndTest {
         assertEquals(listOf("group $asked request from e2e_wes"), ok(xena, "chat-groups"))
         assertEquals(listOf("sent at seq 2"), ok(wes, "chat-send", "--group", asked, stdin = "a request nobody has accepted"))
         assertEquals(
-            listOf("synced, 1 log entries"),
+            listOf("synced, 0 log entries"),
             ok(xena, "chat-sync", "--group", asked),
-            "the message is read and acknowledged, not shown",
+            "a request is not read at all",
         )
         assertTrue(
             ok(xena, "chat-history", "--group", asked).none { "request nobody" in it || it.startsWith("stored") },
