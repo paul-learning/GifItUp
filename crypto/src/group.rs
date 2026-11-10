@@ -197,9 +197,9 @@ impl Client {
             .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
             .padding_size(PADDING_SIZE)
             .use_ratchet_tree_extension(true)
-            // No past-epoch message secrets are kept (the OpenMLS default, set so a change of that default cannot silently weaken
-            // forward secrecy; the client refuses messages of another epoch anyway, ADR-0016).
-            .max_past_epochs(0)
+            // No past-epoch message secrets are kept: the OpenMLS default, set so a change of that default cannot
+            // silently weaken forward secrecy (the client refuses messages of another epoch anyway, ADR-0016).
+            .set_past_epoch_deletion_policy(PastEpochDeletionPolicy::MaxEpochs(0))
             .build();
         let group = MlsGroup::new(
             &self.provider,
@@ -495,7 +495,7 @@ impl Client {
             .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
             .padding_size(PADDING_SIZE)
             .use_ratchet_tree_extension(true)
-            .max_past_epochs(0) // as in `create_group`: no past-epoch message secrets
+            .set_past_epoch_deletion_policy(PastEpochDeletionPolicy::MaxEpochs(0)) // as in `create_group`
             .build();
         // Existing members' leaves may have outlived their KeyPackage lifetime (84 days) if they never committed:
         // only the KeyPackages we add and our own count (ADR-0016), so the lifetime check on the tree is skipped.
@@ -798,7 +798,7 @@ mod tests {
             let group = groups.get(&group_id).unwrap();
             assert_eq!(
                 *group.past_epoch_deletion_policy(),
-                openmls::group::PastEpochDeletionPolicy::MaxEpochs(0)
+                PastEpochDeletionPolicy::MaxEpochs(0)
             );
         }
     }
