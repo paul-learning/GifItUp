@@ -28,6 +28,10 @@ grep -qE 'android:debuggable.*=true|android:debuggable.*=0xffffffff' <<<"$tree" 
 grep -qE 'A: http://schemas.android.com/apk/res/android:allowBackup\(0x[0-9a-f]+\)=false' <<<"$tree" || fail "allowBackup is not false"
 grep -qE 'usesCleartextTraffic\(0x[0-9a-f]+\)=false' <<<"$tree" || fail "usesCleartextTraffic is not false"
 
+# The network security config of the built file (#27 SEC-10 of the socket plan): system store only, no debug-overrides, no
+# cleartext. Its own script so that it can be tested with a stub aapt2 (scripts/test-check-network-config.sh).
+bash "$(dirname -- "${BASH_SOURCE[0]}")/check-network-config.sh" "$apk" || status=1
+
 # The one permission, and the invite link host: the build's host, never the placeholders.
 # androidx adds one permission of its own, protected by the app's signature, that keeps other apps from sending
 # broadcasts to the app's dynamic receivers; it is named after the package and cannot be granted to another app.

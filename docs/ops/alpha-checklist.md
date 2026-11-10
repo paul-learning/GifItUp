@@ -31,10 +31,21 @@ for this repo): a published release cannot be changed, only replaced by a newer 
 - [ ] **Live updates** (needs the release that has them): with the app open on both devices, send a GIF and a reaction each way:
   it shows within a second or two on the other side, not after 15 s. Put one device into the background for a minute and bring
   it back: the chat is current again. Switch one device to flight mode and back: it catches up without a restart.
-- [ ] **Android socket check (owner, once, #27 SEC-4):** with the release build on a phone, add a user CA (Settings, Security,
-  Encryption and credentials, Install a certificate) that signs a test host and check the app refuses to talk to a server
-  that uses it; and check a plain `http://` or `ws://` server address is refused. The socket uses the platform's trust store
-  like every other request (ADR-0020); this is the manual proof, as no automated test runs on a device.
+- [ ] **Android socket check (owner, once, before the first alpha tag, #27 SEC-4 / M2 review):** the release build checks
+  the network rules in the built file (`scripts/assert-release-apk.sh`: system store only, no user CA, no cleartext), and the
+  socket uses the platform's trust store like every other request (ADR-0020), but no automated test runs on a phone. Do this
+  on the release build, with the app open on a chat so the socket is connected:
+  1. *User-added CA refused.* Run a TLS proxy you control (for example `mitmproxy`) on your laptop, install its CA certificate
+     on the phone (Settings, Security, Encryption and credentials, Install a certificate, CA certificate), and set the phone's
+     Wi-Fi proxy to the laptop. Open the app: the chats must **not** load (the app shows its network problem), and the proxy
+     must show **no** decrypted request to your server and **no** `/ws` upgrade. If it does, stop and tell Claude Code: the
+     app trusts a user CA.
+  2. *Plain `ws://` / `http://` refused.* In the app's custom server field (Profile, Server; not on the web) enter
+     `http://<laptop-ip>:8080` while a local server listens there: the app must not accept the address or connect to it, and
+     nothing may reach the laptop (the address check is the app's own; the network rules would block it anyway).
+  3. Undo: remove the CA, the proxy setting and the custom server; reopen the app: the chats load and the socket connects
+     (a message from the other device shows within a second or two).
+  Write the result (date, phone, Android version, pass/fail) under the checklist's results or on #27.
 - [ ] Try the limits: nothing should say something is broken when it is only the server asking you to slow down.
 
 ## 3. Inviting friends
