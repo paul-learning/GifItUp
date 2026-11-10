@@ -307,16 +307,19 @@ class DeliveryEndpointsTest {
         }
 
     @Test
-    fun aTargetRemovedAndAddedAgainInOneCommitKeepsOnlyTheNewWelcome() =
+    fun aTargetRemovedAndAddedAgainKeepsOnlyTheNewWelcome() =
         deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
             val ana = member("ana")
             val ben = member("ben")
             val group = newGroupId()
             posted(create(ana, group, commit(0, added = listOf(ben))))
             val old = welcomes(ben).welcomes.single()
-            posted(post(ana, group, commit(1, added = listOf(ben), removed = listOf(ben.deviceId))))
+            // One commit cannot both remove and add the same device (the envelope rule), so the re-add is a later commit.
+            posted(post(ana, group, commit(1, removed = listOf(ben.deviceId))))
+            assertEquals(emptyList(), welcomes(ben).welcomes, "the removal took the stale welcome with it")
+            posted(post(ana, group, commit(2, added = listOf(ben))))
             val now = welcomes(ben).welcomes.single()
-            assertNotEquals(old.id, now.id, "the stale welcome was replaced, not kept beside the new one")
+            assertNotEquals(old.id, now.id, "only the welcome of the new add is listed")
         }
 
     @Test

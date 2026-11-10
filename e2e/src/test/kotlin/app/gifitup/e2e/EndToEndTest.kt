@@ -707,23 +707,23 @@ class EndToEndTest {
         fun created(lines: List<String>): String =
             Regex("^created group (\\S+) at seq 1$").matchEntire(lines.single())?.groupValues?.get(1) ?: fail("chat-create: $lines")
 
-        val lena = register("lena")
-        val mo = register("mo")
-        val nina = register("nina")
-        assertEquals(0, cli.run("keypackages-refill", mo).exit, "mo refills")
-        val stale = created(ok(lena, "chat-create", "--target", "e2e_mo"))
-        // Mo has not synced: lena removes him, and his welcome for that group goes with his membership.
+        val tess = register("tess")
+        val uma = register("uma")
+        val vic = register("vic")
+        assertEquals(0, cli.run("keypackages-refill", uma).exit, "uma refills")
+        val stale = created(ok(tess, "chat-create", "--target", "e2e_uma"))
+        // Uma has not synced: tess removes uma, and the welcome for that group goes with the membership.
         assertEquals(
-            listOf("removed the devices of e2e_mo, commit at seq 2"),
-            ok(lena, "chat-remove", "--group", stale, "--target", "e2e_mo"),
+            listOf("removed the devices of e2e_uma, commit at seq 2"),
+            ok(tess, "chat-remove", "--group", stale, "--target", "e2e_uma"),
         )
-        val live = created(ok(nina, "chat-create", "--target", "e2e_mo"))
+        val live = created(ok(vic, "chat-create", "--target", "e2e_uma"))
         assertEquals(
             listOf("joined group $live"),
-            ok(mo, "chat-welcomes"),
-            "only the group mo is still in is joined; the stale welcome is gone",
+            ok(uma, "chat-welcomes"),
+            "only the group uma is still in is joined; the stale welcome is gone",
         )
-        assertEquals(listOf("no pending welcomes"), ok(mo, "chat-welcomes"))
+        assertEquals(listOf("no pending welcomes"), ok(uma, "chat-welcomes"))
     }
 
     /**
