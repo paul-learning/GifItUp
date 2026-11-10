@@ -333,7 +333,7 @@ class DeliveryEndpointsTest {
                 orphanize(group, dina)
             }
             assertEquals(listOf(kept), welcomes(dina).welcomes.map { it.groupId }, "only the welcome of a current member is listed")
-            // Three orphans would be the adder-target limit, and four rows the target limit: neither counts them.
+            // Three orphans would be the adder-target limit (3): none of the limits counts them.
             posted(create(ana, newGroupId(), commit(0, added = listOf(dina))))
         }
 

@@ -104,7 +104,13 @@ internal class WelcomeReceiver(
         try {
             mls.discardWelcome(mls.inspectWelcome(welcome.welcome, welcome.groupId).token)
         } catch (e: MlsException) {
-            if (e.code == MlsErrorCode.Poisoned) halt(SyncOutcome.Poisoned(null))
+            // A dead client or a storage-level failure is not "an unusable welcome": the key may not have been retired, so stop
+            // (#293 CR-6). Everything else (the welcome did not parse, an unknown token) is an ordinary stale welcome.
+            when (e.code) {
+                MlsErrorCode.Poisoned -> halt(SyncOutcome.Poisoned(null))
+                MlsErrorCode.SnapshotInvalid, MlsErrorCode.SnapshotVersion, MlsErrorCode.SnapshotAuth -> halt(SyncOutcome.StorageFailed)
+                else -> Unit
+            }
         }
         drop(welcome.id)
         return WelcomeOutcome.Rejected(RejectReason.STALE)
