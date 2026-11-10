@@ -4,6 +4,7 @@ import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.network.MessageKind
 import app.gifitup.shared.domain.contacts.KeyBytes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -174,10 +175,30 @@ class GroupSyncEngine(
                 } else {
                     store.put(id, record.copy(requestedBy = null))
                     store.persist()
+                    announceAccepted(groupId, record)
                     SyncOutcome.CaughtUp(0)
                 }
             }
         }
+
+    /**
+     * "You joined", written once the user has said yes (the join itself was not announced while the group was a request): the
+     * welcome's authenticated sender and the roster size, as for any join. A failure here must not undo the accept.
+     */
+    private suspend fun announceAccepted(
+        groupId: ByteArray,
+        record: GroupRecord,
+    ) {
+        val sender = record.requestedBy ?: return
+        try {
+            val size = live.members(groupId).size
+            guarded.membership(MembershipChange(groupId, record.cursor, sender, emptyList(), emptyList(), size))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            // The notice is only a convenience, as at a normal join.
+        }
+    }
 
     /**
      * Deletes everything of a group on this device: its MLS state (if any is left) and its sync record. The first step

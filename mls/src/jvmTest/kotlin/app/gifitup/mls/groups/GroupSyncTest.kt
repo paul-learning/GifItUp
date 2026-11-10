@@ -355,6 +355,9 @@ class GroupSyncTest {
             // Accepting clears it for good; the chat is then read from the join point, so the first messages show.
             assertEquals(SyncOutcome.CaughtUp(0), bob.engine.acceptRequest(groupId))
             assertEquals(null, bob.engine.recordOf(groupId)?.requestedBy)
+            assertEquals(1, bob.membership.size, "the join is announced once the user said yes")
+            assertEquals("alice", bob.membership.single().by)
+            assertEquals(2, bob.membership.single().joined)
             bob.restart()
             assertEquals(null, bob.engine.recordOf(groupId)?.requestedBy)
             alice.say(groupId, "after accepting")
