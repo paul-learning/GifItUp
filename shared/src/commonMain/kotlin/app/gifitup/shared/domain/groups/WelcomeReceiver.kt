@@ -99,10 +99,12 @@ internal class WelcomeReceiver(
      * (forward secrecy), then acknowledge it; if it does not parse, just acknowledge it. Never a reason to stop the run.
      */
     private suspend fun stale(welcome: PendingWelcomeEntry): WelcomeOutcome {
+        // Direct calls, not `crate {}`: that turns every crate failure into a halt (a dead engine), and an unusable stale welcome
+        // is an ordinary case (#293 SEC-1). Only a poisoned client ends the run, as in `rejected`.
         try {
-            crate { mls.discardWelcome(mls.inspectWelcome(welcome.welcome, welcome.groupId).token) }
-        } catch (ignored: MlsException) {
-            // Nothing to retire: an unusable welcome is acknowledged all the same.
+            mls.discardWelcome(mls.inspectWelcome(welcome.welcome, welcome.groupId).token)
+        } catch (e: MlsException) {
+            if (e.code == MlsErrorCode.Poisoned) halt(SyncOutcome.Poisoned(null))
         }
         drop(welcome.id)
         return WelcomeOutcome.Rejected(RejectReason.STALE)

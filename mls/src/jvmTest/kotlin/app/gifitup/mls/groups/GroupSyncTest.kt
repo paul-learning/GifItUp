@@ -314,7 +314,6 @@ class GroupSyncTest {
             assertEquals(3, bob.mls.memberCount(groupId))
         }
 
-    /** SEC-2: the 50th group is the last; a welcome for another stays pending, and forgetting a group frees its slot. */
     @Test
     fun aStaleWelcomeIsRetiredAndNeverBlocksTheOnesBehindIt() =
         runTest {
@@ -341,6 +340,28 @@ class GroupSyncTest {
         }
 
     @Test
+    fun aStaleWelcomeThatDoesNotParseIsAcknowledgedAndDoesNotKillTheEngine() =
+        runTest {
+            val alice = party("alice")
+            val bob = party("bob")
+            // Garbage for a group bob is not in: the status says "not found" and the crate refuses to parse it.
+            ds.injectWelcome(bob.deviceId, randomBytes(32), randomBytes(64))
+            val groupId = alice.createGroupWith(bob)
+            val report = bob.engine.processWelcomes()
+            assertEquals(null, report.stoppedBy, "an unparsable stale welcome is not a reason to stop")
+            assertEquals(1, report.results.count { it == WelcomeOutcome.Rejected(RejectReason.STALE) })
+            assertTrue(report.results.any { it is WelcomeOutcome.Joined }, "the welcome behind it was joined")
+            assertTrue(
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .isEmpty(),
+                "the garbage welcome was acknowledged",
+            )
+            assertEquals(SyncOutcome.CaughtUp(0), bob.engine.sync(groupId), "the engine is alive")
+        }
+
+    @Test
     fun aFailedStatusThatIsNotNotFoundStillEndsTheRunAndKeepsTheWelcome() =
         runTest {
             val alice = party("alice")
@@ -360,6 +381,7 @@ class GroupSyncTest {
             assertTrue(bob.engine.recordOf(groupId) != null)
         }
 
+    /** SEC-2: the 50th group is the last; a welcome for another stays pending, and forgetting a group frees its slot. */
     @Test
     fun theGroupCapLeavesFurtherWelcomesPendingAndForgettingFreesASlot() =
         runTest {

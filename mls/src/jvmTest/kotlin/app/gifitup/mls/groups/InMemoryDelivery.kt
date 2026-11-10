@@ -72,6 +72,15 @@ class InMemoryDelivery {
 
     fun viewFor(deviceId: String): DeliveryPort = View(deviceId)
 
+    /** Leaves [bytes] as a pending welcome of [deviceId] for a group it is not in, as an older server or a hostile one could. */
+    fun injectWelcome(
+        deviceId: String,
+        groupId: ByteArray,
+        bytes: ByteArray,
+    ) {
+        welcomes.getOrPut(deviceId) { mutableListOf() }.add(PendingWelcomeEntry("injected-${nextWelcome++}", groupId, bytes))
+    }
+
     /** Forgets the messages up to and including [seq] (cleanup), as the server does after acks. */
     fun trim(
         groupId: ByteArray,

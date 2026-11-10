@@ -338,6 +338,20 @@ class DeliveryEndpointsTest {
         }
 
     @Test
+    fun anOrphanWelcomeDoesNotComeBackWhenTheTargetIsAddedAgainLater() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
+            val ana = member("ana")
+            val dina = member("dina")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(dina))))
+            val old = welcomes(dina).welcomes.single()
+            orphanize(group, dina) // an older server left the welcome behind
+            posted(post(ana, group, commit(1, added = listOf(dina))))
+            val listed = welcomes(dina).welcomes.single()
+            assertNotEquals(old.id, listed.id, "only the welcome of the new add is listed")
+        }
+
+    @Test
     fun rateLimitsAnswer429() =
         deliveryTest(
             limits = {

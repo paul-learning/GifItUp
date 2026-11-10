@@ -436,6 +436,12 @@ class DeliveryRepository {
         welcome: ByteArray,
         now: Instant,
     ) {
+        // One welcome per (group, target): an older one (an orphan from before #280, or a remove and re-add) never sits beside the new one.
+        c.prepareStatement("DELETE FROM welcomes WHERE group_id = ? AND target_device_id = ?").use {
+            it.setBytes(1, group)
+            it.setObject(2, target)
+            it.executeUpdate()
+        }
         c
             .prepareStatement(
                 "INSERT INTO welcomes (id, group_id, target_device_id, adder_device_id, welcome, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -460,7 +466,7 @@ class DeliveryRepository {
         adder: UUID,
         target: UUID,
     ): Long =
-        c.scalar("SELECT count(*) FROM welcomes WHERE adder_device_id = ? AND target_device_id = ?") {
+        c.scalar("SELECT count(*) FROM welcomes w WHERE w.adder_device_id = ? AND w.target_device_id = ? AND $CURRENT_MEMBER") {
             setObject(1, adder)
             setObject(2, target)
         } ?: 0L
@@ -469,11 +475,12 @@ class DeliveryRepository {
         c: Connection,
         adder: UUID,
     ): Long =
-        c.scalar("SELECT coalesce(sum(octet_length(welcome)), 0) FROM welcomes WHERE adder_device_id = ?") {
+        c.scalar("SELECT coalesce(sum(octet_length(w.welcome)), 0) FROM welcomes w WHERE w.adder_device_id = ? AND $CURRENT_MEMBER") {
             setObject(1, adder)
         } ?: 0L
 
-    fun pendingBytes(c: Connection): Long = c.scalar("SELECT coalesce(sum(octet_length(welcome)), 0) FROM welcomes") {} ?: 0L
+    fun pendingBytes(c: Connection): Long =
+        c.scalar("SELECT coalesce(sum(octet_length(w.welcome)), 0) FROM welcomes w WHERE $CURRENT_MEMBER") {} ?: 0L
 
     fun welcomes(
         c: Connection,
