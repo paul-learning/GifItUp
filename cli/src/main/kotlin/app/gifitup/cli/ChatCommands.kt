@@ -7,6 +7,7 @@ import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.groups.IncomingSink
 import app.gifitup.shared.domain.groups.SyncOutcome
 import app.gifitup.shared.domain.messages.EncryptedMessageStore
+import app.gifitup.shared.domain.messages.HistoryStoreException
 import app.gifitup.shared.domain.messages.MessageBody
 import app.gifitup.shared.domain.messages.MessageIntake
 import app.gifitup.shared.domain.messages.SendGif
@@ -237,8 +238,15 @@ internal class ChatCommands(
             }
 
             is AuthResult.Ok -> {
-                if (left.value is SyncOutcome.CaughtUp) store.forget(KeyBytes(group))
-                finish(left.value) { "$verb group ${base64.encodeToString(group)}" }
+                // The keys are gone by now: if the stored messages cannot be deleted, say so (a second try deletes them).
+                val outcome =
+                    try {
+                        if (left.value is SyncOutcome.CaughtUp) store.forget(KeyBytes(group))
+                        left.value
+                    } catch (_: HistoryStoreException) {
+                        SyncOutcome.StorageFailed
+                    }
+                finish(outcome) { "$verb group ${base64.encodeToString(group)}" }
             }
         }
 

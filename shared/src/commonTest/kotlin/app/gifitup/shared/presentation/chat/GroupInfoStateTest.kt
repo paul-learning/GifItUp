@@ -351,4 +351,20 @@ class GroupInfoStateTest {
             advanceUntilIdle()
             assertEquals(2, chat.leftGroups.size, "a chat that was left is not left twice")
         }
+
+    @Test
+    fun aLeaveThatCouldNotDeleteTheMessagesIsAFailureNotADeletionAndCanBeTriedAgain() =
+        runTest {
+            val holder = opened("bob")
+            // What ChatService answers when the stored messages cannot be deleted after the keys are gone.
+            chat.leaveOutcome = AuthResult.Ok(SyncOutcome.StorageFailed)
+            holder.leaveChat()
+            advanceUntilIdle()
+            assertFalse(holder.state.value.left, "nothing says it was deleted")
+            assertEquals(GroupInfoProblem.LEAVE_FAILED, holder.state.value.problem)
+            chat.leaveOutcome = AuthResult.Ok(SyncOutcome.CaughtUp(0))
+            holder.leaveChat()
+            advanceUntilIdle()
+            assertTrue(holder.state.value.left, "the screen is not stuck: a second try goes through")
+        }
 }
