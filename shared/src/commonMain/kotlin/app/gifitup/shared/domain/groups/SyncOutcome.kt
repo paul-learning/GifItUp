@@ -113,7 +113,7 @@ sealed interface WelcomeOutcome {
     ) : WelcomeOutcome
 }
 
-enum class RejectReason { UNUSABLE, CONTACT_MISMATCH }
+enum class RejectReason { UNUSABLE, CONTACT_MISMATCH, STALE }
 
 /** The results for the welcomes handled, and why the run stopped early, if it did. */
 class WelcomesReport(

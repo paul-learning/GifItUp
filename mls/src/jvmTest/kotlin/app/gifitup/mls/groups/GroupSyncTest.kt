@@ -316,6 +316,51 @@ class GroupSyncTest {
 
     /** SEC-2: the 50th group is the last; a welcome for another stays pending, and forgetting a group frees its slot. */
     @Test
+    fun aStaleWelcomeIsRetiredAndNeverBlocksTheOnesBehindIt() =
+        runTest {
+            val alice = party("alice")
+            val bob = party("bob")
+            val carol = party("carol")
+            // Bob is added and removed before he syncs: his welcome stays on this delivery service (the server drops it since #280,
+            // but a welcome from before that, or a race, must still be handled), and a later welcome is queued behind it.
+            val stale = alice.createGroupWith(bob)
+            alice.remove(stale, bob)
+            val later = carol.createGroupWith(bob)
+            val report = bob.engine.processWelcomes()
+            assertEquals(null, report.stoppedBy, "a stale welcome does not stop the run")
+            assertEquals(listOf(WelcomeOutcome.Rejected(RejectReason.STALE)), report.results.filterIsInstance<WelcomeOutcome.Rejected>())
+            assertEquals(listOf(KeyBytes(later)), report.results.filterIsInstance<WelcomeOutcome.Joined>().map { KeyBytes(it.groupId) })
+            assertEquals(null, bob.engine.recordOf(stale))
+            assertTrue(
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .isEmpty(),
+                "both welcomes were acknowledged",
+            )
+        }
+
+    @Test
+    fun aFailedStatusThatIsNotNotFoundStillEndsTheRunAndKeepsTheWelcome() =
+        runTest {
+            val alice = party("alice")
+            val bob = party("bob")
+            val groupId = alice.createGroupWith(bob)
+            ds.failing = setOf("status")
+            val report = bob.engine.processWelcomes()
+            assertIs<SyncOutcome.Unavailable>(report.stoppedBy)
+            ds.failing = emptySet()
+            assertIs<WelcomeOutcome.Joined>(
+                bob.engine
+                    .processWelcomes()
+                    .results
+                    .single(),
+                "the welcome was kept for the next run",
+            )
+            assertTrue(bob.engine.recordOf(groupId) != null)
+        }
+
+    @Test
     fun theGroupCapLeavesFurtherWelcomesPendingAndForgettingFreesASlot() =
         runTest {
             val bob = party("bob")

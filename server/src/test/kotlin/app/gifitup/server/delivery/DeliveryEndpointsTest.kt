@@ -284,6 +284,60 @@ class DeliveryEndpointsTest {
         }
 
     @Test
+    fun aRemovedOrLeavingTargetsPendingWelcomeGoesWithTheMembership() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val carl = member("carl")
+            val dina = member("dina")
+            val first = newGroupId()
+            posted(create(ana, first, commit(0, added = listOf(ben, dina))))
+            val second = newGroupId()
+            posted(create(ana, second, commit(0, added = listOf(carl))))
+            assertEquals(1, welcomes(dina).welcomes.size)
+            assertEquals(1, welcomes(carl).welcomes.size)
+            // Ana removes dina before dina synced: her welcome is gone, ben's and carl's stay.
+            posted(post(ana, first, commit(1, removed = listOf(dina.deviceId))))
+            assertEquals(emptyList(), welcomes(dina).welcomes)
+            assertEquals(1, welcomes(ben).welcomes.size)
+            assertEquals(1, welcomes(carl).welcomes.size)
+            // Ben leaves before syncing: his welcome goes too.
+            assertEquals(HttpStatusCode.NoContent, json(ben, "/groups/$first/leave", "").status)
+            assertEquals(emptyList(), welcomes(ben).welcomes)
+        }
+
+    @Test
+    fun aTargetRemovedAndAddedAgainInOneCommitKeepsOnlyTheNewWelcome() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(ben))))
+            val old = welcomes(ben).welcomes.single()
+            posted(post(ana, group, commit(1, added = listOf(ben), removed = listOf(ben.deviceId))))
+            val now = welcomes(ben).welcomes.single()
+            assertNotEquals(old.id, now.id, "the stale welcome was replaced, not kept beside the new one")
+        }
+
+    @Test
+    fun anOrphanWelcomeIsNotListedAndNotCountedTowardTheWelcomeLimit() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
+            val ana = member("ana")
+            val dina = member("dina")
+            val kept = newGroupId()
+            posted(create(ana, kept, commit(0, added = listOf(dina))))
+            // Orphans as an older server left them: the member row is gone, the welcome row stayed.
+            repeat(3) {
+                val group = newGroupId()
+                posted(create(ana, group, commit(0, added = listOf(dina))))
+                orphanize(group, dina)
+            }
+            assertEquals(listOf(kept), welcomes(dina).welcomes.map { it.groupId }, "only the welcome of a current member is listed")
+            // Three orphans would be the adder-target limit, and four rows the target limit: neither counts them.
+            posted(create(ana, newGroupId(), commit(0, added = listOf(dina))))
+        }
+
+    @Test
     fun rateLimitsAnswer429() =
         deliveryTest(
             limits = {

@@ -189,6 +189,25 @@ internal class DeliveryFixture(
     ): GroupStatusResponse =
         ProtocolJson.decodeFromString(get(member, "/groups/$groupId").also { assertEquals(HttpStatusCode.OK, it.status) }.bodyAsText())
 
+    /** Leaves a welcome behind without its member row, as a server from before the cascade did (#280). */
+    fun orphanize(
+        groupId: String,
+        member: Member,
+    ) {
+        db.transaction { c ->
+            c.prepareStatement("DELETE FROM group_members WHERE group_id = ? AND device_id = ?").use {
+                it.setBytes(
+                    1,
+                    java.util.Base64
+                        .getUrlDecoder()
+                        .decode(groupId),
+                )
+                it.setObject(2, java.util.UUID.fromString(member.deviceId))
+                it.executeUpdate()
+            }
+        }
+    }
+
     suspend fun welcomes(member: Member): PendingWelcomesResponse =
         ProtocolJson.decodeFromString(get(member, "/welcomes").also { assertEquals(HttpStatusCode.OK, it.status) }.bodyAsText())
 

@@ -73,6 +73,7 @@ class EndToEndTest {
             chat(cli, dbEnv)
             history(cli, dbEnv)
             reactions(cli, dbEnv)
+            staleWelcome(cli, dbEnv)
             gifProvider(cli, dbEnv, port, gifKey)
             server.stopAndWait()
             assertNoSecretInOutput()
@@ -677,6 +678,52 @@ class EndToEndTest {
         assertTrue(other.contentEquals(Files.readAllBytes(keyFile)), "and the key file is untouched")
         Files.write(keyFile, key)
         assertEquals(shown, ok(milo, "chat-history", "--group", group), "the right key shows the message again: nothing was lost")
+    }
+
+    /**
+     * A welcome whose target was removed before it synced must not block the welcomes behind it (#280): the server drops it
+     * with the membership, so the next `chat-welcomes` joins only the group the target is still in. Fresh accounts.
+     */
+    private fun staleWelcome(
+        cli: Cli,
+        dbEnv: Map<String, String>,
+    ) {
+        fun register(name: String): Path {
+            val state = work.resolve("state-$name")
+            assertEquals(0, cli.run("register", state, "--username", "e2e_$name", stdin = createInvite(dbEnv)).exit, "register $name")
+            return state
+        }
+
+        fun ok(
+            state: Path,
+            command: String,
+            vararg args: String,
+        ): List<String> {
+            val finished = cli.run(command, state, *args)
+            assertEquals(0, finished.exit, "$command exit code: ${finished.stderr}")
+            return finished.stdout.lines().filter { it.isNotBlank() }
+        }
+
+        fun created(lines: List<String>): String =
+            Regex("^created group (\\S+) at seq 1$").matchEntire(lines.single())?.groupValues?.get(1) ?: fail("chat-create: $lines")
+
+        val lena = register("lena")
+        val mo = register("mo")
+        val nina = register("nina")
+        assertEquals(0, cli.run("keypackages-refill", mo).exit, "mo refills")
+        val stale = created(ok(lena, "chat-create", "--target", "e2e_mo"))
+        // Mo has not synced: lena removes him, and his welcome for that group goes with his membership.
+        assertEquals(
+            listOf("removed the devices of e2e_mo, commit at seq 2"),
+            ok(lena, "chat-remove", "--group", stale, "--target", "e2e_mo"),
+        )
+        val live = created(ok(nina, "chat-create", "--target", "e2e_mo"))
+        assertEquals(
+            listOf("joined group $live"),
+            ok(mo, "chat-welcomes"),
+            "only the group mo is still in is joined; the stale welcome is gone",
+        )
+        assertEquals(listOf("no pending welcomes"), ok(mo, "chat-welcomes"))
     }
 
     /**
