@@ -41,8 +41,8 @@ for this repo): a published release cannot be changed, only replaced by a newer 
      must show **no** decrypted request to your server and **no** `/ws` upgrade. If it does, stop and tell Claude Code: the
      app trusts a user CA.
   2. *Plain `ws://` / `http://` refused.* In the app's custom server field (Profile, Server; not on the web) enter
-     `http://<laptop-ip>:8080` while a local server listens there: the app must refuse the address ("https only"); nothing
-     reaches the laptop.
+     `http://<laptop-ip>:8080` while a local server listens there: the app must not accept the address or connect to it, and
+     nothing may reach the laptop (the address check is the app's own; the network rules would block it anyway).
   3. Undo: remove the CA, the proxy setting and the custom server; reopen the app: the chats load and the socket connects
      (a message from the other device shows within a second or two).
   Write the result (date, phone, Android version, pass/fail) under the checklist's results or on #27.
