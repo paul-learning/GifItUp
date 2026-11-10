@@ -66,6 +66,7 @@ import kotlin.time.Clock
  * the invite code lives in the holder's memory only, and a process death starts the flow again (a pending
  * registration is finished without it). The invite link of the create-invite screen is in memory only too.
  */
+@Suppress("TooManyFunctions") // The per-origin session scope (ARCH-M2-2 of the M2 review splits it); one small function per hand-off.
 internal class OnboardingViewModel(
     graph: AppGraph,
     storage: DeviceStorage,

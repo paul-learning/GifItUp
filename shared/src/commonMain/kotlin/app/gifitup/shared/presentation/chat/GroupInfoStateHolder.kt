@@ -70,6 +70,7 @@ data class GroupInfoState(
  * name is sent again after the adds, because a member only reads what was sent after they joined. A friend who can't be
  * added doesn't undo the others: it is listed in [GroupInfoState.notAdded].
  */
+@Suppress("TooManyFunctions") // One small function per user action of the screen (open, toggle, add, rename again, leave).
 class GroupInfoStateHolder(
     private val scope: CoroutineScope,
     private val sessions: SessionHolder,

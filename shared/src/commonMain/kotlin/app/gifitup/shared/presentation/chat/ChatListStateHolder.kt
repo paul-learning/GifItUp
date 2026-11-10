@@ -258,22 +258,7 @@ class ChatListStateHolder(
         // and the refresh below only updates it (#27). The previous problem stays on screen until the later publish, which
         // carries this refresh's own (#261 CR-2).
         (sessions.withSessionResult { chat.groups(it) } as? AuthResult.Ok)?.let { publish(forVisit, it.value.groups, flow.value.problem) }
-        if (usable && request.welcomes) {
-            when (val joined = sessions.withSessionResult { chat.welcomes(it) }) {
-                is AuthResult.Failed -> {
-                    problem = joined.error.toChatProblem()
-                }
-
-                // A welcome step that stopped part-way (friends list unreadable, the server slowing us down, ...) used to be
-                // dropped here, and new chats silently never opened (#27).
-                is AuthResult.Ok -> {
-                    problem = joined.value.stoppedBy?.toListProblem()
-                    val results = joined.value.results
-                    welcomesWaiting = results.count { it is WelcomeOutcome.Skipped }
-                    requestsDropped = results.count { it is WelcomeOutcome.Rejected && it.reason == RejectReason.REQUEST_LIMIT }
-                }
-            }
-        }
+        if (usable && request.welcomes) problem = welcomeStep()
         when (val groups = sessions.withSessionResult { chat.groups(it) }) {
             is AuthResult.Failed -> {
                 // What is known stays on screen; only the problem is new.
@@ -291,6 +276,23 @@ class ChatListStateHolder(
             }
         }
     }
+
+    /** Joins the groups the user was added to; remembers what was left waiting or dropped (#279); the problem, if any. */
+    private suspend fun welcomeStep(): ChatProblem? =
+        when (val joined = sessions.withSessionResult { chat.welcomes(it) }) {
+            is AuthResult.Failed -> {
+                joined.error.toChatProblem()
+            }
+
+            // A welcome step that stopped part-way (friends list unreadable, the server slowing us down, ...) used to be
+            // dropped here, and new chats silently never opened (#27).
+            is AuthResult.Ok -> {
+                val results = joined.value.results
+                welcomesWaiting = results.count { it is WelcomeOutcome.Skipped }
+                requestsDropped = results.count { it is WelcomeOutcome.Rejected && it.reason == RejectReason.REQUEST_LIMIT }
+                joined.value.stoppedBy?.toListProblem()
+            }
+        }
 
     private suspend fun syncProblem(info: GroupInfo): ChatProblem? =
         when (val synced = sessions.withSessionResult { chat.sync(it, info.id) }) {

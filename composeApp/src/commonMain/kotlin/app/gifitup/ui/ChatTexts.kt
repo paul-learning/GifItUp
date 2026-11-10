@@ -11,6 +11,7 @@ import app.gifitup.shared.presentation.chat.Preview
  * The fixed words of the chat screens (#25). Text a friend wrote (a caption, a group name) is wrapped in Unicode
  * isolates, so its direction can't reorder the words around it (ADR-0006 B3a); it is plain text, never a link.
  */
+@Suppress("TooManyFunctions") // The chat screens' phrases: one function per phrase that needs a name or a count.
 internal object ChatTexts {
     const val TITLE = "Chats"
     const val NEW_CHAT = "New chat or group"

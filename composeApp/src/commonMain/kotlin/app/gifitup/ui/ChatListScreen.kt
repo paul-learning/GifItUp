@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +51,7 @@ import app.gifitup.shared.domain.chat.ChatKind
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.presentation.chat.Ago
 import app.gifitup.shared.presentation.chat.ChatFilter
+import app.gifitup.shared.presentation.chat.ChatListState
 import app.gifitup.shared.presentation.chat.ChatListStateHolder
 import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.ConversationSummary
@@ -115,16 +117,9 @@ internal fun ChatListScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (state.welcomesWaiting > 0) Text(ChatTexts.welcomesWaiting(state.welcomesWaiting), modifier = Modifier.polite())
-            if (state.requestsDropped > 0) Text(ChatTexts.requestsDropped(state.requestsDropped), modifier = Modifier.polite())
-            if (state.actionFailed) Text(ChatTexts.ACTION_FAILED, color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
+            ListNotices(state)
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (state.requests.isNotEmpty()) {
-                    item(key = "requests-header") { Text(ChatTexts.REQUESTS, style = MaterialTheme.typography.titleMedium) }
-                    items(state.requests, key = { "request-" + it.id.listKey() }) { row ->
-                        RequestRow(row.info.requestedBy.orEmpty(), { holder.acceptRequest(row.id) }, { holder.leaveChat(row.id) })
-                    }
-                }
+                requestItems(state, holder)
                 items(state.visible, key = { it.id.listKey() }) { row ->
                     ConversationRow(row, actions, isSelected = row.id == selected)
                 }
@@ -194,6 +189,26 @@ private fun FilterRow(
             FilterChip(selected = filter == choice, onClick = { onChoose(choice) }, label = { Text(label) })
         }
     }
+}
+
+/** The Requests section at the top of the list: a heading and one row per request. */
+private fun LazyListScope.requestItems(
+    state: ChatListState,
+    holder: ChatListStateHolder,
+) {
+    if (state.requests.isEmpty()) return
+    item(key = "requests-header") { Text(ChatTexts.REQUESTS, style = MaterialTheme.typography.titleMedium) }
+    items(state.requests, key = { "request-" + it.id.listKey() }) { row ->
+        RequestRow(row.info.requestedBy.orEmpty(), { holder.acceptRequest(row.id) }, { holder.leaveChat(row.id) })
+    }
+}
+
+/** What the welcome check and the last action have to say: chats waiting for a slot, requests dropped, an action that failed. */
+@Composable
+private fun ListNotices(state: ChatListState) {
+    if (state.welcomesWaiting > 0) Text(ChatTexts.welcomesWaiting(state.welcomesWaiting), modifier = Modifier.polite())
+    if (state.requestsDropped > 0) Text(ChatTexts.requestsDropped(state.requestsDropped), modifier = Modifier.polite())
+    if (state.actionFailed) Text(ChatTexts.ACTION_FAILED, color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
 }
 
 /** A chat a non-friend started (#279): the sender's name and the two answers; nothing of the chat itself. */
