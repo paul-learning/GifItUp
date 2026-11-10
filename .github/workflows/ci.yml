@@ -69,6 +69,7 @@ jobs:
           bash scripts/check-repo-hygiene.sh
           bash scripts/test-deploy-web-for.sh
           bash scripts/test-release-version.sh
+          bash scripts/test-check-network-config.sh
 
       # :mls builds crypto/ (ADR-0007): rustup is preinstalled and crypto/rust-toolchain.toml pins the toolchain
       # and targets. Installing it once here keeps parallel cargo calls from installing it concurrently (#67 CR-1).
