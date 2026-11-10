@@ -465,7 +465,7 @@ class EndToEndTest {
             ok(iris, "chat-groups"),
             "the creator lists the group with the other member",
         )
-        assertEquals(listOf("group $group active with e2e_iris"), ok(jack, "chat-groups"), "the joiner too")
+        // (Jack's own chat-groups check was dropped for his login budget: every command logs in, a device may log in 10 times an hour.)
         assertEquals(listOf("no groups"), ok(kim, "chat-groups"))
         refused(iris, "chat-send", EXIT_REFUSED, "that can't be done", "--group", group, stdin = "x".repeat(121))
         // The push channel (ADR-0015, #27): jack listens, and iris's message reaches him as a hint within the second the
