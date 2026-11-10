@@ -28,6 +28,25 @@ grep -qE 'android:debuggable.*=true|android:debuggable.*=0xffffffff' <<<"$tree" 
 grep -qE 'A: http://schemas.android.com/apk/res/android:allowBackup\(0x[0-9a-f]+\)=false' <<<"$tree" || fail "allowBackup is not false"
 grep -qE 'usesCleartextTraffic\(0x[0-9a-f]+\)=false' <<<"$tree" || fail "usesCleartextTraffic is not false"
 
+# The network security config of the built file (#27 SEC-10 of the socket plan): it must be the one the manifest names, trust
+# the system store only (no user-added CA, no debug-overrides) and permit no cleartext anywhere. The push channel's socket
+# is held to the same rules as every request (ADR-0020). The file is found through the manifest's resource id, not by name.
+cfg_id=$(grep -oE 'networkSecurityConfig\(0x[0-9a-f]+\)=@0x[0-9a-f]+' <<<"$tree" | sed -E 's/.*=@//' | head -1)
+[ -n "$cfg_id" ] || fail "the manifest names no networkSecurityConfig"
+cfg_path=$(aapt2 dump resources "$apk" | awk -v id="$cfg_id" '
+  $0 ~ ("resource " id " ") { found = 1; next }
+  found && /\(file\)/ { sub(/.*\(file\) /, ""); sub(/ type=.*/, ""); print; exit }')
+if [ -z "$cfg_path" ]; then
+  fail "the network security config file was not found in the APK"
+else
+  nsc=$(aapt2 dump xmltree --file "$cfg_path" "$apk")
+  trust=$(grep -oE '\bsrc\(0x[0-9a-f]+\)="[^"]*"' <<<"$nsc" | sed -E 's/.*="(.*)"/\1/' | sort -u)
+  [ "$trust" = "system" ] || fail "the network security config trusts something besides the system store; found: $(tr '\n' ' ' <<<"$trust")"
+  grep -q 'E: debug-overrides' <<<"$nsc" && fail "the network security config has debug-overrides"
+  grep -qE 'cleartextTrafficPermitted\(0x[0-9a-f]+\)=true' <<<"$nsc" && fail "the network security config permits cleartext traffic"
+  grep -qE 'cleartextTrafficPermitted\(0x[0-9a-f]+\)=false' <<<"$nsc" || fail "the network security config does not forbid cleartext traffic"
+fi
+
 # The one permission, and the invite link host: the build's host, never the placeholders.
 # androidx adds one permission of its own, protected by the app's signature, that keeps other apps from sending
 # broadcasts to the app's dynamic receivers; it is named after the package and cannot be granted to another app.
