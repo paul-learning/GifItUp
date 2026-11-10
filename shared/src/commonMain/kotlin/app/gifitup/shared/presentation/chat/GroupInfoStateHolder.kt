@@ -35,6 +35,9 @@ enum class GroupInfoProblem {
     /** The server asked the app to slow down (a rate limit); nothing is lost. */
     THROTTLED,
     FAILED,
+
+    /** Leaving did not finish: nothing was deleted, and it can be tried again. */
+    LEAVE_FAILED,
 }
 
 data class GroupInfoState(
@@ -55,6 +58,8 @@ data class GroupInfoState(
     val standing: Map<String, MemberStanding> = emptyMap(),
     /** The contact book can't be read: no member is marked, and the screen says so instead of showing nothing (#240). */
     val standingUnknown: Boolean = false,
+    /** The user left the chat (#279): it is gone from this device and the screen goes back to the list. */
+    val left: Boolean = false,
 ) {
     val canSubmit: Boolean get() = canAdd && !adding && selected.isNotEmpty()
 }
@@ -119,6 +124,22 @@ class GroupInfoStateHolder(
         } catch (_: HistoryStoreException) {
             null
         }
+
+    /** The user's confirmed "leave this chat" (#279): left on the server, keys and stored messages deleted. */
+    fun leaveChat() {
+        if (running || flow.value.adding || flow.value.left) return
+        running = true
+        scope.launch {
+            val done = sessions.withSessionResult { chat.leave(it, group.id) }
+            running = false
+            flow.value =
+                if (done is AuthResult.Ok && done.value is SyncOutcome.CaughtUp) {
+                    flow.value.copy(left = true, problem = null)
+                } else {
+                    flow.value.copy(problem = GroupInfoProblem.LEAVE_FAILED)
+                }
+        }
+    }
 
     fun toggle(name: String) {
         val current = flow.value

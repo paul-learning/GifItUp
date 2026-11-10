@@ -41,6 +41,31 @@ internal object ChatTexts {
 
     const val NO_MESSAGES = "No messages yet"
     const val REFRESHING = "Looking for new messages…"
+    const val REQUESTS = "Requests"
+    const val ACCEPT = "Accept"
+
+    fun welcomesWaiting(count: Int) =
+        if (count == 1) {
+            "A chat is waiting to join. This device holds as many chats as it can: leave or delete one and it joins."
+        } else {
+            "$count chats are waiting to join. This device holds as many chats as it can: leave or delete some and they join."
+        }
+
+    fun requestsDropped(count: Int) =
+        if (count == 1) {
+            "A request was dropped because ten are already waiting. Accept or decline some; the sender can ask again."
+        } else {
+            "$count requests were dropped because ten are already waiting. Accept or decline some; the senders can ask again."
+        }
+
+    const val DECLINE = "Decline"
+    const val ACTION_FAILED = "That did not work. Nothing was deleted; you can try again."
+
+    /** The line of a request: the sender's name is authenticated by the chat's keys, but this is not one of your friends. */
+    fun requestFrom(name: String) =
+        "${isolated(name)} is not one of your friends and started a chat with you. Nothing of it is shown, and nothing can be sent, " +
+            "until you accept. Declining leaves the chat and deletes it from this device."
+
     const val BACK = "Back"
     const val DONE = "Done"
     const val CHAT_EXISTS = "You already have a chat with them"

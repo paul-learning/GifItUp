@@ -119,7 +119,15 @@ internal fun NavGraphBuilder.chatRoutes(
         val info = model.groupInfo
         val leave = { if (nav.currentDestination?.route == ROUTE_GROUP) nav.popBackStack() }
         // A process that was recreated has no open group: back.
-        if (info == null) LaunchedEffect(Unit) { leave() } else GroupInfoScreen(info) { leave() }
+        if (info == null) {
+            LaunchedEffect(Unit) { leave() }
+        } else {
+            // After leaving, the conversation is gone: back to the list, with nothing of the chat open.
+            GroupInfoScreen(info, { leave() }) {
+                model.closeConversation()
+                nav.popBackStack(ROUTE_ONBOARDING, false)
+            }
+        }
     }
     composable(ROUTE_NEW_CHAT) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }

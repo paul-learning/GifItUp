@@ -274,6 +274,13 @@ internal class OnboardingViewModel(
     var conversation: ConversationStateHolder? by mutableStateOf(null)
         private set
 
+    /** Closes the open conversation (it was left or deleted): nothing of it stays open. */
+    fun closeConversation() {
+        conversation?.leave()
+        tiles.leave()
+        conversation = null
+    }
+
     /** Opens the conversation [info] describes; the previous one, if any, is left. */
     fun openConversation(info: GroupInfo) {
         conversation?.leave()

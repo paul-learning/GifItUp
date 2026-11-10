@@ -8,14 +8,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -33,10 +38,12 @@ import app.gifitup.shared.presentation.chat.MemberStanding
 internal fun GroupInfoScreen(
     holder: GroupInfoStateHolder,
     onBack: () -> Unit,
+    onLeft: () -> Unit,
 ) {
     val state by holder.state.collectAsState()
     LaunchedEffect(holder) { holder.open() }
     DisposableEffect(holder) { onDispose { holder.leave() } }
+    LaunchedEffect(state.left) { if (state.left) onLeft() }
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -53,6 +60,38 @@ internal fun GroupInfoScreen(
         }
         state.members.forEach { MemberRow(it, state.standing[it]) }
         if (state.loaded && state.canAdd) AddSection(state, holder)
+        LeaveSection(state, holder)
+    }
+}
+
+/** "Leave this chat", behind a confirmation that says what is deleted (#279). */
+@Composable
+private fun LeaveSection(
+    state: GroupInfoState,
+    holder: GroupInfoStateHolder,
+) {
+    var asking by rememberSaveable { mutableStateOf(false) }
+    if (state.problem == GroupInfoProblem.LEAVE_FAILED) {
+        Text(GroupInfoTexts.problem(GroupInfoProblem.LEAVE_FAILED), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
+    }
+    TextButton(onClick = { asking = true }, enabled = !state.adding) {
+        Text(GroupInfoTexts.LEAVE, color = MaterialTheme.colorScheme.error)
+    }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text(GroupInfoTexts.LEAVE_TITLE) },
+            text = { Text(GroupInfoTexts.LEAVE_BODY) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        asking = false
+                        holder.leaveChat()
+                    },
+                ) { Text(GroupInfoTexts.LEAVE_CONFIRM, color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(GroupInfoTexts.LEAVE_CANCEL) } },
+        )
     }
 }
 
@@ -99,6 +138,13 @@ internal object GroupInfoTexts {
     const val NOBODY_TO_ADD = "All your friends are in this group already."
     const val STANDING_UNKNOWN = "This device can't tell right now which members are your friends."
     const val NOT_ADDED = "Not added: "
+    const val LEAVE = "Leave this chat"
+    const val LEAVE_TITLE = "Leave this chat?"
+    const val LEAVE_BODY =
+        "You leave the chat and its messages are deleted from this device. The others keep theirs, and may still see you in " +
+            "the member list until one of them removes you."
+    const val LEAVE_CONFIRM = "Leave and delete"
+    const val LEAVE_CANCEL = "Stay"
 
     /** The note under a member who is not a saved friend; `null` for a friend or while it isn't known. */
     fun standing(
@@ -121,5 +167,6 @@ internal object GroupInfoTexts {
             GroupInfoProblem.NOT_SIGNED_IN -> "The server didn't accept this device."
             GroupInfoProblem.THROTTLED -> ChatTexts.THROTTLED_SHORT
             GroupInfoProblem.FAILED -> "That did not work."
+            GroupInfoProblem.LEAVE_FAILED -> "Leaving did not work. The chat is still here; you can try again."
         }
 }

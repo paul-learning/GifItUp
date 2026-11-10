@@ -34,6 +34,13 @@ damaged download; the certificate fingerprint is the real check. If either diffe
   reacted with what, a row of common emojis and the whole list. Tap your own emoji again, or "Remove my reaction", to take it back. One reaction per
   person per GIF; everyone in the chat sees who reacted. On the web, the first load downloads a font of about 2.5 MB so the
   emojis can be drawn.
+- **Requests:** if someone who is not one of your friends starts a chat with you, it appears under **Requests** with their
+  name. Nothing of the chat is shown and nothing can be sent until you tap **Accept**; **Decline** leaves the chat and
+  deletes it from your device. What they wrote before you accepted is not kept: the chat starts empty when you accept. Up to
+  ten requests are held at once; more are dropped (the sender can ask again). The name on a request comes from the chat's
+  keys, but it does not prove who the person is: compare keys on the Friends screen.
+- **Leave a chat:** in a chat, open its info and tap **Leave this chat**. It deletes the chat's messages from your device. Others
+  may still see you in their member list until one of them removes you.
 - **Friends:** the Friends screen lists the people you can talk to.
 
 ## Check that your friend is really your friend

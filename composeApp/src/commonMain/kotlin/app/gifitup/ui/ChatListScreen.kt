@@ -115,7 +115,16 @@ internal fun ChatListScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (state.welcomesWaiting > 0) Text(ChatTexts.welcomesWaiting(state.welcomesWaiting), modifier = Modifier.polite())
+            if (state.requestsDropped > 0) Text(ChatTexts.requestsDropped(state.requestsDropped), modifier = Modifier.polite())
+            if (state.actionFailed) Text(ChatTexts.ACTION_FAILED, color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (state.requests.isNotEmpty()) {
+                    item(key = "requests-header") { Text(ChatTexts.REQUESTS, style = MaterialTheme.typography.titleMedium) }
+                    items(state.requests, key = { "request-" + it.id.listKey() }) { row ->
+                        RequestRow(row.info.requestedBy.orEmpty(), { holder.acceptRequest(row.id) }, { holder.leaveChat(row.id) })
+                    }
+                }
                 items(state.visible, key = { it.id.listKey() }) { row ->
                     ConversationRow(row, actions, isSelected = row.id == selected)
                 }
@@ -183,6 +192,25 @@ private fun FilterRow(
             ChatFilter.GROUPS to ChatTexts.FILTER_GROUPS,
         ).forEach { (choice, label) ->
             FilterChip(selected = filter == choice, onClick = { onChoose(choice) }, label = { Text(label) })
+        }
+    }
+}
+
+/** A chat a non-friend started (#279): the sender's name and the two answers; nothing of the chat itself. */
+@Composable
+private fun RequestRow(
+    name: String,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+) {
+    CardSurface {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Avatar(name)
+            Text(ChatTexts.requestFrom(name), style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(ChatTexts.ACCEPT, onAccept)
+            SecondaryButton(ChatTexts.DECLINE, onDecline)
         }
     }
 }
