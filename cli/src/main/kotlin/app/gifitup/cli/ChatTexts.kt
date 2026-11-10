@@ -35,6 +35,7 @@ internal fun welcomeLine(
             when (result.reason) {
                 RejectReason.UNUSABLE -> "dropped a welcome that could not be used"
                 RejectReason.CONTACT_MISMATCH -> "dropped a welcome: a member's key does not match the contact book's pin"
+                RejectReason.STALE -> "dropped a welcome for a group this device is no longer in"
             }
         }
     }

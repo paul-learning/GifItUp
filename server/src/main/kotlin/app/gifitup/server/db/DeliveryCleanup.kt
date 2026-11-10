@@ -34,6 +34,7 @@ class DeliveryCleanup(
             total += db.transaction { c -> repository.deleteAcked(c, now.minus(activeWindow)) }
             total += db.transaction { c -> repository.deleteMessagesBefore(c, now.minus(ttl)) }
             total += db.transaction { c -> repository.deleteWelcomesBefore(c, now.minus(ttl)) }
+            total += db.transaction { c -> repository.deleteOrphanWelcomes(c) }
             total += db.transaction { c -> repository.deleteEmptyGroups(c) }
             db.transaction { c -> repository.deleteAddsBefore(c, now.minus(ADDS_KEPT)) }
             db.transaction { c -> repository.recountRetainedBytes(c) }

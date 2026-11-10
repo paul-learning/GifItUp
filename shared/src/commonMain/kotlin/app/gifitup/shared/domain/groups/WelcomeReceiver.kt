@@ -4,6 +4,8 @@ import app.gifitup.shared.data.crypto.MlsClient
 import app.gifitup.shared.data.crypto.MlsErrorCode
 import app.gifitup.shared.data.crypto.MlsException
 import app.gifitup.shared.data.crypto.WelcomeInfo
+import app.gifitup.shared.data.network.ApiError
+import app.gifitup.shared.data.network.ApiResult
 import app.gifitup.shared.data.network.PendingWelcomeEntry
 import app.gifitup.shared.domain.contacts.KeyBytes
 import kotlinx.coroutines.CancellationException
@@ -56,9 +58,26 @@ internal class WelcomeReceiver(
     private suspend fun join(
         welcome: PendingWelcomeEntry,
         pins: ContactPins,
-    ): WelcomeOutcome {
+    ): WelcomeOutcome =
         // The join point (our acked seq) is read before the welcome is parsed: nothing is awaited while it is staged.
-        val joinPoint = answer(delivery.status(welcome.groupId)).ackedSeq
+        when (val state = delivery.status(welcome.groupId)) {
+            is ApiResult.Ok -> {
+                parseAndJoin(welcome, pins, state.value.ackedSeq)
+            }
+
+            // The group no longer lists this device (it was removed, or left, before it joined): this welcome can never be
+            // joined, and it must not stop the ones behind it (#280). Only the server's decoded "not found" counts; a proxy's
+            // 404 page is a malformed response and still ends the run.
+            is ApiResult.Failed -> {
+                if (state.error == ApiError.NOT_FOUND) stale(welcome) else halt(SyncOutcome.Unavailable(state.error))
+            }
+        }
+
+    private suspend fun parseAndJoin(
+        welcome: PendingWelcomeEntry,
+        pins: ContactPins,
+        joinPoint: Long,
+    ): WelcomeOutcome {
         val info =
             try {
                 mls.inspectWelcome(welcome.welcome, welcome.groupId)
@@ -73,6 +92,28 @@ internal class WelcomeReceiver(
             val unverified = CommitJudge.unverifiedKeys(info.members.map { it to pins.check(it.username, it.signatureKey) }, emptyList())
             joined(welcome, info, joinPoint, unverified)
         }
+    }
+
+    /**
+     * A welcome for a group this device is no longer in. If it still parses, discard it so the KeyPackage's private key is retired
+     * (forward secrecy), then acknowledge it; if it does not parse, just acknowledge it. Never a reason to stop the run.
+     */
+    private suspend fun stale(welcome: PendingWelcomeEntry): WelcomeOutcome {
+        // Direct calls, not `crate {}`: that turns every crate failure into a halt (a dead engine), and an unusable stale welcome
+        // is an ordinary case (#293 SEC-1). Only a poisoned client ends the run, as in `rejected`.
+        try {
+            mls.discardWelcome(mls.inspectWelcome(welcome.welcome, welcome.groupId).token)
+        } catch (e: MlsException) {
+            // A dead client or a storage-level failure is not "an unusable welcome": the key may not have been retired, so stop
+            // (#293 CR-6). Everything else (the welcome did not parse, an unknown token) is an ordinary stale welcome.
+            when (e.code) {
+                MlsErrorCode.Poisoned -> halt(SyncOutcome.Poisoned(null))
+                MlsErrorCode.SnapshotInvalid, MlsErrorCode.SnapshotVersion, MlsErrorCode.SnapshotAuth -> halt(SyncOutcome.StorageFailed)
+                else -> Unit
+            }
+        }
+        drop(welcome.id)
+        return WelcomeOutcome.Rejected(RejectReason.STALE)
     }
 
     private suspend fun joined(

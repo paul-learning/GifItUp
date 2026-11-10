@@ -187,11 +187,21 @@ class DeliveryRepository {
         group: ByteArray,
         devices: Collection<UUID>,
     ): Int =
-        c.prepareStatement("DELETE FROM group_members WHERE group_id = ? AND device_id = ANY (?)").use {
-            it.setBytes(1, group)
-            it.setArray(2, c.uuidArray(devices))
-            it.executeUpdate()
-        }
+        c
+            .prepareStatement("DELETE FROM group_members WHERE group_id = ? AND device_id = ANY (?)")
+            .use {
+                it.setBytes(1, group)
+                it.setArray(2, c.uuidArray(devices))
+                it.executeUpdate()
+            }.also {
+                // A welcome for a device that is no longer a member can never be joined and would block the ones behind it (#280):
+                // it goes with the membership, in the same transaction. A re-add in the same commit inserts its welcome after this.
+                c.prepareStatement("DELETE FROM welcomes WHERE group_id = ? AND target_device_id = ANY (?)").use { welcomes ->
+                    welcomes.setBytes(1, group)
+                    welcomes.setArray(2, c.uuidArray(devices))
+                    welcomes.executeUpdate()
+                }
+            }
 
     /** Deletes the group when no member is left (its messages and welcomes cascade). */
     fun deleteGroupIfEmpty(
@@ -426,6 +436,12 @@ class DeliveryRepository {
         welcome: ByteArray,
         now: Instant,
     ) {
+        // One welcome per (group, target): an older one (an orphan from before #280, or a remove and re-add) never sits beside the new one.
+        c.prepareStatement("DELETE FROM welcomes WHERE group_id = ? AND target_device_id = ?").use {
+            it.setBytes(1, group)
+            it.setObject(2, target)
+            it.executeUpdate()
+        }
         c
             .prepareStatement(
                 "INSERT INTO welcomes (id, group_id, target_device_id, adder_device_id, welcome, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -443,14 +459,14 @@ class DeliveryRepository {
     fun pendingFor(
         c: Connection,
         target: UUID,
-    ): Long = c.scalar("SELECT count(*) FROM welcomes WHERE target_device_id = ?") { setObject(1, target) } ?: 0L
+    ): Long = c.scalar("SELECT count(*) FROM welcomes w WHERE w.target_device_id = ? AND $CURRENT_MEMBER") { setObject(1, target) } ?: 0L
 
     fun pendingFrom(
         c: Connection,
         adder: UUID,
         target: UUID,
     ): Long =
-        c.scalar("SELECT count(*) FROM welcomes WHERE adder_device_id = ? AND target_device_id = ?") {
+        c.scalar("SELECT count(*) FROM welcomes w WHERE w.adder_device_id = ? AND w.target_device_id = ? AND $CURRENT_MEMBER") {
             setObject(1, adder)
             setObject(2, target)
         } ?: 0L
@@ -459,24 +475,35 @@ class DeliveryRepository {
         c: Connection,
         adder: UUID,
     ): Long =
-        c.scalar("SELECT coalesce(sum(octet_length(welcome)), 0) FROM welcomes WHERE adder_device_id = ?") {
+        c.scalar("SELECT coalesce(sum(octet_length(w.welcome)), 0) FROM welcomes w WHERE w.adder_device_id = ? AND $CURRENT_MEMBER") {
             setObject(1, adder)
         } ?: 0L
 
-    fun pendingBytes(c: Connection): Long = c.scalar("SELECT coalesce(sum(octet_length(welcome)), 0) FROM welcomes") {} ?: 0L
+    fun pendingBytes(c: Connection): Long =
+        c.scalar("SELECT coalesce(sum(octet_length(w.welcome)), 0) FROM welcomes w WHERE $CURRENT_MEMBER") {} ?: 0L
 
     fun welcomes(
         c: Connection,
         target: UUID,
         limit: Int,
     ): List<WelcomeRow> =
-        c.prepareStatement("SELECT id, group_id, welcome FROM welcomes WHERE target_device_id = ? ORDER BY created_at, id LIMIT ?").use {
-            it.setObject(1, target)
-            it.setInt(2, limit)
-            it.executeQuery().use { rows ->
-                buildList { while (rows.next()) add(WelcomeRow(rows.getObject(1, UUID::class.java), rows.getBytes(2), rows.getBytes(3))) }
+        c
+            .prepareStatement(
+                "SELECT id, group_id, welcome FROM welcomes w WHERE w.target_device_id = ? AND $CURRENT_MEMBER " +
+                    "ORDER BY created_at, id LIMIT ?",
+            ).use {
+                it.setObject(1, target)
+                it.setInt(2, limit)
+                it.executeQuery().use { rows ->
+                    buildList {
+                        while (rows.next()) {
+                            add(
+                                WelcomeRow(rows.getObject(1, UUID::class.java), rows.getBytes(2), rows.getBytes(3)),
+                            )
+                        }
+                    }
+                }
             }
-        }
 
     /** Deletes the welcome if it is [target]'s; false if there is no such welcome for this device. */
     fun deleteWelcome(
@@ -527,6 +554,12 @@ class DeliveryRepository {
             it.executeUpdate()
         }
 
+    /** Welcomes of devices that are no longer members (rows from before the cascade existed); invisible and uncounted anyway. */
+    fun deleteOrphanWelcomes(c: Connection): Int =
+        c.prepareStatement("DELETE FROM welcomes w WHERE NOT $CURRENT_MEMBER").use {
+            it.executeUpdate()
+        }
+
     fun deleteEmptyGroups(c: Connection): Int =
         c.prepareStatement("DELETE FROM groups g WHERE NOT EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id)").use {
             it.executeUpdate()
@@ -559,5 +592,9 @@ class DeliveryRepository {
     companion object {
         const val COMMIT = 1
         const val APPLICATION = 2
+
+        /** The one predicate for "this welcome's target is still a member of its group" (listing, counting, #280). */
+        private const val CURRENT_MEMBER =
+            "EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = w.group_id AND m.device_id = w.target_device_id)"
     }
 }

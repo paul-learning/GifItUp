@@ -284,6 +284,77 @@ class DeliveryEndpointsTest {
         }
 
     @Test
+    fun aRemovedOrLeavingTargetsPendingWelcomeGoesWithTheMembership() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val carl = member("carl")
+            val dina = member("dina")
+            val first = newGroupId()
+            posted(create(ana, first, commit(0, added = listOf(ben, dina))))
+            val second = newGroupId()
+            posted(create(ana, second, commit(0, added = listOf(carl))))
+            assertEquals(1, welcomes(dina).welcomes.size)
+            assertEquals(1, welcomes(carl).welcomes.size)
+            // Ana removes dina before dina synced: her welcome is gone, ben's and carl's stay.
+            posted(post(ana, first, commit(1, removed = listOf(dina.deviceId))))
+            assertEquals(emptyList(), welcomes(dina).welcomes)
+            assertEquals(1, welcomes(ben).welcomes.size)
+            assertEquals(1, welcomes(carl).welcomes.size)
+            // Ben leaves before syncing: his welcome goes too.
+            assertEquals(HttpStatusCode.NoContent, json(ben, "/groups/$first/leave", "").status)
+            assertEquals(emptyList(), welcomes(ben).welcomes)
+        }
+
+    @Test
+    fun aTargetRemovedAndAddedAgainKeepsOnlyTheNewWelcome() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
+            val ana = member("ana")
+            val ben = member("ben")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(ben))))
+            val old = welcomes(ben).welcomes.single()
+            // One commit cannot both remove and add the same device (the envelope rule), so the re-add is a later commit.
+            posted(post(ana, group, commit(1, removed = listOf(ben.deviceId))))
+            assertEquals(emptyList(), welcomes(ben).welcomes, "the removal took the stale welcome with it")
+            posted(post(ana, group, commit(2, added = listOf(ben))))
+            val now = welcomes(ben).welcomes.single()
+            assertNotEquals(old.id, now.id, "only the welcome of the new add is listed")
+        }
+
+    @Test
+    fun anOrphanWelcomeIsNotListedAndNotCountedTowardTheWelcomeLimit() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
+            val ana = member("ana")
+            val dina = member("dina")
+            val kept = newGroupId()
+            posted(create(ana, kept, commit(0, added = listOf(dina))))
+            // Orphans as an older server left them: the member row is gone, the welcome row stayed.
+            repeat(3) {
+                val group = newGroupId()
+                posted(create(ana, group, commit(0, added = listOf(dina))))
+                orphanize(group, dina)
+            }
+            assertEquals(listOf(kept), welcomes(dina).welcomes.map { it.groupId }, "only the welcome of a current member is listed")
+            // Three orphans would be the adder-target limit (3): none of the limits counts them.
+            posted(create(ana, newGroupId(), commit(0, added = listOf(dina))))
+        }
+
+    @Test
+    fun anOrphanWelcomeDoesNotComeBackWhenTheTargetIsAddedAgainLater() =
+        deliveryTest(limits = ::roomy, rules = DeliveryRules(addWindow = Duration.ZERO)) {
+            val ana = member("ana")
+            val dina = member("dina")
+            val group = newGroupId()
+            posted(create(ana, group, commit(0, added = listOf(dina))))
+            val old = welcomes(dina).welcomes.single()
+            orphanize(group, dina) // an older server left the welcome behind
+            posted(post(ana, group, commit(1, added = listOf(dina))))
+            val listed = welcomes(dina).welcomes.single()
+            assertNotEquals(old.id, listed.id, "only the welcome of the new add is listed")
+        }
+
+    @Test
     fun rateLimitsAnswer429() =
         deliveryTest(
             limits = {
