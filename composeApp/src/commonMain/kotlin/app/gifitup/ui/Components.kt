@@ -233,8 +233,8 @@ internal fun PlusButton(
     }
 }
 
-private val MEMBER_AVATAR_SIZE = 36.dp
-private val AVATAR_OVERLAP = (-10).dp
+private val MEMBER_AVATAR_SIZE = 28.dp
+private val AVATAR_OVERLAP = (-8).dp
 private val PLUS_SIZE = 56.dp
 private val PLUS_ICON = 18.dp
 private const val MAX_MEMBER_AVATARS = 3
