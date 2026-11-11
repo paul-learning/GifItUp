@@ -53,7 +53,9 @@ internal fun ChatHome(
             model.openConversation(info)
             if (!wide) nav.navigate(ROUTE_CONVERSATION)
         }
-        val menu = MenuActions({ nav.navigate(ROUTE_PROFILE) }, { nav.navigate(ROUTE_INVITES) }, { nav.navigate(ROUTE_FRIENDS) })
+        val signedIn by model.holder.state.collectAsState()
+        val username = (signedIn as? OnboardingState.Done)?.username.orEmpty()
+        val menu = MenuActions({ nav.navigate(ROUTE_PROFILE) }, { nav.navigate(ROUTE_INVITES) }, { nav.navigate(ROUTE_FRIENDS) }, username)
         val actions =
             ChatListActions({ nav.navigate(ROUTE_NEW_CHAT) }, menu, open, { openProfile(model, nav, it) }, customServer, connected)
         if (wide) {

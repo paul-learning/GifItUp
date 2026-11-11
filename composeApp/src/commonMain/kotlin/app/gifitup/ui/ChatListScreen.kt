@@ -93,20 +93,12 @@ internal fun ChatListScreen(
                 title = ChatTexts.TITLE,
                 onBack = null,
                 prominent = true,
+                leading = { BurgerMenu(actions.onMenu) },
                 trailing = { TopBarActions(actions.customServer, actions.onMenu) },
             )
             notice?.invoke()
             FilterRow(state.filter, holder::showOnly)
-            if (state.refreshing) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text(
-                        ChatTexts.REFRESHING,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            if (state.refreshing) RefreshingLine()
             state.problem?.let {
                 Text(ChatTexts.listProblem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite())
                 if (it == ChatProblem.HISTORY) TextButton(onClick = holder::retryHistory) { Text(ChatTexts.HISTORY_RETRY) }
@@ -135,44 +127,12 @@ internal fun ChatListScreen(
     }
 }
 
-/** The top bar's right side: a marker while the server is not the default (it opens the Profile), and the burger menu. */
+/** A small spinner with "Refreshing" while the list reads from the server. */
 @Composable
-private fun TopBarActions(
-    customServer: Boolean,
-    menu: MenuActions,
-) {
+private fun RefreshingLine() {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (customServer) {
-            // Text next to the icon, so the cue does not depend on colour alone (SEC-1 of the review).
-            Text(
-                ChatTexts.CUSTOM_SERVER_SHORT,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.tertiary,
-            )
-            IconTile(ChatTexts.CUSTOM_SERVER, menu.onProfile) { WarningIcon(MaterialTheme.colorScheme.tertiary) }
-        }
-        BurgerMenu(menu)
-    }
-}
-
-/** The burger menu of the list's top bar: profile, invite a friend, friends. */
-@Composable
-private fun BurgerMenu(actions: MenuActions) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        IconTile(ChatTexts.MENU, { open = true }) { MenuIcon(it) }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            listOf(
-                ChatTexts.PROFILE to actions.onProfile,
-                ChatTexts.INVITE to actions.onInvite,
-                ChatTexts.FRIENDS to actions.onFriends,
-            ).forEach { (label, go) ->
-                DropdownMenuItem(text = { Text(label) }, onClick = {
-                    open = false
-                    go()
-                })
-            }
-        }
+        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        Text(ChatTexts.REFRESHING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

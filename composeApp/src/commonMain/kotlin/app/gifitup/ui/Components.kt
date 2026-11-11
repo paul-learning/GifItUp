@@ -52,9 +52,12 @@ internal fun AppTopBar(
     backLabel: String = ChatTexts.BACK,
     backEnabled: Boolean = true,
     prominent: Boolean = false,
+    leading: (@Composable () -> Unit)? = null,
 ) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (onBack != null) {
+        if (leading != null) {
+            leading()
+        } else if (onBack != null) {
             IconTile(backLabel, onBack, enabled = backEnabled) { color -> Chevron(color) }
         }
         Column(Modifier.weight(1f)) {
