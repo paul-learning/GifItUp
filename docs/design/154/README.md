@@ -14,6 +14,6 @@ purple primary, an orange accent for "needs your review", initials in circles fo
 The first drafts read too playful (owner, #154). `chat-list-draft.png` sets the new direction for **all** screens, again as
 a direction and not pixel values: flat rows with a hairline divider instead of cards, plain text tabs with a short
 purple underline instead of chips, icon buttons without a filled tile, smaller and quieter buttons (40 dp high, softer
-corners, medium weight), a small unread dot instead of a count badge, a smaller round "+" (56 dp), tighter corner radii
+corners, medium weight), a slim unread count pill (a dot was tried and the owner preferred the count), a smaller round "+" (56 dp), tighter corner radii
 and lighter font weights. Built in the shared theme and components (`GifItUpTheme.kt`, `Buttons.kt`, `Components.kt`),
 so every screen follows. Not done yet: the conversation bubbles (`MessageRow.kt`) and the header wording (#283).
