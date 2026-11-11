@@ -26,6 +26,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -192,6 +193,7 @@ private fun FilterRow(
             Column(
                 Modifier
                     .defaultMinSize(minHeight = TAB_HEIGHT)
+                    .minimumInteractiveComponentSize()
                     .selectable(selected = chosen, role = Role.Tab, onClick = { onChoose(choice) }),
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -203,9 +205,8 @@ private fun FilterRow(
                 )
                 Box(
                     Modifier
-                        .padding(
-                            top = 4.dp,
-                        ).size(width = TAB_LINE, height = 2.dp)
+                        .padding(top = 4.dp)
+                        .size(width = TAB_LINE, height = 2.dp)
                         .background(if (chosen) colors.primary else Color.Transparent),
                 )
             }
@@ -252,7 +253,7 @@ private fun RequestRow(
     }
 }
 
-/** One chat as a card: avatar, title, the last message as a line, the time and the unread count. */
+/** One chat as a flat row with a hairline under it: avatar, title, the last message as a line, the time and a dot when unread. */
 @Composable
 private fun ConversationRow(
     row: ConversationSummary,
