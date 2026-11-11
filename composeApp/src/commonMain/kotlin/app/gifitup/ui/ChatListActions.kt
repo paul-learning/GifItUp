@@ -18,9 +18,11 @@ internal class ChatListActions(
     val liveConnected: Boolean = false,
 )
 
-/** The destinations of the burger menu. */
+/** The destinations of the burger menu and of the profile button next to it. */
 internal class MenuActions(
     val onProfile: () -> Unit,
     val onInvite: () -> Unit,
     val onFriends: () -> Unit,
+    /** The signed-in user, for the initial that opens the profile; blank while unknown. */
+    val username: String = "",
 )
