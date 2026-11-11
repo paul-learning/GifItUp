@@ -173,7 +173,7 @@ internal fun FriendRow(
         ) {
             Avatar(name)
             Column(Modifier.weight(1f)) {
-                Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             Checkbox(checked = checked, onCheckedChange = null)

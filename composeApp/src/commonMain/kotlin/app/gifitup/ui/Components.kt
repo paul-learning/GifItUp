@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -50,16 +51,16 @@ internal fun AppTopBar(
     trailing: (@Composable () -> Unit)? = null,
     backLabel: String = ChatTexts.BACK,
     backEnabled: Boolean = true,
+    prominent: Boolean = false,
 ) {
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (onBack != null) {
             IconTile(backLabel, onBack, enabled = backEnabled) { color -> Chevron(color) }
         }
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                style = if (prominent) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.semantics { heading() },
@@ -70,7 +71,7 @@ internal fun AppTopBar(
     }
 }
 
-/** A rounded square button of at least the 48 dp touch size, with a drawn icon; [label] is what a screen reader says. */
+/** A plain icon button without a fill, with the 48 dp touch size; [label] is what a screen reader says. */
 @Composable
 internal fun IconTile(
     label: String,
@@ -82,7 +83,7 @@ internal fun IconTile(
     Box(
         Modifier
             .size(TILE_SIZE)
-            .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.medium)
+            .clip(CircleShape)
             .clickable(enabled = enabled, onClickLabel = label, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
@@ -95,7 +96,7 @@ internal fun Chevron(
     pointRight: Boolean = false,
 ) {
     Canvas(Modifier.size(20.dp)) {
-        val width = 2.5.dp.toPx()
+        val width = 2.dp.toPx()
 
         // Drawn pointing left, mirrored for the right.
         fun x(fraction: Float) = size.width * if (pointRight) 1f - fraction else fraction
@@ -119,8 +120,8 @@ internal fun InfoIcon(color: Color) {
 @Composable
 internal fun MenuIcon(color: Color) {
     Canvas(Modifier.size(22.dp)) {
-        val width = 2.5.dp.toPx()
-        listOf(0.2f, 0.5f, 0.8f).forEach { y ->
+        val width = 2.dp.toPx()
+        listOf(0.25f, 0.5f, 0.75f).forEach { y ->
             drawLine(color, Offset(size.width * 0.1f, size.height * y), Offset(size.width * 0.9f, size.height * y), width, StrokeCap.Round)
         }
     }
@@ -147,7 +148,7 @@ internal fun PeopleIcon(color: Color) {
     }
 }
 
-/** A card of the design: a container surface with rounded corners and, to ask for attention, an accent outline. */
+/** A card of the design: a container surface with a hairline border and, to ask for attention, an accent outline. */
 @Composable
 internal fun CardSurface(
     modifier: Modifier = Modifier,
@@ -158,9 +159,9 @@ internal fun CardSurface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
-        border = outline?.let { BorderStroke(2.dp, it) },
+        border = BorderStroke(1.dp, outline ?: MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
 }
 
@@ -180,7 +181,7 @@ internal fun Avatar(
     ) {
         Text(
             name.firstOrNull()?.uppercase().orEmpty(),
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             fontSize = (size.value * INITIAL_SCALE).sp,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -202,12 +203,12 @@ internal fun MemberAvatars(names: List<String>) {
             Box(
                 Modifier.size(MEMBER_AVATAR_SIZE).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { Text("+$more", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+            ) { Text("+$more", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold) }
         }
     }
 }
 
-/** The round "+" button of the design. [enabled] false draws it dimmed and inert; [label] is what a screen reader says. */
+/** The small round "+" button of the design. [enabled] false draws it dimmed and inert; [label] is what a screen reader says. */
 @Composable
 internal fun PlusButton(
     label: String,
@@ -225,7 +226,7 @@ internal fun PlusButton(
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(PLUS_ICON)) {
-            val width = 3.dp.toPx()
+            val width = 2.dp.toPx()
             drawLine(colors.onPrimary, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), width, StrokeCap.Round)
             drawLine(colors.onPrimary, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), width, StrokeCap.Round)
         }
@@ -234,7 +235,7 @@ internal fun PlusButton(
 
 private val MEMBER_AVATAR_SIZE = 36.dp
 private val AVATAR_OVERLAP = (-10).dp
-private val PLUS_SIZE = 72.dp
-private val PLUS_ICON = 24.dp
+private val PLUS_SIZE = 56.dp
+private val PLUS_ICON = 18.dp
 private const val MAX_MEMBER_AVATARS = 3
 private const val DISABLED_ALPHA = 0.4f

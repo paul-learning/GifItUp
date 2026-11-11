@@ -1,6 +1,5 @@
 package app.gifitup.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -18,13 +17,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -85,12 +85,13 @@ internal fun ChatListScreen(
     DisposableEffect(holder) { onDispose { holder.leave() } }
     Box(modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             AppTopBar(
                 title = ChatTexts.TITLE,
                 onBack = null,
+                prominent = true,
                 trailing = { TopBarActions(actions.customServer, actions.onMenu) },
             )
             notice?.invoke()
@@ -118,7 +119,7 @@ internal fun ChatListScreen(
                 )
             }
             ListNotices(state)
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(modifier = Modifier.weight(1f)) {
                 requestItems(state, holder)
                 items(state.visible, key = { it.id.listKey() }) { row ->
                     ConversationRow(row, actions, isSelected = row.id == selected)
@@ -128,7 +129,7 @@ internal fun ChatListScreen(
             }
         }
         Box(
-            Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            Modifier.align(Alignment.BottomEnd).padding(24.dp),
         ) { PlusButton(ChatTexts.NEW_CHAT, enabled = true, onClick = actions.onNewChat) }
     }
 }
@@ -174,19 +175,40 @@ private fun BurgerMenu(actions: MenuActions) {
     }
 }
 
-/** All, direct chats, groups: one is selected, and the list shows only what it lets through. */
+/** All, direct chats, groups as plain tabs: the chosen one is bright with a short purple line under it. */
 @Composable
 private fun FilterRow(
     filter: ChatFilter,
     onChoose: (ChatFilter) -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val colors = MaterialTheme.colorScheme
+    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
         listOf(
             ChatFilter.ALL to ChatTexts.FILTER_ALL,
             ChatFilter.DIRECT to ChatTexts.FILTER_DIRECT,
             ChatFilter.GROUPS to ChatTexts.FILTER_GROUPS,
         ).forEach { (choice, label) ->
-            FilterChip(selected = filter == choice, onClick = { onChoose(choice) }, label = { Text(label) })
+            val chosen = filter == choice
+            Column(
+                Modifier
+                    .defaultMinSize(minHeight = TAB_HEIGHT)
+                    .selectable(selected = chosen, role = Role.Tab, onClick = { onChoose(choice) }),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (chosen) colors.onSurface else colors.onSurfaceVariant,
+                )
+                Box(
+                    Modifier
+                        .padding(
+                            top = 4.dp,
+                        ).size(width = TAB_LINE, height = 2.dp)
+                        .background(if (chosen) colors.primary else Color.Transparent),
+                )
+            }
         }
     }
 }
@@ -224,8 +246,8 @@ private fun RequestRow(
             Text(ChatTexts.requestFrom(name), style = MaterialTheme.typography.bodyMedium)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(ChatTexts.ACCEPT, onAccept)
-            SecondaryButton(ChatTexts.DECLINE, onDecline)
+            PrimaryButton(ChatTexts.ACCEPT, onAccept, Modifier.weight(1f))
+            SecondaryButton(ChatTexts.DECLINE, onDecline, Modifier.weight(1f))
         }
     }
 }
@@ -242,14 +264,12 @@ private fun ConversationRow(
     val preview = if (row.historyProblem) ChatTexts.HISTORY_ROW else row.problem?.let(ChatTexts::problem) ?: ChatTexts.preview(row.preview)
     val ago = row.lastAt?.let { ChatTexts.ago(Ago.of(Clock.System.now().epochSeconds, it)) }
     val clickable = rowClick(row, actions)
-    Surface(
-        color = if (isSelected) colors.secondaryContainer else colors.surfaceContainer,
-        shape = MaterialTheme.shapes.large,
-        border = if (isSelected) BorderStroke(2.dp, colors.secondary) else null,
+    Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clip(MaterialTheme.shapes.large)
+                .background(if (isSelected) colors.secondaryContainer else Color.Transparent, MaterialTheme.shapes.medium)
+                .clip(MaterialTheme.shapes.medium)
                 .then(clickable)
                 .semantics(mergeDescendants = true) {
                     contentDescription = ChatTexts.rowDescription(title, preview, ago, row.unread)
@@ -257,7 +277,7 @@ private fun ConversationRow(
                 },
     ) {
         Row(
-            modifier = Modifier.defaultMinSize(minHeight = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.defaultMinSize(minHeight = 68.dp).padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -267,7 +287,7 @@ private fun ConversationRow(
                 Text(
                     title,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (row.unread > 0) FontWeight.ExtraBold else FontWeight.Bold,
+                    fontWeight = if (row.unread > 0) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -279,11 +299,13 @@ private fun ConversationRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ago?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant) }
-                if (row.unread > 0) UnreadBadge(ChatTexts.unread(row.unread))
+                if (row.unread > 0) UnreadDot()
             }
         }
+        // The hairline starts under the text, not under the avatar.
+        HorizontalDivider(Modifier.padding(start = DIVIDER_INSET), color = colors.outlineVariant)
     }
 }
 
@@ -303,17 +325,15 @@ private fun rowClick(
     )
 }
 
+/** A small purple dot for a chat with unread messages; the count is in the row's description for a screen reader. */
 @Composable
-private fun UnreadBadge(count: String) {
-    Text(
-        count,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onPrimary,
-        modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).padding(horizontal = 8.dp, vertical = 2.dp),
-    )
+private fun UnreadDot() {
+    Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
 }
 
 private const val REFRESH_MILLIS = 15_000L
 private const val CONNECTED_REFRESH_MILLIS = 30_000L
-private val FAB_ROOM = 96.dp
+private val FAB_ROOM = 88.dp
+private val TAB_HEIGHT = 36.dp
+private val TAB_LINE = 28.dp
+private val DIVIDER_INSET = 56.dp

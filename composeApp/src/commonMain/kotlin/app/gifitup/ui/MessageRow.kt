@@ -106,7 +106,7 @@ private fun SenderLine(
         Text(
             sender,
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             color = if (mine) colors.secondary else colors.onSurface,
         )
         Text(
@@ -160,7 +160,7 @@ private fun GifChip(modifier: Modifier) {
     Text(
         ConversationTexts.GIF_CHIP,
         style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.SemiBold,
         color = Color.White,
         modifier =
             modifier
@@ -320,7 +320,7 @@ private fun PausedChip() {
     Text(
         ConversationTexts.PAUSED,
         style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.SemiBold,
         color = Color.White,
         modifier =
             Modifier
