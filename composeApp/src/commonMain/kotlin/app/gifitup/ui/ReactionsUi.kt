@@ -173,7 +173,11 @@ internal fun ReactionsDialog(
                 }
             }
             Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
-                Box(Modifier.fillMaxWidth().padding(16.dp)) { ReactorList(message, glyphs) }
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    ReactorList(message, glyphs)
+                    // Whatever the device can draw: a reaction it can't show in the row can still be taken back.
+                    if (enabled && current != null) TextButton(onClick = { onPick(null) }) { Text(ConversationTexts.REMOVE_REACTION) }
+                }
             }
         }
     }

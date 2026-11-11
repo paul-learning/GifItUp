@@ -23,9 +23,9 @@ internal object ConversationTexts {
     const val NOT_SENT = "Not sent"
     const val REACT = "React"
     const val MORE_EMOJIS = "More emojis"
+    const val REMOVE_REACTION = "Remove my reaction"
     const val REACT_TO_GIF = "React to this GIF"
     const val NO_REACTIONS = "No reactions yet."
-    const val CLOSE = "Close"
     const val NO_EMOJI_HERE = "This device can't draw any of the reaction emojis yet."
 
     /** A chip under a GIF, for a screen reader: the emoji, how many, and whether the user is one of them. */
