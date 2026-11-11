@@ -22,11 +22,9 @@ internal object ConversationTexts {
     const val SENDING = "Sending…"
     const val NOT_SENT = "Not sent"
     const val REACT = "React"
+    const val MORE_EMOJIS = "More emojis"
     const val REACT_TO_GIF = "React to this GIF"
-    const val REACTIONS_TITLE = "Reactions"
     const val NO_REACTIONS = "No reactions yet."
-    const val YOUR_REACTION = "Your reaction"
-    const val REMOVE_REACTION = "Remove my reaction"
     const val CLOSE = "Close"
     const val NO_EMOJI_HERE = "This device can't draw any of the reaction emojis yet."
 
