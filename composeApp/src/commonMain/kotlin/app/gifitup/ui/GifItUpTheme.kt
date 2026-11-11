@@ -7,14 +7,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
- * The look of the app (#154, the owner's drafts in `docs/design/154`): deep purple surfaces, rounded cards, a purple
+ * The look of the app (#154, the owner's drafts in `docs/design/154`): deep purple surfaces, flat rows and slim cards, a purple
  * primary and an orange accent ([ColorScheme.tertiary]) for what needs the user's attention. The light and the dark
  * scheme the system asks for (`prefers-color-scheme` on the web) share the same roles.
  */
@@ -23,6 +26,7 @@ internal fun GifItUpTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
         shapes = GifItUpShapes,
+        typography = GifItUpTypography,
         content = content,
     )
 }
@@ -49,6 +53,7 @@ private val DarkColors =
         surfaceContainerHigh = Color(0xFF2A2238),
         surfaceContainerHighest = Color(0xFF332A45),
         outline = Color(0xFF6F6785),
+        outlineVariant = Color(0xFF2A2238),
         error = Color(0xFFFF8A80),
         onError = Color(0xFF3B0A06),
     )
@@ -75,15 +80,27 @@ private val LightColors =
         surfaceContainerHigh = Color(0xFFE4DBF6),
         surfaceContainerHighest = Color(0xFFD9CEF0),
         outline = Color(0xFF857C99),
+        outlineVariant = Color(0xFFE4DBF6),
         error = Color(0xFFB3261E),
         onError = Color(0xFFFFFFFF),
     )
 
 private val GifItUpShapes =
     Shapes(
-        extraSmall = RoundedCornerShape(8.dp),
-        small = RoundedCornerShape(12.dp),
-        medium = RoundedCornerShape(16.dp),
-        large = RoundedCornerShape(24.dp),
-        extraLarge = RoundedCornerShape(28.dp),
+        extraSmall = RoundedCornerShape(6.dp),
+        small = RoundedCornerShape(8.dp),
+        medium = RoundedCornerShape(10.dp),
+        large = RoundedCornerShape(14.dp),
+        extraLarge = RoundedCornerShape(20.dp),
     )
+
+/** Slimmer than the Material defaults: titles one step smaller and medium instead of bold, so the screens read as calm, not loud. */
+private val GifItUpTypography =
+    Typography().let { base ->
+        base.copy(
+            headlineMedium = base.headlineMedium.copy(fontSize = 30.sp, fontWeight = FontWeight.SemiBold),
+            titleLarge = base.titleLarge.copy(fontSize = 20.sp, fontWeight = FontWeight.SemiBold),
+            titleMedium = base.titleMedium.copy(fontSize = 16.sp, fontWeight = FontWeight.Medium),
+            labelLarge = base.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+        )
+    }

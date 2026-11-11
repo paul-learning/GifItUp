@@ -103,7 +103,7 @@ private fun MemberRow(
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Avatar(name)
         Column {
-            Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             // By key against the saved pin, never by name alone: a stranger can carry a friend's name (#31).
             GroupInfoTexts.standing(standing, name)?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)

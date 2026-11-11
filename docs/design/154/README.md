@@ -8,3 +8,12 @@ purple primary, an orange accent for "needs your review", initials in circles fo
 - `conversation-draft.png`: a conversation. "GIF" chip on each bubble, caption on the GIF, sender avatar, name and time
   below, own messages on the right in the primary color with a delivery state, member avatars and "end-to-end
   encrypted" in the header, one round "+" button to send a GIF. The reaction chip (😂 2) belongs to #88, not built yet.
+
+## Second direction: slicker (2026-11-11)
+
+The first drafts read too playful (owner, #154). `chat-list-draft.png` sets the new direction for **all** screens, again as
+a direction and not pixel values: flat rows with a hairline divider instead of cards, plain text tabs with a short
+purple underline instead of chips, icon buttons without a filled tile, smaller and quieter buttons (40 dp high, softer
+corners, medium weight), a slim unread count pill (a dot was tried and the owner preferred the count), a smaller round "+" (56 dp), tighter corner radii
+and lighter font weights. Built in the shared theme and components (`GifItUpTheme.kt`, `Buttons.kt`, `Components.kt`),
+so every screen follows. Not done yet: the conversation bubbles (`MessageRow.kt`) and the header wording (#283).

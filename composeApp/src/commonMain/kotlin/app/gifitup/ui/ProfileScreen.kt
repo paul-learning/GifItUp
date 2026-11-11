@@ -55,7 +55,7 @@ internal fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Avatar(username, PROFILE_AVATAR)
-                Text(ChatTexts.isolated(username), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(ChatTexts.isolated(username), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
         }
         state.own?.let { OwnEmojisCard(onShow = { showOwn = true }) }

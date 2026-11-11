@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -107,7 +106,7 @@ internal fun OwnEmojisCard(onShow: () -> Unit) {
     CardSurface {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
-                Text(FriendTexts.CARD_TITLE, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(FriendTexts.CARD_TITLE, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     FriendTexts.CARD_SUBTITLE,
                     style = MaterialTheme.typography.bodyMedium,
@@ -149,22 +148,17 @@ internal fun Friend(
         ) {
             Avatar(friend.username)
             Column {
-                Text(friend.username, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(friend.username, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     FriendTexts.headline(friend.status, friend.reason),
                     style = MaterialTheme.typography.bodyMedium,
                     color = statusColor,
-                    fontWeight = if (changed) FontWeight.Bold else FontWeight.Normal,
+                    fontWeight = if (changed) FontWeight.SemiBold else FontWeight.Normal,
                 )
             }
         }
         if (changed) {
-            Button(
-                onClick = onReview,
-                enabled = canReview,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            ) { Text(FriendTexts.REVIEW, fontWeight = FontWeight.Bold) }
+            PrimaryButton(FriendTexts.REVIEW, onClick = onReview, enabled = canReview)
         }
         if (expanded) {
             Text(FriendTexts.status(friend.status), style = MaterialTheme.typography.bodyMedium)
@@ -193,7 +187,7 @@ private fun ChatKey(
     Text(FriendTexts.chatKeyTitle(friend.username), style = MaterialTheme.typography.titleSmall)
     EmojiBlock(cells, glyphs)
     if (friend.canSaveKey && onSaveKey != null) {
-        Button(onClick = { comparing = cells }, enabled = enabled, shape = MaterialTheme.shapes.medium) { Text(FriendTexts.SAVE_KEY) }
+        Button(onClick = { comparing = cells }, enabled = enabled, shape = MaterialTheme.shapes.small) { Text(FriendTexts.SAVE_KEY) }
     }
     val captured = comparing
     // The dialog goes away when the key on show is no longer the captured one, or can no longer be saved.

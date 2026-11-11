@@ -84,7 +84,7 @@ internal fun CreateInviteScreen(
         }
         state.shown?.let { shown ->
             CardSurface(outline = MaterialTheme.colorScheme.secondary) {
-                Text("Your new invite", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Your new invite", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text("Expires ${Instant.fromEpochSeconds(shown.expiresAt)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 // Not selectable: only the Copy button sets the sensitive, labelled clipboard entry (#143 SEC-2).
                 Text(
@@ -113,7 +113,7 @@ private fun Invites(
     Text(
         "Your invites",
         style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(top = 8.dp).semantics { heading() },
     )
     if (invites.isEmpty()) Text("None yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
