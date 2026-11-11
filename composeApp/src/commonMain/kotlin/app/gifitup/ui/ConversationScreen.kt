@@ -154,7 +154,7 @@ private fun ConversationColumn(
     reactions: ReactionControls,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ConversationHeader(state, nav)
@@ -172,7 +172,7 @@ private fun ConversationColumn(
             state = list,
             modifier = Modifier.weight(1f).fillMaxWidth(),
             reverseLayout = true,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             items(state.messages.asReversed(), key = { it.reference.listKey() }) { message ->
                 MessageRow(message, tiles, tileStates[message.reference], reactions)

@@ -67,7 +67,7 @@ internal fun MessageRow(
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         when (val body = message.body) {
             is MessageBody.Gif -> GifBubble(message, body, GifMedia(tiles, tile, reactions.holdAction(message)), sender, mine)
@@ -98,7 +98,7 @@ private fun SenderLine(
             null -> ""
         }
     Row(
-        Modifier.padding(horizontal = 4.dp).semantics(mergeDescendants = true) { contentDescription = "$sender, $time$state" },
+        Modifier.padding(horizontal = 2.dp).semantics(mergeDescendants = true) { contentDescription = "$sender, $time$state" },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -134,7 +134,7 @@ private fun GifBubble(
     // Four fifths of the width, at most BUBBLE_MAX_WIDTH, on the side of the sender.
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Surface(
-            color = if (mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = if (mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainer,
             shape = MaterialTheme.shapes.large,
             modifier = Modifier.width(minOf(maxWidth * BUBBLE_FRACTION, BUBBLE_MAX_WIDTH)),
         ) {
@@ -146,7 +146,7 @@ private fun GifBubble(
                         ConversationTexts.gifDescription(sender, body.caption),
                         onLongPress = onReact,
                     ) { tiles.tap(message.reference, body.reference) }
-                    GifChip(Modifier.align(Alignment.TopStart).padding(12.dp))
+                    GifChip(Modifier.align(Alignment.TopStart).padding(8.dp))
                 }
                 body.caption?.let { CaptionUnderGif(it, mine) }
             }
@@ -160,12 +160,12 @@ private fun GifChip(modifier: Modifier) {
     Text(
         ConversationTexts.GIF_CHIP,
         style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Medium,
         color = Color.White,
         modifier =
             modifier
-                .background(Color.Black.copy(alpha = CHIP_SCRIM), MaterialTheme.shapes.small)
-                .padding(horizontal = 8.dp, vertical = 2.dp)
+                .background(Color.Black.copy(alpha = CHIP_SCRIM), MaterialTheme.shapes.extraSmall)
+                .padding(horizontal = 6.dp, vertical = 1.dp)
                 .clearAndSetSemantics { },
     )
 }
@@ -182,14 +182,14 @@ private fun CaptionUnderGif(
 ) {
     Text(
         ChatTexts.isolated(caption),
-        style = MaterialTheme.typography.bodyLarge,
+        style = MaterialTheme.typography.bodyMedium,
         color = if (mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         maxLines = CAPTION_MAX_LINES,
         overflow = TextOverflow.Ellipsis,
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .heightIn(max = CAPTION_MAX_HEIGHT)
                 .clipToBounds(),
     )
@@ -363,7 +363,7 @@ private fun Placeholder(
 private const val BUBBLE_FRACTION = 0.8f
 private const val CHIP_SCRIM = 0.45f
 private const val CAPTION_MAX_LINES = 6
-private val SENDER_AVATAR_SIZE = 24.dp
+private val SENDER_AVATAR_SIZE = 20.dp
 private val BUBBLE_MAX_WIDTH = 320.dp
 private val CAPTION_MAX_HEIGHT = 160.dp
 private const val MIN_RATIO = 0.5f
