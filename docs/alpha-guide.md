@@ -30,8 +30,9 @@ damaged download; the certificate fingerprint is the real check. If either diffe
 - **Chats:** start a chat from the list. A chat with one friend is a direct chat; give it a name and add more friends and it
   is a group.
 - **Send a GIF:** tap the button at the bottom, search, pick a GIF, optionally add a caption (up to 120 characters), send.
-- **React:** press and hold a GIF, or tap **React** under it (or one of the small reaction chips). The window shows who
-  reacted with what, a row of common emojis and the whole list. Tap your own emoji again, or "Remove my reaction", to take it back. One reaction per
+- **React:** press and hold a GIF, or tap one of the small reaction chips (on the web there is also a **React** button
+  under the GIF; on Android it is the long press only). A small bar shows the common emojis (tap "+" for the whole list), with who
+  reacted with what underneath. Tap your own emoji again to take it back. One reaction per
   person per GIF; everyone in the chat sees who reacted. On the web, the first load downloads a font of about 2.5 MB so the
   emojis can be drawn.
 - **Requests:** if someone who is not one of your friends starts a chat with you, it appears under **Requests** with their

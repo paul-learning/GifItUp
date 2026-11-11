@@ -25,7 +25,7 @@ for this repo): a published release cannot be changed, only replaced by a newer 
 - [ ] Register with an invite on each; the invite link opens the app on Android.
 - [ ] Find each other, start a chat, send a GIF with a caption each way.
 - [ ] The chat list appears at once when you open the app.
-- [ ] React on both sides; the chip appears for both; the dialog lists who reacted; change it; remove it.
+- [ ] React on both sides; the chip appears for both; the panel lists who reacted; change it; remove it (tap your own emoji again). Android: no React button, long press only.
 - [ ] Compare the 12 emojis and names on a call and save the key.
 - [ ] Make a group of three and rename it.
 - [ ] **Live updates** (needs the release that has them): with the app open on both devices, send a GIF and a reaction each way:
