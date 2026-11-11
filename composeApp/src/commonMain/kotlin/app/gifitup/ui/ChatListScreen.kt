@@ -253,7 +253,7 @@ private fun RequestRow(
     }
 }
 
-/** One chat as a flat row with a hairline under it: avatar, title, the last message as a line, the time and a dot when unread. */
+/** One chat as a flat row with a hairline under it: avatar, title, the last message as a line, the time and the unread count. */
 @Composable
 private fun ConversationRow(
     row: ConversationSummary,
@@ -302,7 +302,7 @@ private fun ConversationRow(
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ago?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant) }
-                if (row.unread > 0) UnreadDot()
+                if (row.unread > 0) UnreadBadge(ChatTexts.unread(row.unread))
             }
         }
         // The hairline starts under the text, not under the avatar.
@@ -326,10 +326,16 @@ private fun rowClick(
     )
 }
 
-/** A small purple dot for a chat with unread messages; the count is in the row's description for a screen reader. */
+/** A slim purple pill with the unread count (the row's description says it for a screen reader). */
 @Composable
-private fun UnreadDot() {
-    Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+private fun UnreadBadge(count: String) {
+    Text(
+        count,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).padding(horizontal = 7.dp, vertical = 1.dp),
+    )
 }
 
 private const val REFRESH_MILLIS = 15_000L
