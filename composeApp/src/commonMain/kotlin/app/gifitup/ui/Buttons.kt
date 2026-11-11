@@ -22,7 +22,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-/** The main button of a card or screen: purple, rounded, full width and at least 52 dp high. */
+/** The main button of a card or screen: purple, softly rounded, full width and 40 dp high. */
 @Composable
 internal fun PrimaryButton(
     text: String,
@@ -33,9 +33,9 @@ internal fun PrimaryButton(
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.small,
         modifier = modifier.fillMaxWidth().heightIn(min = BUTTON_HEIGHT),
-    ) { Text(text, fontWeight = FontWeight.Bold) }
+    ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
 
 /** The quieter button next to a primary one: a container color instead of the purple. */
@@ -49,14 +49,14 @@ internal fun SecondaryButton(
     FilledTonalButton(
         onClick = onClick,
         enabled = enabled,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.small,
         colors =
             ButtonDefaults.filledTonalButtonColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ),
         modifier = modifier.fillMaxWidth().heightIn(min = BUTTON_HEIGHT),
-    ) { Text(text, fontWeight = FontWeight.Bold) }
+    ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
 
 /** A card that is a button: a title, a line under it, and a chevron on the right. */
@@ -69,12 +69,12 @@ internal fun ActionCard(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = MaterialTheme.shapes.large,
-        modifier = modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(role = Role.Button, onClick = onClick),
+        shape = MaterialTheme.shapes.medium,
+        modifier = modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable(role = Role.Button, onClick = onClick),
     ) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 16.dp).heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Box(Modifier.clearAndSetSemantics { }) { Chevron(MaterialTheme.colorScheme.onSurfaceVariant, pointRight = true) }
@@ -82,4 +82,4 @@ internal fun ActionCard(
     }
 }
 
-private val BUTTON_HEIGHT = 52.dp
+private val BUTTON_HEIGHT = 40.dp

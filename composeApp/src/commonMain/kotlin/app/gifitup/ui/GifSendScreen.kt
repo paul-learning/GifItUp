@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,9 +71,7 @@ internal fun GifSendScreen(
             },
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = { onSend(check.caption) }, enabled = check.verdict == CaptionVerdict.OK, modifier = Modifier.fillMaxWidth()) {
-            Text(ConversationTexts.SEND_GIF)
-        }
+        PrimaryButton(ConversationTexts.SEND_GIF, onClick = { onSend(check.caption) }, enabled = check.verdict == CaptionVerdict.OK)
     }
 }
 

@@ -99,7 +99,7 @@ private fun Brand() {
         Text(
             "GifItUp",
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.ExtraBold,
+            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.semantics { heading() },
         )
@@ -141,7 +141,11 @@ private fun EnterInvite(
 ) {
     var text by remember { mutableStateOf("") }
     CardSurface {
-        Text("Paste the invite link or code a friend sent you.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            "Paste the invite link or code a friend sent you.",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
         // No autocorrect and a password-type keyboard, so keyboard apps don't learn the code (#131 SEC-22). Not masked.
         OutlinedTextField(
             value = text,
@@ -166,7 +170,7 @@ private fun ChooseUsername(
     holder: OnboardingStateHolder,
 ) {
     CardSurface {
-        Text("Choose your username.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Choose your username.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
             value = state.username,
             onValueChange = holder::changeUsername,
@@ -186,7 +190,11 @@ private fun ConfirmServer(
     holder: OnboardingStateHolder,
 ) {
     CardSurface {
-        Text("Register as ${state.username} on this server?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            "Register as ${state.username} on this server?",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
         Text(state.origin.origin, style = MaterialTheme.typography.bodyLarge)
         Text("Your invite is sent to this server and used up there.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         PrimaryButton("Register", onClick = holder::confirmRegistration)
@@ -204,7 +212,7 @@ private fun FinishPending(
         Text(
             "The registration of ${state.username} isn't finished.",
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
         )
         state.lastError?.let { Text(Texts.error(it), color = MaterialTheme.colorScheme.error) }
         PrimaryButton("Finish registration", onClick = holder::finishPending)
