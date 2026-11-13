@@ -62,6 +62,7 @@ fun main() {
                     clipboard = WebClipboard,
                     glyphs = glyphs,
                     serverSettingsEditable = false,
+                    platform = "web",
                     conversations =
                         ConversationPlatform(
                             { BrowserMediaFetcher() },
@@ -77,7 +78,7 @@ fun main() {
             // The emoji font registers after the first frame; the screens redraw when the glyphs become known.
             val resolver = LocalFontFamilyResolver.current
             LaunchedEffect(resolver) { glyphs.load { resolver.preload(it) } }
-            if (graph == null) OpenInAnotherTab() else App(graph, inbox)
+            if (graph == null) OpenInAnotherTab() else App(graph, inbox, export = WebLogExport)
         }
     }
 }

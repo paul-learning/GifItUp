@@ -8,8 +8,13 @@ plugins {
 // The server origin a build starts with (ADR-0013): `-Pgifitup.defaultOrigin=https://...` for a real build. The user
 // can change it in Settings while the device has no identity. Must be canonical (https, lowercase, no path).
 val defaultOrigin = providers.gradleProperty("gifitup.defaultOrigin").orElse("https://gifitup.invalid")
+// The version the Android release pipeline passes (`-Pgifitup.versionName=MAJOR.MINOR.PATCH`); "dev" for local builds and the web, which has
+// no version of its own. Shown on the diagnostics screen and in its report, so it is held to a plain pattern.
+val appVersion = providers.gradleProperty("gifitup.versionName").orElse("dev")
 val generateBuildDefaults by tasks.registering {
     val origin = defaultOrigin
+    val version = appVersion
+    inputs.property("version", version)
     val out = layout.buildDirectory.dir("generated/buildDefaults/kotlin")
     inputs.property("origin", origin)
     outputs.dir(out)
@@ -23,9 +28,15 @@ val generateBuildDefaults by tasks.registering {
         require(match != null && value.length <= 256 && (port == null || (port <= 65_535 && port != 443))) {
             "gifitup.defaultOrigin must be a canonical https origin"
         }
+        val versionValue = version.get()
+        require(versionValue == "dev" || Regex("^[0-9]{1,3}\\.[0-9]{1,2}\\.[0-9]{1,2}$").matches(versionValue)) {
+            "gifitup.versionName must be MAJOR.MINOR.PATCH"
+        }
         val file = out.get().file("app/gifitup/BuildDefaults.kt").asFile
         file.parentFile.mkdirs()
-        file.writeText("package app.gifitup\n\ninternal object BuildDefaults {\n    const val DEFAULT_ORIGIN = \"$value\"\n}\n")
+        file.writeText(
+            "package app.gifitup\n\ninternal object BuildDefaults {\n    const val DEFAULT_ORIGIN = \"$value\"\n    const val VERSION = \"$versionValue\"\n}\n",
+        )
     }
 }
 

@@ -6,6 +6,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import app.gifitup.shared.domain.invite.LaunchLink
 import app.gifitup.ui.App
 import app.gifitup.ui.InviteInbox
@@ -13,6 +15,12 @@ import app.gifitup.ui.ScreenProtection
 
 /** Android composition root (ADR-0004); the graph is the `Application`'s, built once per process. */
 class MainActivity : ComponentActivity() {
+    // The diagnostics report's way out (#154 follow-up). The launcher is registered here, before the activity starts, as the
+    // result API requires; the export is used only inside the composition.
+    private val saveLauncher: ActivityResultLauncher<String> =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { export.write(it) }
+    private val export: AndroidLogExport = AndroidLogExport(this) { name -> saveLauncher.launch(name) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -30,7 +38,7 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent(Intent.ACTION_MAIN))
         val inbox = InviteInbox(link)
         // Bound to this window and used only inside the composition, never kept by a ViewModel.
-        setContent { App(graph, inbox, ScreenProtection(::protectWindow)) }
+        setContent { App(graph, inbox, ScreenProtection(::protectWindow), export) }
     }
 
     /**

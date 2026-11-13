@@ -5,11 +5,18 @@ import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.crypto.SecureRandomSource
 import app.gifitup.shared.data.gif.ProviderFetcher
 import app.gifitup.shared.domain.auth.DeviceStorage
+import app.gifitup.shared.domain.diagnostics.DiagEvent
+import app.gifitup.shared.domain.diagnostics.DiagnosticsLog
+import app.gifitup.shared.domain.diagnostics.StoredDiagnosticsLog
 import app.gifitup.shared.domain.media.MediaFetcher
 import app.gifitup.shared.domain.messages.GraphemeCounter
 import app.gifitup.shared.domain.messages.HistoryLimits
 import app.gifitup.shared.presentation.invite.SensitiveClipboard
 import io.ktor.client.engine.HttpClientEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlin.time.Clock
 
 /**
  * What each platform's composition root (ADR-0004) hands to the shared UI. The MLS factory is loaded lazily:
@@ -44,7 +51,26 @@ class AppGraph(
      * its entry don't exist (ADR-0013, #159).
      */
     val serverSettingsEditable: Boolean = true,
-)
+    /** "Android 15 (API 35)" or "web": the platform line of the diagnostics report. A fixed phrase, never a device id. */
+    val platform: String = "unknown",
+) {
+    /**
+     * The diagnostics log (#154 follow-up): coded events in the device store, for the user to share on purpose. Built once, over
+     * the same store as the identity (ADR-0011); without a store there is none. Its first entry is the start of this process.
+     */
+    val diagnostics: DiagnosticsLog by lazy {
+        val store = deviceStorage?.store
+        if (store == null) {
+            DiagnosticsLog.None
+        } else {
+            StoredDiagnosticsLog(
+                store,
+                { Clock.System.now().epochSeconds },
+                CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1)),
+            ).also { it.record(DiagEvent.APP_START) }
+        }
+    }
+}
 
 /**
  * What the conversation screen needs from the platform (#25): [mediaFetcher] makes a fetcher per conversation flow (one

@@ -23,6 +23,7 @@ internal class MenuActions(
     val onProfile: () -> Unit,
     val onInvite: () -> Unit,
     val onFriends: () -> Unit,
+    val onDiagnostics: () -> Unit,
     /** The signed-in user, for the initial that opens the profile; blank while unknown. */
     val username: String = "",
 )

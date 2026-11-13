@@ -47,6 +47,7 @@ internal fun BurgerMenu(actions: MenuActions) {
             listOf(
                 ChatTexts.FRIENDS to actions.onFriends,
                 ChatTexts.INVITE to actions.onInvite,
+                DiagnosticsTexts.TITLE to actions.onDiagnostics,
             ).forEach { (label, go) ->
                 DropdownMenuItem(text = { Text(label) }, onClick = {
                     open = false

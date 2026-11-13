@@ -30,6 +30,9 @@ damaged download; the certificate fingerprint is the real check. If either diffe
 - **Chats:** start a chat from the list. A chat with one friend is a direct chat; give it a name and add more friends and it
   is a group.
 - **Send a GIF:** tap the button at the bottom, search, pick a GIF, optionally add a caption (up to 120 characters), send.
+- **Something went wrong?** Menu (top left) → **About and diagnostics**. It shows the app version and a short log of what the app did
+  (times to the minute; never messages, GIFs, names or keys). **Share** (Android), **Save to file** or **Copy** it and send it to the person who runs the
+  app; **Clear log** empties it. Read it first: what you see is everything that leaves the device.
 - **React:** press and hold a GIF, or tap one of the small reaction chips (on the web there is also a **React** button
   under the GIF; on Android it is the long press only). A small bar shows the common emojis (tap "+" for the whole list), with who
   reacted with what underneath. Tap your own emoji again to take it back. One reaction per
