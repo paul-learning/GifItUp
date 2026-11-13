@@ -6,6 +6,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import app.gifitup.shared.domain.invite.LaunchLink
 import app.gifitup.ui.App
@@ -16,8 +17,9 @@ import app.gifitup.ui.ScreenProtection
 class MainActivity : ComponentActivity() {
     // The diagnostics report's way out (#154 follow-up). The launcher is registered here, before the activity starts, as the
     // result API requires; the export is used only inside the composition.
-    private val saveLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { export.write(it) }
-    private val export = AndroidLogExport(this) { name -> saveLauncher.launch(name) }
+    private val saveLauncher: ActivityResultLauncher<String> =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { export.write(it) }
+    private val export: AndroidLogExport = AndroidLogExport(this) { name -> saveLauncher.launch(name) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
