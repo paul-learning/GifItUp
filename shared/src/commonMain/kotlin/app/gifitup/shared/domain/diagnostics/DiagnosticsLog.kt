@@ -5,7 +5,10 @@ package app.gifitup.shared.domain.diagnostics
  * must not be able to break the app, and what it fails to write is simply not there.
  */
 interface DiagnosticsLog {
-    fun record(event: DiagEvent)
+    fun record(
+        event: DiagEvent,
+        detail: DiagDetail? = null,
+    )
 
     /** The kept entries, oldest first; a log that can't be read is empty. */
     suspend fun entries(): List<DiagEntry>
@@ -24,7 +27,10 @@ interface DiagnosticsLog {
         /** For the places that have no log (tests, the dev CLI). */
         val None: DiagnosticsLog =
             object : DiagnosticsLog {
-                override fun record(event: DiagEvent) = Unit
+                override fun record(
+                    event: DiagEvent,
+                    detail: DiagDetail?,
+                ) = Unit
 
                 override suspend fun entries(): List<DiagEntry> = emptyList()
 

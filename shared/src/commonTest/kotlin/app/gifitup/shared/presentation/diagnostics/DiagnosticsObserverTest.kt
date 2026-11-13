@@ -1,10 +1,17 @@
 package app.gifitup.shared.presentation.diagnostics
 
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.diagnostics.DiagDetail
 import app.gifitup.shared.domain.diagnostics.DiagEntry
 import app.gifitup.shared.domain.diagnostics.DiagEvent
 import app.gifitup.shared.domain.diagnostics.DiagInfo
 import app.gifitup.shared.domain.diagnostics.DiagnosticsLog
+import app.gifitup.shared.domain.events.LiveState
+import app.gifitup.shared.domain.events.LiveStatus
+import app.gifitup.shared.domain.events.StopReason
+import app.gifitup.shared.domain.media.UnavailableReason
 import app.gifitup.shared.presentation.chat.ChatProblem
+import app.gifitup.shared.presentation.chat.GifTile
 import app.gifitup.shared.presentation.chat.SendProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,8 +28,14 @@ class DiagnosticsObserverTest {
     private class Recording : DiagnosticsLog {
         val events = mutableListOf<DiagEvent>()
 
-        override fun record(event: DiagEvent) {
+        val details = mutableListOf<DiagDetail?>()
+
+        override fun record(
+            event: DiagEvent,
+            detail: DiagDetail?,
+        ) {
             events += event
+            details += detail
         }
 
         override suspend fun entries() = events.map { DiagEntry(0, it) }
@@ -86,5 +99,31 @@ class DiagnosticsObserverTest {
             holder.clear()
             advanceUntilIdle()
             assertTrue("(none)" in assertNotNull(holder.state.value.report))
+        }
+
+    @Test
+    fun liveWaitingAndStopReasonsAreNotedWithTheirDetail() =
+        runTest {
+            val log = Recording()
+            val status = MutableStateFlow(LiveStatus(LiveState.CONNECTING))
+            DiagnosticsObserver(log, watching()).watchLive(status)
+            status.value = LiveStatus(LiveState.WAITING)
+            status.value = LiveStatus(LiveState.STOPPED, StopReason.OUTDATED_CLIENT)
+            assertEquals(listOf(DiagEvent.SOCKET_STATE, DiagEvent.SOCKET_STOPPED), log.events)
+            assertEquals(listOf<DiagDetail?>(DiagDetail.LIVE_WAITING, DiagDetail.STOP_OUTDATED_CLIENT), log.details)
+        }
+
+    @Test
+    fun aGifThatFailsIsNotedOnceWithItsReason() =
+        runTest {
+            val log = Recording()
+            val tiles = MutableStateFlow<Map<KeyBytes, GifTile>>(emptyMap())
+            DiagnosticsObserver(log, watching()).watchMedia(tiles)
+            val key = KeyBytes(byteArrayOf(1))
+            tiles.value = mapOf(key to GifTile.Loading)
+            tiles.value = mapOf(key to GifTile.Unavailable(UnavailableReason.TOO_LARGE))
+            tiles.value = mapOf(key to GifTile.Unavailable(UnavailableReason.TOO_LARGE), KeyBytes(byteArrayOf(2)) to GifTile.Loading)
+            assertEquals(listOf(DiagEvent.MEDIA_FAILED), log.events)
+            assertEquals(listOf<DiagDetail?>(DiagDetail.MEDIA_TOO_LARGE), log.details)
         }
 }

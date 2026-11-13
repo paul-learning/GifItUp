@@ -24,6 +24,16 @@ enum class DiagEvent(
     SEND_FAILED(8, "send failed"),
     LOGIN_FAILED(12, "sign-in failed"),
     LOG_CLEARED(14, "log cleared"),
+
+    // The debug detail (a [DiagDetail] says why). Failures and states of the system only, never a contact's or a chat's.
+    CALL_FAILED_READ(15, "read failed"),
+    CALL_FAILED_SEND(16, "send failed at the server or crypto"),
+    CALL_FAILED_SETUP(17, "chat setup failed"),
+    SYNC_NOTE(18, "sync note"),
+    WELCOME_REJECTED(19, "invitation rejected"),
+    SOCKET_STATE(20, "live updates state"),
+    SOCKET_STOPPED(21, "live updates stopped"),
+    MEDIA_FAILED(22, "gif could not be shown"),
     ;
 
     companion object {
@@ -34,8 +44,17 @@ enum class DiagEvent(
     }
 }
 
-/** One line of the log: the event and the second (UTC, seconds since 1970) it happened in. */
+/**
+ * One line of the log: the event, the minute (UTC, seconds since 1970) it happened in, the closed [detail] that says why (if
+ * the event has one) and how many times it happened in that minute ([count], at most [MAX_COUNT]).
+ */
 data class DiagEntry(
     val at: Long,
     val event: DiagEvent,
-)
+    val detail: DiagDetail? = null,
+    val count: Int = 1,
+) {
+    companion object {
+        const val MAX_COUNT = 255
+    }
+}

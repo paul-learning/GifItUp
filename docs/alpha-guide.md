@@ -31,7 +31,7 @@ damaged download; the certificate fingerprint is the real check. If either diffe
   is a group.
 - **Send a GIF:** tap the button at the bottom, search, pick a GIF, optionally add a caption (up to 120 characters), send.
 - **Something went wrong?** Menu (top left) → **About and diagnostics**. It shows the app version and a short log of what the app did
-  (times to the minute; never messages, GIFs, names or keys). **Share** (Android), **Save to file** or **Copy** it and send it to the person who runs the
+  (times to the minute, with the reason for a failure and how often it happened; never messages, GIFs, names or keys). **Share** (Android), **Save to file** or **Copy** it and send it to the person who runs the
   app; **Clear log** empties it. Read it first: what you see is everything that leaves the device.
 - **React:** press and hold a GIF, or tap one of the small reaction chips (on the web there is also a **React** button
   under the GIF; on Android it is the long press only). A small bar shows the common emojis (tap "+" for the whole list), with who

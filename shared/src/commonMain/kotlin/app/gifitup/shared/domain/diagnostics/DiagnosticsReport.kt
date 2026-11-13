@@ -44,7 +44,15 @@ object DiagnosticsReport {
             appendLine()
             appendLine("events (oldest first, UTC):")
             if (entries.isEmpty()) appendLine("(none)")
-            entries.forEach { appendLine("${utc(it.at)}  ${it.event.label}") }
+            entries.forEach { appendLine(line(it)) }
+        }
+
+    /** `<time>  <label>`, then `: <detail>` and `  x<count>` when there are any. Fixed words and numbers only. */
+    private fun line(entry: DiagEntry): String =
+        buildString {
+            append(utc(entry.at)).append("  ").append(entry.event.label)
+            entry.detail?.let { append(": ").append(it.label) }
+            if (entry.count > 1) append("  x").append(entry.count)
         }
 
     private fun yesNo(value: Boolean) = if (value) "yes" else "no"
