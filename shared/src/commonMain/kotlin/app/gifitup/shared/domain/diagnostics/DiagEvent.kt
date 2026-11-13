@@ -7,7 +7,9 @@ package app.gifitup.shared.domain.diagnostics
  * takes an event, never a string, so no name, id, host, key, token, invite code, ciphertext, GIF or search query can end up in
  * it, and a log the user shares tells the owner only which of these happened and when. Failures and the app's own life cycle
  * only: no event for a message sent or received, a chat request, a contact or a group, because the moment of such an event
- * would say who the user talks to and when (plan review SEC-2, SEC-4). A new code needs a reviewer to check exactly that.
+ * would say who the user talks to and when (plan review SEC-2, SEC-4). Two accepted exceptions, kept on the owner's word of
+ * 2026-11-13 (PR 310): [WELCOME_REJECTED] (an invitation arrived, stale or unusable) and [MEDIA_FAILED] (a GIF could not be shown),
+ * both once per minute and kind. A new code needs a reviewer to check exactly that.
  * [code] is what is stored: it never changes for an event and is never reused, so an old log stays readable; [label] is
  * what the report prints.
  */
