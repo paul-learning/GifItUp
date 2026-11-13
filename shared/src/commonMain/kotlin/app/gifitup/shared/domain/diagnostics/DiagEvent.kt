@@ -14,10 +14,16 @@ package app.gifitup.shared.domain.diagnostics
 enum class DiagEvent(
     val code: Int,
     val label: String,
+    /**
+     * Whether a repeat in the same minute is counted (`x3`). Only for what is not about a chat: the socket. For everything else
+     * the minute says "it happened", and a count would say how many groups, bubbles or messages were involved (security
+     * review SEC-3), so a repeat in the same minute is dropped, not counted.
+     */
+    val counted: Boolean = false,
 ) {
     APP_START(1, "app start"),
-    SOCKET_CONNECTED(2, "live updates connected"),
-    SOCKET_LOST(3, "live updates lost"),
+    SOCKET_CONNECTED(2, "live updates connected", counted = true),
+    SOCKET_LOST(3, "live updates lost", counted = true),
     SYNC_FAILED_NETWORK(4, "refresh failed: network"),
     SYNC_FAILED_SERVER(5, "refresh failed: server"),
     HISTORY_PROBLEM(7, "history problem"),
@@ -31,8 +37,8 @@ enum class DiagEvent(
     CALL_FAILED_SETUP(17, "chat setup failed"),
     SYNC_NOTE(18, "sync note"),
     WELCOME_REJECTED(19, "invitation rejected"),
-    SOCKET_STATE(20, "live updates state"),
-    SOCKET_STOPPED(21, "live updates stopped"),
+    SOCKET_STATE(20, "live updates state", counted = true),
+    SOCKET_STOPPED(21, "live updates stopped", counted = true),
     MEDIA_FAILED(22, "gif could not be shown"),
     ;
 

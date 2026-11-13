@@ -27,7 +27,7 @@ class DiagnosticsObserver(
     private val scope: CoroutineScope,
 ) {
     /** A change of the socket's state: connected, or lost after it was connected (the first "not connected" is not news). */
-    fun watchSocket(connected: Flow<Boolean>) {
+    fun watchSocket(connected: Flow<Boolean>): Job =
         scope.launch {
             var was = false
             connected.distinctUntilChanged().collect { now ->
@@ -39,10 +39,9 @@ class DiagnosticsObserver(
                 was = now
             }
         }
-    }
 
     /** The chat list's problem, when there is one. */
-    fun watchList(problem: Flow<ChatProblem?>) {
+    fun watchList(problem: Flow<ChatProblem?>): Job =
         scope.launch {
             problem.distinctUntilChanged().collect { p ->
                 when (p) {
@@ -54,7 +53,6 @@ class DiagnosticsObserver(
                 }
             }
         }
-    }
 
     /** A send that did not go: not the caption rule (the user's own input), everything else. */
     fun watchSend(problem: Flow<SendProblem?>): Job =
@@ -65,14 +63,13 @@ class DiagnosticsObserver(
         }
 
     /** Live updates waiting to retry, and why they ended for good. (Connected and lost are [watchSocket].) */
-    fun watchLive(status: Flow<LiveStatus>) {
+    fun watchLive(status: Flow<LiveStatus>): Job =
         scope.launch {
             status.map { it.state to it.stopped }.distinctUntilChanged().collect { (state, stopped) ->
                 if (state == LiveState.WAITING) log.record(DiagEvent.SOCKET_STATE, DiagDetail.LIVE_WAITING)
                 stopped?.let { log.record(DiagEvent.SOCKET_STOPPED, it.diag()) }
             }
         }
-    }
 
     /**
      * A GIF that failed to load, with the closed reason. Only the first failure of a bubble counts (the tiles are compared in
