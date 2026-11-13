@@ -33,6 +33,7 @@ internal const val ROUTE_CONTACT = "contact"
 internal const val ROUTE_GROUP = "group-info"
 internal const val ROUTE_NEW_CHAT = "new-chat"
 internal const val ROUTE_CONVERSATION = "conversation"
+internal const val ROUTE_DIAGNOSTICS = "diagnostics"
 
 /**
  * The landing screen once the account is ready (#217): the chat list with its filter, the round "+" and the burger menu, and
@@ -55,7 +56,10 @@ internal fun ChatHome(
         }
         val signedIn by model.holder.state.collectAsState()
         val username = (signedIn as? OnboardingState.Done)?.username.orEmpty()
-        val menu = MenuActions({ nav.navigate(ROUTE_PROFILE) }, { nav.navigate(ROUTE_INVITES) }, { nav.navigate(ROUTE_FRIENDS) }, username)
+        val menu =
+            MenuActions({
+                nav.navigate(ROUTE_PROFILE)
+            }, { nav.navigate(ROUTE_INVITES) }, { nav.navigate(ROUTE_FRIENDS) }, { nav.navigate(ROUTE_DIAGNOSTICS) }, username)
         val actions =
             ChatListActions({ nav.navigate(ROUTE_NEW_CHAT) }, menu, open, { openProfile(model, nav, it) }, customServer, connected)
         if (wide) {

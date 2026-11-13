@@ -8,6 +8,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.gifitup.AppGraph
+import app.gifitup.BuildDefaults
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.data.gif.KlipyGifProvider
 import app.gifitup.shared.data.network.ApiEndpoint
@@ -21,6 +22,7 @@ import app.gifitup.shared.domain.auth.HistoryCloser
 import app.gifitup.shared.domain.chat.ChatService
 import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.diagnostics.DiagInfo
 import app.gifitup.shared.domain.events.LiveUpdates
 import app.gifitup.shared.domain.gif.GifKeyHolder
 import app.gifitup.shared.domain.gif.GifKeyRefresher
@@ -45,6 +47,8 @@ import app.gifitup.shared.presentation.chat.LiveRefresh
 import app.gifitup.shared.presentation.chat.LiveSwitch
 import app.gifitup.shared.presentation.chat.NewChatStateHolder
 import app.gifitup.shared.presentation.contacts.ContactsStateHolder
+import app.gifitup.shared.presentation.diagnostics.DiagnosticsObserver
+import app.gifitup.shared.presentation.diagnostics.DiagnosticsStateHolder
 import app.gifitup.shared.presentation.gif.GifPickerStateHolder
 import app.gifitup.shared.presentation.invite.CreateInviteStateHolder
 import app.gifitup.shared.presentation.onboarding.OnboardingState
@@ -140,6 +144,32 @@ internal class OnboardingViewModel(
     /** Whether the socket is connected: the screens' timers slow down while it is. */
     val liveConnected: StateFlow<Boolean> = live.status.map { it.connected }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     private val liveRefresh = LiveRefresh(viewModelScope, live::nextWake, LiveTarget())
+
+    // What the diagnostics log hears of the screens' own problem states (#154 follow-up); it never sees content.
+    private val diagnostics = DiagnosticsObserver(graph.diagnostics, viewModelScope)
+
+    /** The diagnostics screen's logic; the report says only fixed words and numbers (DiagnosticsReport). */
+    val diagnosticsScreen =
+        DiagnosticsStateHolder(
+            viewModelScope,
+            graph.diagnostics,
+            {
+                DiagInfo(
+                    version = BuildDefaults.VERSION,
+                    platform = graph.platform,
+                    customServer = origin != BuildDefaults.DEFAULT_ORIGIN,
+                    signedIn = true,
+                    chats = DiagInfo.bucket(chats.state.value.conversations.size),
+                    liveConnected = liveConnected.value,
+                )
+            },
+            { Clock.System.now().epochSeconds },
+        )
+
+    init {
+        diagnostics.watchSocket(liveConnected)
+        diagnostics.watchList(chats.state.map { it.problem })
+    }
 
     private suspend fun knownGroups(): List<GroupInfo> =
         (sessions.withSessionResult { chatService.groups(it) } as? AuthResult.Ok)?.value?.groups.orEmpty()
@@ -288,6 +318,7 @@ internal class OnboardingViewModel(
         tiles.leave()
         conversation =
             ConversationStateHolder(viewModelScope, sessions, chatService, history, marks, info, captions).also {
+                diagnostics.watchSend(it.state.map { s -> s.sendProblem })
                 // A read the timer made found messages no hint announced: the socket is quiet but not working (rate limited inside).
                 it.onUnannouncedNews = { viewModelScope.launch { live.reconnect() } }
             }

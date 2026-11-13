@@ -103,7 +103,7 @@ class DiagnosticsTest {
         runTest {
             val broken =
                 object : InMemoryLocalStore() {
-                    override suspend fun putAll(entries: Map<String, ByteArray?>) = throw IllegalStateException("disk")
+                    override suspend fun putAll(entries: Map<String, ByteArray?>) = error("disk")
                 }
             val log = StoredDiagnosticsLog(broken, { 1 }, this)
             log.record(DiagEvent.APP_START)
@@ -116,7 +116,13 @@ class DiagnosticsTest {
     fun eventCodesAreUniqueAndStable() {
         // Labels stay plain lower-case words: the report's line grammar depends on it.
         DiagEvent.entries.forEach { assertTrue(Regex("^[a-z][a-z :-]{1,60}$").matches(it.label), it.label) }
-        assertEquals(DiagEvent.entries.size, DiagEvent.entries.map { it.code }.toSet().size)
+        assertEquals(
+            DiagEvent.entries.size,
+            DiagEvent.entries
+                .map { it.code }
+                .toSet()
+                .size,
+        )
         DiagEvent.entries.forEach { assertEquals(it, DiagEvent.ofCode(it.code)) }
     }
 
@@ -129,7 +135,12 @@ class DiagnosticsTest {
         assertFalse("http" in report)
         // Every event line is "<time>  <label>" with a label from the closed set.
         val labels = DiagEvent.entries.map { it.label }.toSet()
-        val lines = report.lines().dropWhile { !it.startsWith("events") }.drop(1).filter { it.isNotBlank() }
+        val lines =
+            report
+                .lines()
+                .dropWhile { !it.startsWith("events") }
+                .drop(1)
+                .filter { it.isNotBlank() }
         assertEquals(DiagEvent.entries.size, lines.size)
         lines.forEach { assertTrue(it.substring(21) in labels, it) }
     }

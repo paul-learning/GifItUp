@@ -1,6 +1,7 @@
 package app.gifitup.android
 
 import android.app.Application
+import android.os.Build
 import app.gifitup.AppGraph
 import app.gifitup.ConversationPlatform
 import app.gifitup.mls.UniffiHistoryCipherFactory
@@ -39,6 +40,7 @@ class GifItUpApp : Application() {
                 ),
             historyCiphers = { UniffiHistoryCipherFactory },
             historyLimits = HistoryLimits(),
+            platform = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
         )
     }
 

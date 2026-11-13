@@ -1,3 +1,5 @@
+@file:Suppress("MagicNumber") // The civil-calendar arithmetic is the content of this file.
+
 package app.gifitup.shared.domain.diagnostics
 
 /** What the report says about the app itself; every field is a fixed word or a number, never a user's value. */

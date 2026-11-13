@@ -82,14 +82,19 @@ class StoredDiagnosticsLog(
         }
 
         internal fun decode(bytes: ByteArray): List<DiagEntry> {
-            if (bytes.isEmpty() || bytes.size > MAX_BYTES || bytes[0] != VERSION || (bytes.size - 1) % ENTRY_BYTES != 0) return emptyList()
-            return (0 until (bytes.size - 1) / ENTRY_BYTES).mapNotNull { i ->
-                val base = 1 + i * ENTRY_BYTES
-                var at = 0L
-                for (b in 0 until Long.SIZE_BYTES) at = (at shl BITS) or (bytes[base + b].toLong() and BYTE_MASK.toLong())
-                val code = ((bytes[base + Long.SIZE_BYTES].toInt() and BYTE_MASK) shl BITS) or (bytes[base + Long.SIZE_BYTES + 1].toInt() and BYTE_MASK)
-                DiagEvent.ofCode(code)?.let { DiagEntry(at, it) }
-            }
+            val valid = bytes.size in 1..MAX_BYTES && bytes[0] == VERSION && (bytes.size - 1) % ENTRY_BYTES == 0
+            return if (!valid) emptyList() else (0 until (bytes.size - 1) / ENTRY_BYTES).mapNotNull { entryAt(bytes, 1 + it * ENTRY_BYTES) }
+        }
+
+        private fun entryAt(
+            bytes: ByteArray,
+            base: Int,
+        ): DiagEntry? {
+            var at = 0L
+            for (b in 0 until Long.SIZE_BYTES) at = (at shl BITS) or (bytes[base + b].toLong() and BYTE_MASK.toLong())
+            val high = (bytes[base + Long.SIZE_BYTES].toInt() and BYTE_MASK) shl BITS
+            val code = high or (bytes[base + Long.SIZE_BYTES + 1].toInt() and BYTE_MASK)
+            return DiagEvent.ofCode(code)?.let { DiagEntry(at, it) }
         }
     }
 }

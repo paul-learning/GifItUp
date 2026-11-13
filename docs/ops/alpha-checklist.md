@@ -60,3 +60,4 @@ for this repo): a published release cannot be changed, only replaced by a newer 
 - [ ] Watch the server (`docs/ops/deploy.md`): health, disk, backups run (`docs/ops/`), deploy approvals.
 - [ ] Open issues are labelled `later` and are not in the milestone without your OK; the web-module tests are #260.
 - [ ] Fixing a bug in a shipped APK means a new version: tag the next number, test the draft, publish.
+- [ ] Diagnostics (menu → About and diagnostics): the version is right; Android: Share opens the chooser, Save to file writes `gifitup-log.txt` (also over an existing longer file), Copy works; web: Save downloads the file; Clear log leaves one "log cleared" line; kill the app and reopen: the log is still there; sign out/wipe: it is gone.

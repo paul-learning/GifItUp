@@ -50,6 +50,7 @@ fun App(
     graph: AppGraph,
     inbox: InviteInbox = remember { InviteInbox(null) },
     screen: ScreenProtection = ScreenProtection.None,
+    export: LogExport = LogExport.None,
 ) {
     GifItUpTheme {
         ProvideGlyphs(graph.glyphs) {
@@ -58,7 +59,7 @@ fun App(
             Surface(modifier = Modifier.fillMaxSize()) {
                 Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                     val storage = graph.deviceStorage
-                    if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen)
+                    if (storage == null) Text("GifItUp can't open its storage here.") else Configured(graph, storage, inbox, screen, export)
                 }
             }
         }
@@ -91,6 +92,7 @@ private fun Configured(
     storage: DeviceStorage,
     inbox: InviteInbox,
     screen: ScreenProtection,
+    export: LogExport,
 ) {
     val setting = remember(storage) { storage.originSetting(BuildDefaults.DEFAULT_ORIGIN, graph.serverSettingsEditable) }
     var originVersion by remember { mutableIntStateOf(0) }
@@ -116,7 +118,7 @@ private fun Configured(
 
         origin is ServerOriginSetting.Current.Origin && factory != null -> {
             Navigation(
-                services = Services(graph, storage, factory, setting),
+                services = Services(graph, storage, factory, setting, export),
                 current = OriginView(origin.origin, origin.custom),
                 inbox = inbox,
                 screen = screen,
@@ -139,6 +141,7 @@ private class Services(
     val storage: DeviceStorage,
     val mls: MlsClientFactory,
     val setting: ServerOriginSetting,
+    val export: LogExport,
 )
 
 @Composable
@@ -198,6 +201,7 @@ private fun Navigation(
             }
         }
         chatRoutes(nav, current, services.graph.glyphs)
+        diagnosticsRoute(nav, services, current, screen)
         composable(ROUTE_FRIENDS) { entry ->
             val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
             val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
@@ -206,6 +210,22 @@ private fun Navigation(
             }
         }
         settingsRoute(nav, services, current, scope, onOriginChanged)
+    }
+}
+
+/** About and diagnostics (#154 follow-up), over the onboarding entry's ViewModel like the other signed-in screens. */
+private fun NavGraphBuilder.diagnosticsRoute(
+    nav: NavHostController,
+    services: Services,
+    current: OriginView,
+    screen: ScreenProtection,
+) {
+    composable(ROUTE_DIAGNOSTICS) { entry ->
+        val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
+        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
+        DiagnosticsScreen(model.diagnosticsScreen, services.export, services.graph.clipboard, screen) {
+            if (nav.currentDestination?.route == ROUTE_DIAGNOSTICS) nav.popBackStack()
+        }
     }
 }
 
