@@ -21,8 +21,8 @@ private enum class Kind { READ, SEND, SETUP }
  * result: each call returns exactly what [inner] returned, and only closed values of the outcome are looked at (never a
  * group id, a name, a target, a caption or a GIF).
  *
- * What is noted: a failed read or send with the closed reason, the sync states that mean "something is off" (retry, new keys
- * needed, a change waiting, a lookup that didn't finish, busy, device storage, crypto stopped, chat stopped) and rejected welcomes
+ * What is noted: a failed read or send with the closed reason, the sync states that mean "the device is off" (new keys
+ * needed, busy, device storage, crypto stopped) and rejected welcomes
  * (stale or unusable only: see [app.gifitup.shared.domain.groups.RejectReason.diag]). Chat setup (create, add, leave, accept)
  * is noted only when the failure is about the system and not about a person (the network, the session, the server, a limit,
  * crypto or storage), because an add that failed with "no such member" would say who the user tried to add and when. Successes
@@ -95,7 +95,7 @@ class DiagnosedChatPort(
     override suspend fun resume(
         session: Session,
         groupId: KeyBytes,
-    ): AuthResult<SyncOutcome> = inner.resume(session, groupId).also { noteSyncResult(Kind.SEND, it) }
+    ): AuthResult<SyncOutcome> = inner.resume(session, groupId).also { noteSyncResult(Kind.SETUP, it) }
 
     override suspend fun leave(
         session: Session,
@@ -129,11 +129,18 @@ class DiagnosedChatPort(
         log.record(event(kind), detail)
     }
 
-    /** What a sync outcome says; only the states that mean something is off. */
+    /**
+     * What a sync outcome says. Only states about the device or the system: new keys needed, busy, device storage, crypto
+     * stopped, and the API failure kinds. **Not** noted, because their minute would mark a membership change or a message
+     * arriving: a retry, a change waiting, an unfinished lookup, a stopped chat (removed, or a contact's key changed). For a
+     * setup call (including `resume`, which posts pending membership commits) only storage, crypto and system-wide API failures
+     * are noted (security review SEC-2).
+     */
     private fun noteSync(
         kind: Kind,
         outcome: SyncOutcome,
     ) {
+        val setup = kind == Kind.SETUP
         when (outcome) {
             is SyncOutcome.Unavailable -> noteApi(kind, outcome.error)
 
@@ -143,24 +150,18 @@ class DiagnosedChatPort(
 
             is SyncOutcome.PendingFirst -> noteSync(kind, outcome.outcome)
 
-            is SyncOutcome.Retry -> log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_RETRY)
+            SyncOutcome.RekeyNeeded -> if (!setup) log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_REKEY_NEEDED)
 
-            SyncOutcome.RekeyNeeded -> log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_REKEY_NEEDED)
-
-            SyncOutcome.CommitPending -> log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_COMMIT_PENDING)
-
-            SyncOutcome.LookupIncomplete -> log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_LOOKUP_INCOMPLETE)
-
-            SyncOutcome.Busy -> log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_BUSY)
+            SyncOutcome.Busy -> if (!setup) log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_BUSY)
 
             SyncOutcome.StorageFailed -> log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_STORAGE_FAILED)
 
             is SyncOutcome.Poisoned -> log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_POISONED)
 
-            is SyncOutcome.Stopped -> log.record(DiagEvent.SYNC_NOTE, DiagDetail.SYNC_STOPPED)
-
-            // Nothing to note: caught up, sent, not joined (a state, not a failure), the user's own invalid request, too long.
-            is SyncOutcome.CaughtUp, is SyncOutcome.Sent, SyncOutcome.NotJoined, SyncOutcome.InvalidRequest, SyncOutcome.TooLong -> Unit
+            // Nothing to note (see above), or not a failure: caught up, sent, not joined, the user's own invalid or too long request.
+            is SyncOutcome.Retry, SyncOutcome.CommitPending, SyncOutcome.LookupIncomplete, is SyncOutcome.Stopped,
+            is SyncOutcome.CaughtUp, is SyncOutcome.Sent, SyncOutcome.NotJoined, SyncOutcome.InvalidRequest, SyncOutcome.TooLong,
+            -> Unit
         }
     }
 
@@ -179,13 +180,16 @@ class DiagnosedChatPort(
             Kind.SETUP -> DiagEvent.CALL_FAILED_SETUP
         }
 
-    /** A failure about the system, not about a person the user tried to reach. */
+    /** A failure about the system, not about a person the user tried to reach. Exhaustive: a new kind must be decided here. */
     private fun ApiError.isSystemWide(): Boolean =
         when (this) {
             ApiError.NETWORK, ApiError.UNAUTHORIZED, ApiError.SERVER_ERROR, ApiError.RATE_LIMITED, ApiError.MALFORMED_RESPONSE,
             ApiError.CLIENT_OUTDATED, ApiError.SERVER_OUTDATED, ApiError.GROUP_LIMIT, ApiError.WELCOME_LIMIT,
             -> true
 
-            else -> false
+            ApiError.BAD_REQUEST, ApiError.INVITE_INVALID, ApiError.USERNAME_UNAVAILABLE, ApiError.NOT_FOUND,
+            ApiError.KEY_PACKAGE_INVALID, ApiError.KEY_PACKAGE_LIMIT, ApiError.INVITE_LIMIT, ApiError.ENVELOPE_INVALID,
+            ApiError.ENVELOPE_CONFLICT, ApiError.EPOCH_CONFLICT, ApiError.GROUP_FULL, ApiError.PAYLOAD_TOO_LARGE,
+            -> false
         }
 }

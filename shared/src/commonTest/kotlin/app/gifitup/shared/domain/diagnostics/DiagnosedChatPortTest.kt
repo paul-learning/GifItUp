@@ -172,6 +172,57 @@ class DiagnosedChatPortTest {
         }
 
     @Test
+    fun aSetupFailureThatNamesAPersonIsNeverNotedWhateverItsKind() =
+        runTest {
+            val log = Recording()
+            val inner = Fake(AuthResult.Failed(AuthError.Local.CONTACT_BLOCKED))
+            val port = DiagnosedChatPort(inner, log)
+            listOf(AuthError.Local.CONTACT_BLOCKED, AuthError.Local.INVALID_USERNAME, AuthError.Local.CONTACTS_UNAVAILABLE).forEach {
+                inner.answer = AuthResult.Failed(it)
+                port.add(session, group, "someone")
+                port.addToNewGroup(session, group, "someone")
+                port.sync(session, group)
+            }
+            assertEquals(emptyList<Pair<DiagEvent, DiagDetail?>>(), log.noted)
+            inner.answer = AuthResult.Failed(AuthError.Local.STORAGE_FAILED)
+            port.add(session, group, "someone")
+            assertEquals<List<Pair<DiagEvent, DiagDetail?>>>(
+                listOf(DiagEvent.CALL_FAILED_SETUP to DiagDetail.LOCAL_STORAGE_FAILED),
+                log.noted,
+            )
+        }
+
+    @Test
+    fun statesThatWouldMarkAMembershipChangeOrAMessageAreNotNotedAndSetupNotesOnlyTheDeviceOnes() =
+        runTest {
+            val log = Recording()
+            val inner = Fake(AuthResult.Ok(SyncOutcome.Retry(1)))
+            val port = DiagnosedChatPort(inner, log)
+            listOf(
+                SyncOutcome.Retry(1),
+                SyncOutcome.CommitPending,
+                SyncOutcome.LookupIncomplete,
+                SyncOutcome.Stopped(app.gifitup.shared.domain.groups.GroupStatus.ACTIVE),
+            ).forEach {
+                inner.answer = AuthResult.Ok(it)
+                port.sync(session, group)
+                port.resume(session, group)
+            }
+            assertEquals(emptyList<Pair<DiagEvent, DiagDetail?>>(), log.noted)
+            // A device state is noted for a read, but not for a setup call (resume posts pending membership commits).
+            inner.answer = AuthResult.Ok(SyncOutcome.Busy)
+            port.resume(session, group)
+            assertEquals(emptyList<Pair<DiagEvent, DiagDetail?>>(), log.noted)
+            port.sync(session, group)
+            assertEquals<List<Pair<DiagEvent, DiagDetail?>>>(listOf(DiagEvent.SYNC_NOTE to DiagDetail.SYNC_BUSY), log.noted)
+            // A failed membership commit on resume is a setup failure: GROUP_FULL says nothing system-wide, so it isn't noted.
+            log.noted.clear()
+            inner.answer = AuthResult.Ok(SyncOutcome.Rejected(ApiError.GROUP_FULL))
+            port.resume(session, group)
+            assertEquals(emptyList<Pair<DiagEvent, DiagDetail?>>(), log.noted)
+        }
+
+    @Test
     fun onlyStaleAndUnusableWelcomesAreNoted() =
         runTest {
             val log = Recording()

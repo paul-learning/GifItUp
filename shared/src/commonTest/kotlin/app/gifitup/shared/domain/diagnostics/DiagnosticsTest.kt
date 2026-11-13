@@ -75,6 +75,21 @@ class DiagnosticsTest {
         }
 
     @Test
+    fun onlyTheSocketsEventsAreCountedAndAlternatingDetailsCannotBypassTheMerge() =
+        runTest {
+            val log = log(this)
+            repeat(20) {
+                log.record(DiagEvent.MEDIA_FAILED, DiagDetail.MEDIA_TOO_LARGE)
+                log.record(DiagEvent.MEDIA_FAILED, DiagDetail.MEDIA_REJECTED)
+            }
+            repeat(3) { log.record(DiagEvent.SOCKET_STATE, DiagDetail.LIVE_WAITING) }
+            advanceUntilIdle()
+            val entries = log.entries()
+            assertEquals(listOf(1, 1, 3), entries.map { it.count })
+            assertEquals(3, entries.size)
+        }
+
+    @Test
     fun detailsAndCountsSurviveTheStoredFormatAndTheFirstVersionIsStillRead() {
         val entries =
             listOf(DiagEntry(960, DiagEvent.CALL_FAILED_SEND, DiagDetail.API_GROUP_FULL, 7), DiagEntry(1_020, DiagEvent.APP_START))

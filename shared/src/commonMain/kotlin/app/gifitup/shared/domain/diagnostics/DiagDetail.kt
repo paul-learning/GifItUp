@@ -41,7 +41,6 @@ enum class DiagDetail(
     API_SERVER_ERROR(118, "server error"),
     API_MALFORMED_RESPONSE(119, "malformed response"),
     API_NETWORK(120, "network"),
-    LOCAL_INVALID_USERNAME(200, "invalid username"),
     LOCAL_INVALID_INVITE_CODE(201, "invalid invite code"),
     LOCAL_ALREADY_REGISTERED(202, "already registered"),
     LOCAL_NOT_REGISTERED(203, "not registered"),
@@ -52,17 +51,11 @@ enum class DiagDetail(
     LOCAL_KEY_UNAVAILABLE(208, "key unavailable"),
     LOCAL_RESTORE_BLOCKED(209, "restore blocked"),
     LOCAL_STORAGE_FAILED(210, "storage failed"),
-    LOCAL_CONTACTS_UNAVAILABLE(211, "contacts unavailable"),
-    LOCAL_CONTACT_BLOCKED(212, "contact blocked"),
     LOCAL_UNEXPECTED(213, "unexpected"),
-    SYNC_RETRY(300, "will retry"),
     SYNC_REKEY_NEEDED(301, "new keys needed"),
-    SYNC_COMMIT_PENDING(302, "a change is waiting"),
-    SYNC_LOOKUP_INCOMPLETE(303, "lookup incomplete"),
     SYNC_BUSY(304, "busy"),
     SYNC_STORAGE_FAILED(305, "device storage failed"),
     SYNC_POISONED(306, "crypto stopped"),
-    SYNC_STOPPED(307, "chat stopped"),
     WELCOME_STALE(400, "stale"),
     WELCOME_UNUSABLE(401, "unusable"),
     STOP_OUTDATED_CLIENT(500, "app too old"),
@@ -111,11 +104,14 @@ fun ApiError.diag(): DiagDetail =
         ApiError.NETWORK -> DiagDetail.API_NETWORK
     }
 
-/** The detail for a local failure kind. */
+/**
+ * The detail for a local failure kind. `INVALID_USERNAME`, `CONTACT_BLOCKED` and `CONTACTS_UNAVAILABLE` are **not** logged
+ * (`null`): they come from claiming a person's keys (a blocked contact, a key that changed, a name that isn't one), so their
+ * moment would say whom the user tried to reach and that a contact's key changed (security review SEC-1).
+ */
 @Suppress("CyclomaticComplexMethod") // One branch per kind: the exhaustive `when` is the point (see above).
-fun AuthError.Local.diag(): DiagDetail =
+fun AuthError.Local.diag(): DiagDetail? =
     when (this) {
-        AuthError.Local.INVALID_USERNAME -> DiagDetail.LOCAL_INVALID_USERNAME
         AuthError.Local.INVALID_INVITE_CODE -> DiagDetail.LOCAL_INVALID_INVITE_CODE
         AuthError.Local.ALREADY_REGISTERED -> DiagDetail.LOCAL_ALREADY_REGISTERED
         AuthError.Local.NOT_REGISTERED -> DiagDetail.LOCAL_NOT_REGISTERED
@@ -126,9 +122,8 @@ fun AuthError.Local.diag(): DiagDetail =
         AuthError.Local.KEY_UNAVAILABLE -> DiagDetail.LOCAL_KEY_UNAVAILABLE
         AuthError.Local.RESTORE_BLOCKED -> DiagDetail.LOCAL_RESTORE_BLOCKED
         AuthError.Local.STORAGE_FAILED -> DiagDetail.LOCAL_STORAGE_FAILED
-        AuthError.Local.CONTACTS_UNAVAILABLE -> DiagDetail.LOCAL_CONTACTS_UNAVAILABLE
-        AuthError.Local.CONTACT_BLOCKED -> DiagDetail.LOCAL_CONTACT_BLOCKED
         AuthError.Local.UNEXPECTED -> DiagDetail.LOCAL_UNEXPECTED
+        AuthError.Local.INVALID_USERNAME, AuthError.Local.CONTACT_BLOCKED, AuthError.Local.CONTACTS_UNAVAILABLE -> null
     }
 
 /** Why live updates ended for good. */

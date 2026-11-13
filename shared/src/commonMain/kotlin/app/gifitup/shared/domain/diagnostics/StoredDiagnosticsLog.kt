@@ -13,13 +13,12 @@ import kotlinx.coroutines.sync.withLock
  * one byte. The first version's blob (10 bytes per entry, no detail) is still read. A blob that doesn't parse is an empty log,
  * never an error; an unknown event code (a newer build wrote it) skips its entry, an unknown detail code drops only the detail.
  *
- * Times are kept to the minute, and an event with the same detail as the newest entry in the same minute is counted in that
- * entry, not listed again, so a reconnect loop can't flood the log or the storage (#154 follow-up, plan review SEC-2,
- * SEC-5). Nothing is cached: every change
- * reads the stored blob, changes it and writes it back, so the store's wipe (which deletes the whole store, ADR-0011) really
- * empties the log and nothing writes old entries back afterwards, and the wipe first calls [stop]. Every change runs under one
- * [Mutex], in the order [record] was called as long as [scope] runs one coroutine at a time (the app's does); a failed read or
- * write is dropped and never recorded as an event itself.
+ * Times are kept to the minute, and an event with the same detail as one already listed for that minute is not listed again
+ * (counted, for the socket's events only), so a reconnect loop can't flood the log or the storage (#154 follow-up, plan
+ * review SEC-2, SEC-5). Nothing is cached: every change reads the stored blob, changes it and writes it back, so the store's
+ * wipe (which deletes the whole store, ADR-0011) really empties the log and nothing writes old entries back afterwards, and
+ * the wipe first calls [stop]. Every change runs under one [Mutex], in the order [record] was called as long as [scope] runs
+ * one coroutine at a time (the app's does); a failed read or write is dropped and never recorded as an event itself.
  */
 class StoredDiagnosticsLog(
     private val store: LocalStore,
@@ -52,18 +51,20 @@ class StoredDiagnosticsLog(
 
     private suspend fun append(entry: DiagEntry) {
         val list = read().toMutableList()
-        val last = list.lastOrNull()
-        // The same event with the same detail in the same minute is counted, not listed again (a retry loop is one line).
-        if (last != null && last.sameLineAs(entry)) {
-            list[list.lastIndex] = last.copy(count = minOf(last.count + 1, DiagEntry.MAX_COUNT))
-        } else {
-            list += entry
+        // The same event with the same detail anywhere in the same minute is one line: counted for the socket's events, dropped
+        // for the rest (a count would say how many chats or bubbles were involved, and alternating details can't bypass it).
+        val same = list.indexOfLast { it.at == entry.at && it.event == entry.event && it.detail == entry.detail }
+        if (same >= 0) {
+            if (entry.event.counted) {
+                list[same] = list[same].copy(count = minOf(list[same].count + 1, DiagEntry.MAX_COUNT))
+                write(list)
+            }
+            return
         }
+        list += entry
         while (list.size > MAX_ENTRIES) list.removeAt(0)
         write(list)
     }
-
-    private fun DiagEntry.sameLineAs(other: DiagEntry) = at == other.at && event == other.event && detail == other.detail
 
     private suspend fun read(): List<DiagEntry> =
         try {
