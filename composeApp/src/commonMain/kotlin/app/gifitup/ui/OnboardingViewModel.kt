@@ -23,6 +23,7 @@ import app.gifitup.shared.domain.chat.ChatService
 import app.gifitup.shared.domain.chat.ReadMarks
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.diagnostics.DiagInfo
+import app.gifitup.shared.domain.diagnostics.DiagnosedChatPort
 import app.gifitup.shared.domain.events.LiveUpdates
 import app.gifitup.shared.domain.gif.GifKeyHolder
 import app.gifitup.shared.domain.gif.GifKeyRefresher
@@ -129,9 +130,10 @@ internal class OnboardingViewModel(
     val invites =
         CreateInviteStateHolder(viewModelScope, sessions, CreateInvite(api), ListInvites(api), RevokeInvite(api), graph.clipboard)
 
-    /** The Friends screen's logic, over the same session, API and engine (ADR-0014). */
-    private val chatService = ChatService(auth.chat, history) { Clock.System.now().epochSeconds }
+    /** The chat use cases over the same session, API and engine, with a note in the diagnostics log for failures (DiagnosedChatPort). */
+    private val chatService = DiagnosedChatPort(ChatService(auth.chat, history) { Clock.System.now().epochSeconds }, graph.diagnostics)
 
+    /** The Friends screen's logic, over the same session, API and engine (ADR-0014). */
     val contacts = ContactsStateHolder(viewModelScope, sessions, auth.contacts, chatService)
 
     /** The chat list's logic (#25), over the same session, API and engine. */
@@ -169,6 +171,7 @@ internal class OnboardingViewModel(
 
     init {
         diagnostics.watchSocket(liveConnected)
+        diagnostics.watchLive(live.status)
         diagnostics.watchList(chats.state.map { it.problem })
     }
 
@@ -266,6 +269,10 @@ internal class OnboardingViewModel(
             LoadGifMedia(mediaFetcher),
         )
     private val captions = CaptionInput(graph.conversations.graphemes)
+
+    init {
+        diagnostics.watchMedia(tiles.tiles)
+    }
 
     /** The picker's logic; its results' previews load through [previews], like the bubbles. */
     val picker = GifPickerStateHolder(viewModelScope, gifProvider)

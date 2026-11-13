@@ -1,13 +1,20 @@
 package app.gifitup.shared.presentation.diagnostics
 
+import app.gifitup.shared.domain.contacts.KeyBytes
+import app.gifitup.shared.domain.diagnostics.DiagDetail
 import app.gifitup.shared.domain.diagnostics.DiagEvent
 import app.gifitup.shared.domain.diagnostics.DiagnosticsLog
+import app.gifitup.shared.domain.diagnostics.diag
+import app.gifitup.shared.domain.events.LiveState
+import app.gifitup.shared.domain.events.LiveStatus
 import app.gifitup.shared.presentation.chat.ChatProblem
+import app.gifitup.shared.presentation.chat.GifTile
 import app.gifitup.shared.presentation.chat.SendProblem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -54,6 +61,32 @@ class DiagnosticsObserver(
         scope.launch {
             problem.distinctUntilChanged().collect { p ->
                 if (p != null && p != SendProblem.CAPTION && p != SendProblem.IN_PROGRESS) log.record(DiagEvent.SEND_FAILED)
+            }
+        }
+
+    /** Live updates waiting to retry, and why they ended for good. (Connected and lost are [watchSocket].) */
+    fun watchLive(status: Flow<LiveStatus>) {
+        scope.launch {
+            status.map { it.state to it.stopped }.distinctUntilChanged().collect { (state, stopped) ->
+                if (state == LiveState.WAITING) log.record(DiagEvent.SOCKET_STATE, DiagDetail.LIVE_WAITING)
+                stopped?.let { log.record(DiagEvent.SOCKET_STOPPED, it.diag()) }
+            }
+        }
+    }
+
+    /**
+     * A GIF that failed to load, with the closed reason. Only the first failure of a bubble counts (the tiles are compared in
+     * memory by their key, which never leaves this function), so a refresh doesn't note it again.
+     */
+    fun watchMedia(tiles: Flow<Map<KeyBytes, GifTile>>): Job =
+        scope.launch {
+            var failed = emptySet<KeyBytes>()
+            tiles.collect { map ->
+                val now = map.filterValues { it is GifTile.Unavailable }
+                now.forEach { (key, tile) ->
+                    if (key !in failed) log.record(DiagEvent.MEDIA_FAILED, (tile as GifTile.Unavailable).reason.diag())
+                }
+                failed = now.keys
             }
         }
 }

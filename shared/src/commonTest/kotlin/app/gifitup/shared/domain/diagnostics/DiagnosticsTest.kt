@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class DiagnosticsTest {
@@ -39,7 +40,7 @@ class DiagnosticsTest {
             val kept = log.entries()
             assertEquals(StoredDiagnosticsLog.MAX_ENTRIES, kept.size)
             assertEquals(960L + 5 * 60, kept.first().at)
-            assertEquals(StoredDiagnosticsLog.MAX_ENTRIES * 10 + 1, store.entries[StoredDiagnosticsLog.KEY]?.size)
+            assertEquals(StoredDiagnosticsLog.MAX_ENTRIES * 13 + 1, store.entries[StoredDiagnosticsLog.KEY]?.size)
         }
 
     @Test
@@ -48,13 +49,13 @@ class DiagnosticsTest {
             store.entries[StoredDiagnosticsLog.KEY] = byteArrayOf(9, 9, 9)
             assertTrue(log(this).entries().isEmpty())
             val good = StoredDiagnosticsLog.encode(listOf(DiagEntry(5, DiagEvent.APP_START)))
-            val unknown = good + ByteArray(8) + byteArrayOf(0x7F, 0x7F)
+            val unknown = good + ByteArray(8) + byteArrayOf(0x7F, 0x7F, 0, 0, 1)
             store.entries[StoredDiagnosticsLog.KEY] = unknown
             assertEquals(listOf(DiagEntry(5, DiagEvent.APP_START)), log(this).entries())
         }
 
     @Test
-    fun theSameEventInTheSameMinuteIsNotedOnce() =
+    fun theSameEventInTheSameMinuteIsCountedNotListedAgain() =
         runTest {
             val log = log(this)
             repeat(50) { log.record(DiagEvent.SOCKET_LOST) }
@@ -62,11 +63,32 @@ class DiagnosticsTest {
             log.record(DiagEvent.SOCKET_LOST)
             advanceUntilIdle()
             assertEquals(1, log.entries().size)
+            assertEquals(51, log.entries().single().count)
+            log.record(DiagEvent.CALL_FAILED_READ, DiagDetail.API_NETWORK)
+            log.record(DiagEvent.CALL_FAILED_READ, DiagDetail.API_RATE_LIMITED)
+            advanceUntilIdle()
+            assertEquals(3, log.entries().size)
             clock += 120
             log.record(DiagEvent.SOCKET_LOST)
             advanceUntilIdle()
-            assertEquals(2, log.entries().size)
+            assertEquals(4, log.entries().size)
         }
+
+    @Test
+    fun detailsAndCountsSurviveTheStoredFormatAndTheFirstVersionIsStillRead() {
+        val entries =
+            listOf(DiagEntry(960, DiagEvent.CALL_FAILED_SEND, DiagDetail.API_GROUP_FULL, 7), DiagEntry(1_020, DiagEvent.APP_START))
+        assertEquals(entries, StoredDiagnosticsLog.decode(StoredDiagnosticsLog.encode(entries)))
+        val v1 = byteArrayOf(1) + ByteArray(8) + byteArrayOf(0, 2) // time 0, SOCKET_CONNECTED
+        assertEquals(listOf(DiagEntry(0, DiagEvent.SOCKET_CONNECTED)), StoredDiagnosticsLog.decode(v1))
+        // An unknown detail code drops the detail, not the entry.
+        val odd =
+            StoredDiagnosticsLog.encode(listOf(DiagEntry(0, DiagEvent.SEND_FAILED))).also {
+                it[1 + 8 + 2] = 0x7F
+                it[1 + 8 + 3] = 0x7F
+            }
+        assertEquals(listOf(DiagEntry(0, DiagEvent.SEND_FAILED)), StoredDiagnosticsLog.decode(odd))
+    }
 
     @Test
     fun aWipeOfTheStoreEmptiesTheLogAndNothingWritesItBack() =
@@ -99,7 +121,7 @@ class DiagnosticsTest {
     @Test
     fun anOversizedBlobIsRefused() =
         runTest {
-            store.entries[StoredDiagnosticsLog.KEY] = ByteArray(StoredDiagnosticsLog.MAX_ENTRIES * 10 + 11).also { it[0] = 1 }
+            store.entries[StoredDiagnosticsLog.KEY] = ByteArray(StoredDiagnosticsLog.MAX_ENTRIES * 13 + 14).also { it[0] = 2 }
             assertTrue(log(this).entries().isEmpty())
         }
 
@@ -142,9 +164,33 @@ class DiagnosticsTest {
     }
 
     @Test
+    fun detailCodesAreUniqueAndLabelsPlain() {
+        assertEquals(
+            DiagDetail.entries.size,
+            DiagDetail.entries
+                .map { it.code }
+                .toSet()
+                .size,
+        )
+        DiagDetail.entries.forEach {
+            assertTrue(it.code > 0)
+            assertTrue(Regex("^[a-z][a-z :-]{1,40}$").matches(it.label), it.label)
+            assertEquals(it, DiagDetail.ofCode(it.code))
+        }
+    }
+
+    @Test
     fun theReportHasOnlyFixedWordsNumbersAndTimes() {
         val info = DiagInfo("0.1.7", "Android 15", customServer = true, chats = DiagInfo.bucket(3), liveConnected = false)
-        val entries = DiagEvent.entries.mapIndexed { i, e -> DiagEntry(1_794_000_000L + i, e) }
+        val entries =
+            DiagEvent.entries.mapIndexed { i, e ->
+                DiagEntry(
+                    1_794_000_000L + i,
+                    e,
+                    DiagDetail.entries[i % DiagDetail.entries.size],
+                    1 + i % 3,
+                )
+            }
         val report = DiagnosticsReport.render(info, entries, 1_794_000_100L)
         assertTrue("server: custom" in report)
         assertFalse("http" in report)
@@ -157,7 +203,12 @@ class DiagnosticsTest {
                 .drop(1)
                 .filter { it.isNotBlank() }
         assertEquals(DiagEvent.entries.size, lines.size)
-        lines.forEach { assertTrue(it.substring(21) in labels, it) }
+        val details = DiagDetail.entries.map { it.label }.toSet()
+        val grammar = Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8}  ([a-z :-]+): ([a-z :-]+?)(  x[0-9]+)?$")
+        lines.forEach {
+            val m = assertNotNull(grammar.matchEntire(it), it)
+            assertTrue(m.groupValues[1] in labels && m.groupValues[2] in details, it)
+        }
     }
 
     @Test
