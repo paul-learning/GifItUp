@@ -13,6 +13,13 @@ interface DiagnosticsLog {
     /** Forgets every entry; the clearing itself is the log's first entry afterwards. */
     suspend fun clear()
 
+    /**
+     * Ends the log for this process: a change already running finishes first, then nothing is read-modified-written again. The
+     * wipe calls it before it deletes the store, so no event recreates the store or puts old entries back after it (security
+     * review SEC-13). The next process starts a new log.
+     */
+    suspend fun stop()
+
     companion object {
         /** For the places that have no log (tests, the dev CLI). */
         val None: DiagnosticsLog =
@@ -22,6 +29,8 @@ interface DiagnosticsLog {
                 override suspend fun entries(): List<DiagEntry> = emptyList()
 
                 override suspend fun clear() = Unit
+
+                override suspend fun stop() = Unit
             }
     }
 }

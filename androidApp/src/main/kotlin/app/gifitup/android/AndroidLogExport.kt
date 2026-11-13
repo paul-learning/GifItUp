@@ -17,8 +17,6 @@ internal class AndroidLogExport(
     private val context: Context,
     private val pickFile: (name: String) -> Unit,
 ) : LogExport {
-    private var pending: String? = null
-
     override val canShare = true
 
     override fun share(text: String) {
@@ -51,5 +49,12 @@ internal class AndroidLogExport(
         } catch (ignored: SecurityException) {
             // The same.
         }
+    }
+
+    private companion object {
+        // Process-wide, not per Activity: a rotation while the file picker is open makes a new Activity (and a new export), and
+        // the picker's answer must still find the text (security review SEC-15). Cleared by the answer.
+        @Volatile
+        var pending: String? = null
     }
 }

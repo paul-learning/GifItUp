@@ -82,6 +82,21 @@ class DiagnosticsTest {
         }
 
     @Test
+    fun afterStopNothingIsWrittenAndTheStoreStaysEmpty() =
+        runTest {
+            val log = log(this)
+            log.record(DiagEvent.APP_START)
+            advanceUntilIdle()
+            log.stop()
+            store.entries.clear() // the wipe
+            log.record(DiagEvent.LOGIN_FAILED)
+            log.clear()
+            advanceUntilIdle()
+            assertTrue(store.entries.isEmpty())
+            assertTrue(log.entries().isEmpty())
+        }
+
+    @Test
     fun anOversizedBlobIsRefused() =
         runTest {
             store.entries[StoredDiagnosticsLog.KEY] = ByteArray(StoredDiagnosticsLog.MAX_ENTRIES * 10 + 11).also { it[0] = 1 }
@@ -128,7 +143,7 @@ class DiagnosticsTest {
 
     @Test
     fun theReportHasOnlyFixedWordsNumbersAndTimes() {
-        val info = DiagInfo("0.1.7", "Android 15", customServer = true, signedIn = true, chats = DiagInfo.bucket(3), liveConnected = false)
+        val info = DiagInfo("0.1.7", "Android 15", customServer = true, chats = DiagInfo.bucket(3), liveConnected = false)
         val entries = DiagEvent.entries.mapIndexed { i, e -> DiagEntry(1_794_000_000L + i, e) }
         val report = DiagnosticsReport.render(info, entries, 1_794_000_100L)
         assertTrue("server: custom" in report)

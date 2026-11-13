@@ -15,8 +15,9 @@ import kotlinx.coroutines.sync.withLock
  * Times are kept to the minute, and an event that is the same as the newest entry in the same minute is not noted again, so a
  * reconnect loop can't flood the log or the storage (#154 follow-up, plan review SEC-2, SEC-5). Nothing is cached: every change
  * reads the stored blob, changes it and writes it back, so the store's wipe (which deletes the whole store, ADR-0011) really
- * empties the log and nothing writes old entries back afterwards. Every change runs under one [Mutex], in the order [record]
- * was called, on [scope]; a failed read or write is dropped and never recorded as an event itself.
+ * empties the log and nothing writes old entries back afterwards, and the wipe first calls [stop]. Every change runs under one
+ * [Mutex], in the order [record] was called as long as [scope] runs one coroutine at a time (the app's does); a failed read or
+ * write is dropped and never recorded as an event itself.
  */
 class StoredDiagnosticsLog(
     private val store: LocalStore,
@@ -24,17 +25,25 @@ class StoredDiagnosticsLog(
     private val scope: CoroutineScope,
 ) : DiagnosticsLog {
     private val mutex = Mutex()
+    private var stopped = false
 
     override fun record(event: DiagEvent) {
-        val at = now() - now() % SECONDS_PER_MINUTE
-        scope.launch { mutex.withLock { append(DiagEntry(at, event)) } }
+        val at = minute()
+        scope.launch { mutex.withLock { if (!stopped) append(DiagEntry(at, event)) } }
     }
 
     override suspend fun entries(): List<DiagEntry> = mutex.withLock { read() }
 
     override suspend fun clear() {
-        mutex.withLock { write(listOf(DiagEntry(now() - now() % SECONDS_PER_MINUTE, DiagEvent.LOG_CLEARED))) }
+        mutex.withLock { if (!stopped) write(listOf(DiagEntry(minute(), DiagEvent.LOG_CLEARED))) }
     }
+
+    override suspend fun stop() {
+        mutex.withLock { stopped = true }
+    }
+
+    /** The time to the minute, read from the clock once. */
+    private fun minute(): Long = now().let { it - it % SECONDS_PER_MINUTE }
 
     private suspend fun append(entry: DiagEntry) {
         val list = read().toMutableList()

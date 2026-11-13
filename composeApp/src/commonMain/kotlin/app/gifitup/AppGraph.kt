@@ -63,8 +63,11 @@ class AppGraph(
         if (store == null) {
             DiagnosticsLog.None
         } else {
-            StoredDiagnosticsLog(store, { Clock.System.now().epochSeconds }, CoroutineScope(SupervisorJob() + Dispatchers.Default))
-                .also { it.record(DiagEvent.APP_START) }
+            StoredDiagnosticsLog(
+                store,
+                { Clock.System.now().epochSeconds },
+                CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1)),
+            ).also { it.record(DiagEvent.APP_START) }
         }
     }
 }

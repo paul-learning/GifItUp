@@ -107,6 +107,8 @@ internal class OnboardingViewModel(
             HistoryCloser {
                 // A wipe ends the GIF session too: the refresh stops and the key leaves memory before the history closes.
                 endGifSession()
+                // The diagnostics log ends before the store is deleted, so no event recreates it afterwards (SEC-13).
+                graph.diagnostics.stop()
                 history.close()
             },
         )
@@ -158,7 +160,6 @@ internal class OnboardingViewModel(
                     version = BuildDefaults.VERSION,
                     platform = graph.platform,
                     customServer = origin != BuildDefaults.DEFAULT_ORIGIN,
-                    signedIn = true,
                     chats = DiagInfo.bucket(chats.state.value.conversations.size),
                     liveConnected = liveConnected.value,
                 )
@@ -301,6 +302,8 @@ internal class OnboardingViewModel(
             )
     }
 
+    private var sendWatch: Job? = null
+
     /** The conversation the list opened, `null` if none (the screen then goes back). One at a time. */
     var conversation: ConversationStateHolder? by mutableStateOf(null)
         private set
@@ -318,7 +321,8 @@ internal class OnboardingViewModel(
         tiles.leave()
         conversation =
             ConversationStateHolder(viewModelScope, sessions, chatService, history, marks, info, captions).also {
-                diagnostics.watchSend(it.state.map { s -> s.sendProblem })
+                sendWatch?.cancel()
+                sendWatch = diagnostics.watchSend(it.state.map { s -> s.sendProblem })
                 // A read the timer made found messages no hint announced: the socket is quiet but not working (rate limited inside).
                 it.onUnannouncedNews = { viewModelScope.launch { live.reconnect() } }
             }

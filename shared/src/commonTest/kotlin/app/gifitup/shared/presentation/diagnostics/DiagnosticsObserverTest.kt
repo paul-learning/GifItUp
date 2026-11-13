@@ -28,6 +28,8 @@ class DiagnosticsObserverTest {
         override suspend fun entries() = events.map { DiagEntry(0, it) }
 
         override suspend fun clear() = events.clear()
+
+        override suspend fun stop() = Unit
     }
 
     /** A scope for the observers' endless collectors, on the test's scheduler; it is not a child, so the test doesn't wait for it. */
@@ -72,13 +74,15 @@ class DiagnosticsObserverTest {
     fun theHolderBuildsTheReportAndDropsItWhenLeft() =
         runTest {
             val log = Recording().also { it.record(DiagEvent.APP_START) }
-            val info = DiagInfo("0.1.7", "web", customServer = false, signedIn = true, chats = DiagInfo.bucket(0), liveConnected = false)
+            val info = DiagInfo("0.1.7", "web", customServer = false, chats = DiagInfo.bucket(0), liveConnected = false)
             val holder = DiagnosticsStateHolder(this, log, { info }, { 0L })
             holder.refresh()
             advanceUntilIdle()
             assertTrue("app start" in assertNotNull(holder.state.value.report))
             holder.leave()
             assertEquals(null, holder.state.value.report)
+            holder.refresh()
+            advanceUntilIdle()
             holder.clear()
             advanceUntilIdle()
             assertTrue("(none)" in assertNotNull(holder.state.value.report))

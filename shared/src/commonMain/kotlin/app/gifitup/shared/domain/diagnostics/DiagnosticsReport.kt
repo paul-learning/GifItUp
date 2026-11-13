@@ -8,7 +8,6 @@ data class DiagInfo(
     val platform: String,
     /** `true` for a server other than the build's default; the report says "default" or "custom", never the host. */
     val customServer: Boolean,
-    val signedIn: Boolean,
     /** A bucket, not the number: see [bucket]. */
     val chats: String,
     val liveConnected: Boolean,
@@ -39,7 +38,6 @@ object DiagnosticsReport {
             appendLine("version: ${info.version}")
             appendLine("platform: ${info.platform}")
             appendLine("server: ${if (info.customServer) "custom" else "default"}")
-            appendLine("signed in: ${yesNo(info.signedIn)}")
             appendLine("chats: ${info.chats}")
             appendLine("live updates connected: ${yesNo(info.liveConnected)}")
             appendLine("created: ${utc(nowSeconds)}")

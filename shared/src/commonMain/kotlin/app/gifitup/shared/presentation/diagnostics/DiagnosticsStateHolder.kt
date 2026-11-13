@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** What the diagnostics screen shows: the version line and the full report, or `null` until it is built. */
@@ -29,21 +30,30 @@ class DiagnosticsStateHolder(
     private val flow = MutableStateFlow(DiagnosticsState(info().version))
     val state: StateFlow<DiagnosticsState> = flow.asStateFlow()
 
+    private var open = true
+
     /** Builds the report from the log as it is now. */
     fun refresh() {
-        scope.launch { flow.value = flow.value.copy(report = DiagnosticsReport.render(info(), log.entries(), nowSeconds())) }
+        open = true
+        scope.launch { show(DiagnosticsReport.render(info(), log.entries(), nowSeconds())) }
     }
 
     /** Forgets the log, then shows the new, nearly empty report. */
     fun clear() {
         scope.launch {
             log.clear()
-            flow.value = flow.value.copy(report = DiagnosticsReport.render(info(), log.entries(), nowSeconds()))
+            show(DiagnosticsReport.render(info(), log.entries(), nowSeconds()))
         }
+    }
+
+    /** Sets the report only while the screen is open and from the state as it is now, so a screen left meanwhile stays empty. */
+    private fun show(report: String) {
+        if (open) flow.update { it.copy(report = report) }
     }
 
     /** The screen is left: the report goes out of memory. */
     fun leave() {
-        flow.value = flow.value.copy(report = null)
+        open = false
+        flow.update { it.copy(report = null) }
     }
 }

@@ -5,6 +5,7 @@ import app.gifitup.shared.domain.diagnostics.DiagnosticsLog
 import app.gifitup.shared.presentation.chat.ChatProblem
 import app.gifitup.shared.presentation.chat.SendProblem
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -49,11 +50,10 @@ class DiagnosticsObserver(
     }
 
     /** A send that did not go: not the caption rule (the user's own input), everything else. */
-    fun watchSend(problem: Flow<SendProblem?>) {
+    fun watchSend(problem: Flow<SendProblem?>): Job =
         scope.launch {
             problem.distinctUntilChanged().collect { p ->
                 if (p != null && p != SendProblem.CAPTION && p != SendProblem.IN_PROGRESS) log.record(DiagEvent.SEND_FAILED)
             }
         }
-    }
 }
