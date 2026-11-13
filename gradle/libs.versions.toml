@@ -8,7 +8,7 @@ androidx-activity = "1.13.0"
 androidx-navigation = "2.10.0"
 androidx-lifecycle = "2.11.0"
 kotlinx-serialization = "1.12.0"
-ktor = "3.6.0"
+ktor = "3.6.1"
 logback = "1.6.6"
 # The version of the dev CLI's no-op slf4j provider (#79 PR B). It pulls slf4j-api to the same version in the CLI only;
 # the other modules keep the slf4j-api 2.0.19 that Ktor 3.6 resolves to.
