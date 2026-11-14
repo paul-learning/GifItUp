@@ -3,6 +3,7 @@ package app.gifitup.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -136,7 +138,7 @@ internal fun Friend(
             FriendStatus.SAVED -> colors.secondary
             else -> colors.onSurfaceVariant
         }
-    CardSurface(outline = if (changed) colors.tertiary else null) {
+    val details: @Composable ColumnScope.() -> Unit = {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -165,6 +167,15 @@ internal fun Friend(
             friend.reason?.let { Text(FriendTexts.reviewTitle(it), color = colors.tertiary) }
             friend.devices.forEach { EmojiBlock(it, glyphs) }
             ChatKey(friend, glyphs, canReview, onSaveKey)
+        }
+    }
+    // A friend whose key changed asks for attention with an accent-outlined card; the others are flat rows with a hairline (#154).
+    if (changed) {
+        CardSurface(outline = colors.tertiary, content = details)
+    } else {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            details()
+            HorizontalDivider(color = colors.outlineVariant)
         }
     }
 }
