@@ -50,7 +50,7 @@ internal fun <T> TextTabs(
                     label,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (chosen) colors.onSurface else colors.onSurfaceVariant,
+                    color = (if (chosen) colors.onSurface else colors.onSurfaceVariant).copy(alpha = if (enabled) 1f else DISABLED_ALPHA),
                 )
                 Box(
                     Modifier
@@ -77,6 +77,7 @@ internal fun SectionTitle(
     )
 }
 
+private const val DISABLED_ALPHA = 0.4f
 private val TAB_HEIGHT = 36.dp
 private val TAB_LINE = 28.dp
 private val TAB_GAP = 24.dp

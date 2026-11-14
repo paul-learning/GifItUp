@@ -173,7 +173,7 @@ internal fun Friend(
     if (changed) {
         CardSurface(outline = colors.tertiary, content = details)
     } else {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             details()
             HorizontalDivider(color = colors.outlineVariant)
         }

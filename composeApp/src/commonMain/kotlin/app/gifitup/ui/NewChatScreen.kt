@@ -164,7 +164,7 @@ internal fun FriendRow(
             .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) { onToggle() },
     ) {
         Row(
-            modifier = Modifier.defaultMinSize(minHeight = 60.dp).padding(vertical = 8.dp),
+            modifier = Modifier.defaultMinSize(minHeight = 60.dp).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -175,7 +175,7 @@ internal fun FriendRow(
             }
             Checkbox(checked = checked, onCheckedChange = null)
         }
-        HorizontalDivider(Modifier.padding(start = 56.dp), color = colors.outlineVariant)
+        HorizontalDivider(Modifier.padding(start = 68.dp), color = colors.outlineVariant)
     }
 }
 

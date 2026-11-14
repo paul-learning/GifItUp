@@ -126,7 +126,7 @@ private fun AddSection(
     state: GroupInfoState,
     holder: GroupInfoStateHolder,
 ) {
-    SectionTitle(GroupInfoTexts.ADD, Modifier.padding(top = 8.dp))
+    SectionTitle(GroupInfoTexts.ADD)
     if (state.candidates.isEmpty()) Text(GroupInfoTexts.NOBODY_TO_ADD, color = MaterialTheme.colorScheme.onSurfaceVariant)
     state.candidates.forEach { name -> FriendRow(name, name in state.selected, !state.adding) { holder.toggle(name) } }
     state.problem?.let { Text(GroupInfoTexts.problem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }
