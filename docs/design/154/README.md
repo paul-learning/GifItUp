@@ -16,4 +16,8 @@ a direction and not pixel values: flat rows with a hairline divider instead of c
 purple underline instead of chips, icon buttons without a filled tile, smaller and quieter buttons (40 dp high, softer
 corners, medium weight), a slim unread count pill (a dot was tried and the owner preferred the count), a smaller round "+" (56 dp), tighter corner radii
 and lighter font weights. Built in the shared theme and components (`GifItUpTheme.kt`, `Buttons.kt`, `Components.kt`),
-so every screen follows. Not done yet: the conversation bubbles (`MessageRow.kt`) and the header wording (#283).
+so every screen follows. Done in the passes so far: the chat list, the conversation view, the top bar (menu left, own initial right), the reactions panel,
+and (third pass) the lists on the other screens: friends, new chat and group members are flat rows with a hairline instead of
+cards (a friend whose key changed keeps the orange-outlined card), the chat-mode choice of new chat is text tabs like the list's
+filter, and section titles are quiet labels. Forms (onboarding, settings, invite, profile) follow through the shared theme and
+buttons only. Not done: the GIF picker and caption screens, the header wording (#283).

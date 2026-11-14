@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,11 +47,11 @@ internal fun GroupInfoScreen(
     LaunchedEffect(state.left) { if (state.left) onLeft() }
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         AppTopBar(state.name?.let { ChatTexts.isolated(it) } ?: GroupInfoTexts.TITLE, onBack, backEnabled = !state.adding)
         if (!state.loaded) CircularProgressIndicator()
-        Text(GroupInfoTexts.MEMBERS, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
+        SectionTitle(GroupInfoTexts.MEMBERS)
         if (state.standingUnknown) {
             Text(
                 GroupInfoTexts.STANDING_UNKNOWN,
@@ -100,15 +101,22 @@ private fun MemberRow(
     name: String,
     standing: MemberStanding?,
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Avatar(name)
-        Column {
-            Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            // By key against the saved pin, never by name alone: a stranger can carry a friend's name (#31).
-            GroupInfoTexts.standing(standing, name)?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Avatar(name)
+            Column {
+                Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                // By key against the saved pin, never by name alone: a stranger can carry a friend's name (#31).
+                GroupInfoTexts.standing(standing, name)?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                }
             }
         }
+        HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
@@ -118,7 +126,7 @@ private fun AddSection(
     state: GroupInfoState,
     holder: GroupInfoStateHolder,
 ) {
-    Text(GroupInfoTexts.ADD, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+    SectionTitle(GroupInfoTexts.ADD)
     if (state.candidates.isEmpty()) Text(GroupInfoTexts.NOBODY_TO_ADD, color = MaterialTheme.colorScheme.onSurfaceVariant)
     state.candidates.forEach { name -> FriendRow(name, name in state.selected, !state.adding) { holder.toggle(name) } }
     state.problem?.let { Text(GroupInfoTexts.problem(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.polite()) }

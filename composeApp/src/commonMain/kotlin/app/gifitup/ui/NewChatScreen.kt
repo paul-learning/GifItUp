@@ -1,6 +1,6 @@
 package app.gifitup.ui
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,10 +13,9 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -26,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -132,21 +132,21 @@ private fun ModeAndName(
     }
 }
 
-/** A chat with one friend, or a group: two chips; a change is refused while something is being made. */
+/** A chat with one friend, or a group: two tabs; a change is refused while something is being made. */
 @Composable
 private fun ModeRow(
     state: NewChatState,
     holder: NewChatStateHolder,
 ) {
-    val enabled = !state.creating && state.created == null
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(NewChatMode.DIRECT to ChatTexts.MODE_DIRECT, NewChatMode.GROUP to ChatTexts.MODE_GROUP).forEach { (mode, label) ->
-            FilterChip(selected = state.mode == mode, enabled = enabled, onClick = { holder.setMode(mode) }, label = { Text(label) })
-        }
-    }
+    TextTabs(
+        listOf(NewChatMode.DIRECT to ChatTexts.MODE_DIRECT, NewChatMode.GROUP to ChatTexts.MODE_GROUP),
+        state.mode,
+        holder::setMode,
+        enabled = !state.creating && state.created == null,
+    )
 }
 
-/** A friend as a card with a checkbox: a tap on the card toggles it; selected ones have an accent outline. */
+/** A friend as a flat row with a checkbox: a tap on the row toggles it; a selected one has a soft highlight. */
 @Composable
 internal fun FriendRow(
     name: String,
@@ -156,28 +156,26 @@ internal fun FriendRow(
     onToggle: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    Surface(
-        color = colors.surfaceContainer,
-        shape = MaterialTheme.shapes.large,
-        border = if (checked) BorderStroke(2.dp, colors.secondary) else null,
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.large)
-                .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) { onToggle() },
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(if (checked) colors.secondaryContainer else Color.Transparent, MaterialTheme.shapes.medium)
+            .clip(MaterialTheme.shapes.medium)
+            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) { onToggle() },
     ) {
         Row(
-            modifier = Modifier.defaultMinSize(minHeight = 64.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.defaultMinSize(minHeight = 60.dp).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Avatar(name)
             Column(Modifier.weight(1f)) {
-                Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(ChatTexts.isolated(name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
                 note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             Checkbox(checked = checked, onCheckedChange = null)
         }
+        HorizontalDivider(Modifier.padding(start = 68.dp), color = colors.outlineVariant)
     }
 }
 
