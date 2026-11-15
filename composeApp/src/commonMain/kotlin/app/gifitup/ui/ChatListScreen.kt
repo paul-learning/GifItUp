@@ -17,14 +17,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -131,42 +129,21 @@ private fun RefreshingLine() {
     }
 }
 
-/** All, direct chats, groups as plain tabs: the chosen one is bright with a short purple line under it. */
+/** All, direct chats, groups as plain tabs. */
 @Composable
 private fun FilterRow(
     filter: ChatFilter,
     onChoose: (ChatFilter) -> Unit,
 ) {
-    val colors = MaterialTheme.colorScheme
-    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+    TextTabs(
         listOf(
             ChatFilter.ALL to ChatTexts.FILTER_ALL,
             ChatFilter.DIRECT to ChatTexts.FILTER_DIRECT,
             ChatFilter.GROUPS to ChatTexts.FILTER_GROUPS,
-        ).forEach { (choice, label) ->
-            val chosen = filter == choice
-            Column(
-                Modifier
-                    .defaultMinSize(minHeight = TAB_HEIGHT)
-                    .minimumInteractiveComponentSize()
-                    .selectable(selected = chosen, role = Role.Tab, onClick = { onChoose(choice) }),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (chosen) colors.onSurface else colors.onSurfaceVariant,
-                )
-                Box(
-                    Modifier
-                        .padding(top = 4.dp)
-                        .size(width = TAB_LINE, height = 2.dp)
-                        .background(if (chosen) colors.primary else Color.Transparent),
-                )
-            }
-        }
-    }
+        ),
+        filter,
+        onChoose,
+    )
 }
 
 /** The Requests section at the top of the list: a heading and one row per request. */
@@ -296,6 +273,4 @@ private fun UnreadBadge(count: String) {
 private const val REFRESH_MILLIS = 15_000L
 private const val CONNECTED_REFRESH_MILLIS = 30_000L
 private val FAB_ROOM = 88.dp
-private val TAB_HEIGHT = 36.dp
-private val TAB_LINE = 28.dp
 private val DIVIDER_INSET = 56.dp
