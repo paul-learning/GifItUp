@@ -16,6 +16,7 @@ import app.gifitup.shared.domain.messages.LazyHistory
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
@@ -24,6 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -64,7 +66,11 @@ class WipeLocalDataTest {
                 steps += "logout"
                 respond("", HttpStatusCode.NoContent)
             })
-            wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session, clients)
+            // Real time on purpose: the mock engine answers on another thread, and the test scheduler would otherwise skip ahead
+            // to the 3 s bound while the request is still on its way.
+            withContext(
+                Dispatchers.Default,
+            ) { wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session, clients) }
             assertEquals(listOf("/auth/logout"), server.requests.map { it.path })
             assertEquals(listOf("destroy key", "delete records", "logout"), steps)
             clients.forEach { client ->
@@ -282,7 +288,10 @@ class WipeLocalDataTest {
     @Test
     fun theLogoutCarriesTheOldToken() =
         runTest {
-            wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session("old-token"), emptyList())
+            // Real time on purpose (see wipesInOrderAndClosesEveryClient).
+            withContext(Dispatchers.Default) {
+                wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session("old-token"), emptyList())
+            }
             val sent =
                 server.requests
                     .single()
