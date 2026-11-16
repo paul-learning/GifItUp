@@ -159,26 +159,28 @@ f=$(ls -t /var/backups/gifitup/gifitup-*.dump | head -1)
 img=$(grep -o 'postgres:18-alpine@sha256:[0-9a-f]*' /opt/gifitup/deploy/docker-compose.yml)   # same pinned image
 docker run -d --name gifitup-restore-test -e POSTGRES_PASSWORD=throwaway --network none \
   -v /var/backups/gifitup:/backups:ro "$img"
-until docker exec gifitup-restore-test pg_isready -U postgres -q; do sleep 1; done
+until docker exec gifitup-restore-test pg_isready -h 127.0.0.1 -U postgres -q; do sleep 1; done
 docker exec gifitup-restore-test sh -c "createdb -U postgres restored && pg_restore -U postgres -d restored --no-owner /backups/$(basename "$f") && psql -U postgres -d restored -c '\dt'"
 docker rm -f gifitup-restore-test
 ```
 **Restore drill with the migration** (before the alpha, then after any Postgres major upgrade; #291). The dump is only as good as the
-schema it restores into, so run the `Migrate` entry point against the restored copy as well: on a scratch network with a scratch
-password, never the live files. *This drill was written without running it; the first run is also its test: fix this section if a
-step is wrong.*
+schema it restores into, so run the `Migrate` entry point against the restored copy as well: on a scratch network with scratch
+passwords, never the live files. *This drill was written without running it; the first run is also its test: fix this section if a
+step is wrong.* The secrets must be at least 24 characters (the server refuses shorter ones), and the container runs as your own
+user so it can read them.
 ```bash
 cd /opt/gifitup/deploy
 f=$(ls -t /var/backups/gifitup/gifitup-*.dump | head -1)
 img=$(grep -o 'postgres:18-alpine@sha256:[0-9a-f]*' docker-compose.yml)
+pw=drill-admin-password-0123456789; app=drill-app-password-0123456789
 docker network create gifitup-drill
-docker run -d --name gifitup-drill-db --network gifitup-drill -e POSTGRES_USER=gifitup -e POSTGRES_PASSWORD=throwaway \
+docker run -d --name gifitup-drill-db --network gifitup-drill -e POSTGRES_USER=gifitup -e POSTGRES_PASSWORD="$pw" \
   -e POSTGRES_DB=gifitup -v /var/backups/gifitup:/backups:ro "$img"
-until docker exec gifitup-drill-db pg_isready -U gifitup -q; do sleep 1; done
+until docker exec gifitup-drill-db pg_isready -h 127.0.0.1 -U gifitup -q; do sleep 1; done   # over TCP: the init-time server has no TCP
 docker exec gifitup-drill-db pg_restore -U gifitup -d gifitup --no-owner --clean --if-exists "/backups/$(basename "$f")"
-umask 077; mkdir -p /tmp/gifitup-drill && echo throwaway > /tmp/gifitup-drill/pw && echo throwaway2 > /tmp/gifitup-drill/app
+umask 077; mkdir -p /tmp/gifitup-drill && printf '%s' "$pw" > /tmp/gifitup-drill/pw && printf '%s' "$app" > /tmp/gifitup-drill/app
 set -a; . ./.env; set +a    # GIFITUP_SERVER_IMAGE
-docker run --rm --network gifitup-drill -v /tmp/gifitup-drill:/run/secrets:ro \
+docker run --rm --network gifitup-drill --user "$(id -u):$(id -g)" -v /tmp/gifitup-drill:/run/secrets:ro \
   -e DB_URL=jdbc:postgresql://gifitup-drill-db:5432/gifitup -e DB_ADMIN_USER=gifitup \
   -e DB_ADMIN_PASSWORD_FILE=/run/secrets/pw -e DB_APP_PASSWORD_FILE=/run/secrets/app \
   --entrypoint /usr/bin/java "$GIFITUP_SERVER_IMAGE" -cp '/app/lib/*' app.gifitup.server.MigrateKt

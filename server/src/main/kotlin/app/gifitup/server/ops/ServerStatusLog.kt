@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 class ServerStatusLog(
     private val openSockets: () -> Int,
     private val cleanups: Map<String, CleanupOutcome>,
-    private val emit: (String) -> Unit = { LoggerFactory.getLogger(ServerStatusLog::class.java).info(it) },
+    private val emit: (String) -> Unit = LOG::info,
 ) {
     /** One line; a failure of the socket count must not stop the schedule. */
     @Suppress("TooGenericExceptionCaught") // The scheduled task must survive anything; nothing of the failure is logged.
@@ -37,6 +37,10 @@ class ServerStatusLog(
                     .append('"')
             }
         }
+
+    private companion object {
+        val LOG: org.slf4j.Logger = LoggerFactory.getLogger(ServerStatusLog::class.java)
+    }
 
     /** Runs once a minute on a daemon thread; shut the returned executor down on shutdown. */
     fun start(): ScheduledExecutorService =
