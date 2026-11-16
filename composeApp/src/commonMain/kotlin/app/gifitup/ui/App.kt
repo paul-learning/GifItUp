@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,6 +41,7 @@ import app.gifitup.shared.domain.settings.ScreenProtectionSetting
 import app.gifitup.shared.presentation.onboarding.BlockReason
 import app.gifitup.shared.presentation.onboarding.OnboardingState
 import app.gifitup.shared.presentation.onboarding.OriginView
+import app.gifitup.shared.presentation.settings.HeldShare
 import app.gifitup.shared.presentation.settings.ScreenProtectionStateHolder
 import app.gifitup.shared.presentation.settings.ServerSettingsStateHolder
 import kotlinx.coroutines.CoroutineScope
@@ -252,10 +254,11 @@ private fun rememberScreenProtection(
     val settled by holder.settled.collectAsState()
     // The start-up hold of the Activity (protected before the first frame) ends once the stored choice is known.
     LaunchedEffect(settled) { if (settled) screen.settled() }
-    DisposableEffect(protect) {
-        if (protect) screen.protect(true)
-        onDispose { if (protect) screen.protect(false) }
-    }
+    // One share of the window's protection, taken and let go of by the state (never by an `onDispose` that reads a delegated state
+    // property: that reads the *new* value, not the one the effect was made with, and the share was never released).
+    val share = remember(screen) { HeldShare({ screen.protect(true) }, { screen.protect(false) }) }
+    SideEffect { share.set(protect) }
+    DisposableEffect(share) { onDispose { share.set(false) } }
     return ProtectionControls.of(holder)
 }
 
