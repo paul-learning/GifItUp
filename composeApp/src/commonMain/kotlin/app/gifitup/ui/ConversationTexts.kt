@@ -72,9 +72,9 @@ internal object ConversationTexts {
 
     /**
      * The line under the title: the other members of a named group, or how many friends are in a group; nothing for a direct chat
-     * (its title is the friend). It makes **no claim about encryption** (#283, SEC-M2-8): a header can't know whether this chat's
-     * keys were compared, whether the web code is the server's honest code, or whether the chat is frozen; the alpha guide says
-     * what the encryption covers and what it doesn't.
+     * (its title is the friend). It makes **no claim about encryption**: a header can't know whether this chat's keys were compared,
+     * whether the web code is the server's honest code, or whether the chat is frozen. The alpha guide says what the encryption
+     * covers and what it doesn't.
      */
     fun subtitle(
         others: List<String>,
