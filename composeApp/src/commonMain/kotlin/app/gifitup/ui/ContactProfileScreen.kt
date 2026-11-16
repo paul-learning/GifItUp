@@ -77,6 +77,9 @@ private const val SECONDS_PER_DAY = 86_400L
 internal object ProfileTexts {
     const val NOT_IN_BOOK = "This friend is not in your friends list on this device."
     const val OPEN_PROFILE = "Open profile"
+    const val PROTECT_TITLE = "Hide chats from screenshots"
+    const val PROTECT_BODY =
+        "Blocks screenshots, screen recordings and the preview in the recent apps list. Turn it off to take screenshots of the app."
 
     fun knownSince(date: String): String = "Known since $date (the day this device first saw them)"
 }

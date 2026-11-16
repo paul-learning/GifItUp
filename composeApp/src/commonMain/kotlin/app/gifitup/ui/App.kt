@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -35,9 +36,11 @@ import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.DeviceStorage
 import app.gifitup.shared.domain.origin.ServerOriginSetting
+import app.gifitup.shared.domain.settings.ScreenProtectionSetting
 import app.gifitup.shared.presentation.onboarding.BlockReason
 import app.gifitup.shared.presentation.onboarding.OnboardingState
 import app.gifitup.shared.presentation.onboarding.OriginView
+import app.gifitup.shared.presentation.settings.ScreenProtectionStateHolder
 import app.gifitup.shared.presentation.settings.ServerSettingsStateHolder
 import kotlinx.coroutines.CoroutineScope
 
@@ -167,6 +170,7 @@ private fun Navigation(
             nav.navigate(ROUTE_ONBOARDING) { popUpTo(ROUTE_ONBOARDING) { inclusive = true } }
         }
     }
+    val protectionControls = rememberScreenProtection(screen, services.storage, scope)
     NavHost(navController = nav, startDestination = ROUTE_ONBOARDING) {
         composable(ROUTE_ONBOARDING) {
             // One ViewModel per origin: a new server gets a new flow with its own engine, API and session.
@@ -200,7 +204,7 @@ private fun Navigation(
                 if (nav.currentDestination?.route == ROUTE_INVITES) nav.popBackStack()
             }
         }
-        chatRoutes(nav, current, services.graph.glyphs)
+        chatRoutes(nav, current, services.graph.glyphs, protectionControls)
         diagnosticsRoute(nav, services, current, screen)
         composable(ROUTE_FRIENDS) { entry ->
             val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
@@ -227,6 +231,32 @@ private fun NavGraphBuilder.diagnosticsRoute(
             if (nav.currentDestination?.route == ROUTE_DIAGNOSTICS) nav.popBackStack()
         }
     }
+}
+
+/**
+ * The app's windows stay out of screenshots, recordings and the recents thumbnail unless the user switched that off (#281). On
+ * from the first frame (the Activity's start-up hold); the stored choice is read right after, here, once the navigation is
+ * composed, and then the hold is let go. Returns the switch's controls, or `null` where the platform can't do it (the web).
+ */
+@Composable
+private fun rememberScreenProtection(
+    screen: ScreenProtection,
+    storage: DeviceStorage,
+    scope: CoroutineScope,
+): ProtectionControls? {
+    // Nothing to protect, read or show where the platform has no such protection (the web).
+    if (!screen.supported) return null
+    val holder = remember(storage) { ScreenProtectionStateHolder(scope, ScreenProtectionSetting(storage.store)) }
+    LaunchedEffect(holder) { holder.load() }
+    val protect by holder.on.collectAsState()
+    val settled by holder.settled.collectAsState()
+    // The start-up hold of the Activity (protected before the first frame) ends once the stored choice is known.
+    LaunchedEffect(settled) { if (settled) screen.settled() }
+    DisposableEffect(protect) {
+        if (protect) screen.protect(true)
+        onDispose { if (protect) screen.protect(false) }
+    }
+    return ProtectionControls.of(holder)
 }
 
 /** Not registered where the server can't be chosen (the web, #159): there is no route to reach. */

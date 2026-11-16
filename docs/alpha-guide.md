@@ -72,6 +72,9 @@ may freeze the chat with a reason until you compare again and accept the new key
   who then open the same GIF.
 - **The person running the server** can see who is registered, who is in which chat, when messages are sent and how often,
   roughly how big they are (they are padded), and the addresses people connect from. They cannot read the content.
+- **Screenshots.** On Android the app blocks screenshots, screen recordings and the recent-apps preview by default (Profile →
+  "Hide chats from screenshots"; turn it off to take screenshots). **On the web nothing blocks them**, and nothing stops
+  someone photographing your screen.
 - **The server can stop or delay messages.** Encryption does not prevent a server from holding messages back.
 - **On the web, the app's code comes from the server** every time you open it. A dishonest server could serve a changed app
   that reads everything. So the key comparison above is only as trustworthy as that server's honesty on the web. **The Android
