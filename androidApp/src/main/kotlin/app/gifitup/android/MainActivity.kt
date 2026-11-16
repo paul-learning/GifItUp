@@ -38,6 +38,9 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent(Intent.ACTION_MAIN))
         val inbox = InviteInbox(link)
         // Bound to this window and used only inside the composition, never kept by a ViewModel.
+        // Protected before the first frame: the stored choice isn't read yet and "protected" is the safe answer. The app lets go of
+        // this hold (`settled`) once it knows the choice; the screens' own `protect` calls keep the flag from there.
+        screenProtection.protect(true)
         setContent { App(graph, inbox, screenProtection, export) }
     }
 
@@ -59,6 +62,15 @@ class MainActivity : ComponentActivity() {
     private val screenProtection =
         object : ScreenProtection {
             private var open = 0
+
+            private var startupHold = true
+
+            override fun settled() {
+                if (startupHold) {
+                    startupHold = false
+                    protect(false)
+                }
+            }
 
             override fun protect(on: Boolean) {
                 open = (open + if (on) 1 else -1).coerceAtLeast(0)

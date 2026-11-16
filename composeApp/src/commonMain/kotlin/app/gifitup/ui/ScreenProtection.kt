@@ -13,6 +13,13 @@ interface ScreenProtection {
 
     fun protect(on: Boolean)
 
+    /**
+     * The Activity protects its window from `onCreate`, before anything is drawn (the choice isn't read yet, and protected is the
+     * safe answer); the app calls this once the stored choice is known, and the Activity lets go of that start-up hold. The
+     * screens' own `protect` calls take over from there. Nothing to do where there is no such hold.
+     */
+    fun settled() = Unit
+
     companion object {
         val None =
             object : ScreenProtection {

@@ -244,10 +244,14 @@ private fun rememberScreenProtection(
     storage: DeviceStorage,
     scope: CoroutineScope,
 ): ProtectionControls? {
+    // Nothing to protect, read or show where the platform has no such protection (the web).
+    if (!screen.supported) return null
     val holder = remember(storage) { ScreenProtectionStateHolder(scope, ScreenProtectionSetting(storage.store)) }
     LaunchedEffect(holder) { holder.load() }
     val protect by holder.on.collectAsState()
-    if (!screen.supported) return null
+    val settled by holder.settled.collectAsState()
+    // The start-up hold of the Activity (protected before the first frame) ends once the stored choice is known.
+    LaunchedEffect(settled) { if (settled) screen.settled() }
     DisposableEffect(protect) {
         if (protect) screen.protect(true)
         onDispose { if (protect) screen.protect(false) }

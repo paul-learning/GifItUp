@@ -66,4 +66,28 @@ class ScreenProtectionTest {
             assertEquals(true, holder.on.value)
             assertTrue(ScreenProtectionSetting(store).enabled())
         }
+
+    @Test
+    fun aSlowLoadNeverOverwritesAChoiceMadeMeanwhile() =
+        runTest {
+            ScreenProtectionSetting(store).set(false)
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val slow =
+                object : InMemoryLocalStore() {
+                    override suspend fun get(key: String): ByteArray? {
+                        gate.await()
+                        return super.get(key)
+                    }
+                }
+            slow.entries.putAll(store.entries)
+            val holder = ScreenProtectionStateHolder(this, ScreenProtectionSetting(slow))
+            assertFalse(holder.settled.value)
+            holder.load()
+            holder.set(true)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(holder.on.value)
+            assertTrue(holder.settled.value)
+            assertTrue(ScreenProtectionSetting(slow).enabled())
+        }
 }

@@ -1,6 +1,7 @@
 package app.gifitup.shared.domain.settings
 
 import app.gifitup.shared.data.storage.LocalStore
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Whether the app keeps its windows out of screenshots, screen recordings and the recents thumbnail (#281, Android
@@ -15,6 +16,8 @@ class ScreenProtectionSetting(
         try {
             val bytes = store.get(KEY)
             !(bytes != null && bytes.size == 1 && bytes[0] == OFF)
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             true
         }
@@ -24,6 +27,8 @@ class ScreenProtectionSetting(
         try {
             store.putAll(mapOf(KEY to byteArrayOf(if (on) ON else OFF)))
             true
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             false
         }
