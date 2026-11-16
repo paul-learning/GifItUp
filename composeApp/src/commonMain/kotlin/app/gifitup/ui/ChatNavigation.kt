@@ -102,6 +102,7 @@ internal fun NavGraphBuilder.chatRoutes(
     nav: NavHostController,
     server: OriginView,
     glyphs: GlyphSupport,
+    protection: ProtectionControls?,
 ) {
     val origin = server.origin
     composable(ROUTE_PROFILE) { entry ->
@@ -109,7 +110,7 @@ internal fun NavGraphBuilder.chatRoutes(
         val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
         val signedIn by model.holder.state.collectAsState()
         val leave = { if (nav.currentDestination?.route == ROUTE_PROFILE) nav.popBackStack() }
-        (signedIn as? OnboardingState.Done)?.let { ProfileScreen(it.username, server, model.contacts, glyphs) { leave() } }
+        (signedIn as? OnboardingState.Done)?.let { ProfileScreen(it.username, server, model.contacts, glyphs, protection) { leave() } }
     }
     composable(ROUTE_CONTACT) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }

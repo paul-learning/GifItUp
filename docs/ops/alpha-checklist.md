@@ -61,3 +61,4 @@ for this repo): a published release cannot be changed, only replaced by a newer 
 - [ ] Open issues are labelled `later` and are not in the milestone without your OK; the web-module tests are #260.
 - [ ] Fixing a bug in a shipped APK means a new version: tag the next number, test the draft, publish.
 - [ ] Diagnostics (menu → About and diagnostics): the version is right; Android: Share opens the chooser, Save to file writes `gifitup-log.txt` (also over an existing longer file), Copy works; web: Save downloads the file; Clear log leaves one "log cleared" line; kill the app and reopen: the log is still there; sign out/wipe: it is gone.
+- [ ] Screenshots (Android): with the Profile switch on (default) a screenshot is refused and the recents preview of a chat is blank; turn it off: screenshots work, and back on: blocked again; the invite and diagnostics screens stay blocked either way; after killing and reopening the app the switch is as left; the web has no switch.

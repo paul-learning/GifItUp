@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent(Intent.ACTION_MAIN))
         val inbox = InviteInbox(link)
         // Bound to this window and used only inside the composition, never kept by a ViewModel.
-        setContent { App(graph, inbox, ScreenProtection(::protectWindow), export) }
+        setContent { App(graph, inbox, screenProtection, export) }
     }
 
     /**
@@ -52,12 +52,21 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent(Intent.ACTION_MAIN))
     }
 
-    /** `FLAG_SECURE`: no screenshots, no screen recording, a blank recents thumbnail (the invite screen, #17 SEC-8). */
-    private fun protectWindow(on: Boolean) {
-        if (on) {
-            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    /**
+     * `FLAG_SECURE`: no screenshots, no screen recording, a blank recents thumbnail. Counted: the flag is on while any
+     * `protect(true)` is open (the invite screen, the diagnostics, the chats' setting), so one screen leaving never lifts another's.
+     */
+    private val screenProtection =
+        object : ScreenProtection {
+            private var open = 0
+
+            override fun protect(on: Boolean) {
+                open = (open + if (on) 1 else -1).coerceAtLeast(0)
+                if (open > 0) {
+                    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
         }
-    }
 }
