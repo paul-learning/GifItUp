@@ -3,7 +3,7 @@
 *Serious crypto for silly people.*
 
 GifItUp is a private messenger for a small circle of friends where the only thing you can send is a GIF (with an optional
-one-line caption, and a reaction emoji on a GIF). Every chat is end-to-end encrypted. This is an **alpha**: it works, it has
+one-line caption, and a reaction emoji on a GIF). The content of every chat is end-to-end encrypted between the devices in it (see "Not private" below for what that does not cover). This is an **alpha**: it works, it has
 rough edges, and this page tells you honestly what is private, what is not, and what is missing.
 
 ## Getting in

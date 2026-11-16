@@ -18,7 +18,6 @@ internal object ConversationTexts {
     const val YOU = "you"
     const val SENT = "sent"
     const val GIF_CHIP = "GIF"
-    const val ENCRYPTED = "end-to-end encrypted"
     const val SENDING = "Sending…"
     const val NOT_SENT = "Not sent"
     const val REACT = "React"
@@ -71,21 +70,24 @@ internal object ConversationTexts {
             UnavailableReason.REJECTED -> "The GIF is not a file this app shows."
         }
 
-    /** The line under the title: how many people are in it (you included), and that it is encrypted. */
+    /**
+     * The line under the title: the other members of a named group, or how many friends are in a group; nothing for a direct chat
+     * (its title is the friend). It makes **no claim about encryption**: a header can't know whether this chat's keys were compared,
+     * whether the web code is the server's honest code, or whether the chat is frozen. The alpha guide says what the encryption
+     * covers and what it doesn't.
+     */
     fun subtitle(
         others: List<String>,
         named: Boolean,
-    ): String {
-        val encrypted = ENCRYPTED.replaceFirstChar { it.uppercase() }
-        return when {
+    ): String? =
+        when {
             // A name is text another member chose: the real usernames stay in view next to it (#217).
-            named && others.size in 1..MAX_NAMED_MEMBERS -> "${others.joinToString(", ") { ChatTexts.isolated(it) }} · $ENCRYPTED"
+            named && others.size in 1..MAX_NAMED_MEMBERS -> others.joinToString(", ") { ChatTexts.isolated(it) }
 
-            others.size < 2 -> encrypted
+            others.size < 2 -> null
 
-            else -> "${others.size + 1} friends · $ENCRYPTED"
+            else -> "${others.size + 1} friends"
         }
-    }
 
     private const val MAX_NAMED_MEMBERS = 4
 
