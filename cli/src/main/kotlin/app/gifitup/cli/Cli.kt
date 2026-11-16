@@ -30,6 +30,7 @@ import app.gifitup.shared.domain.groups.ChatActions
 import app.gifitup.shared.domain.keypackages.ClaimKeyPackages
 import app.gifitup.shared.domain.keypackages.RefillKeyPackages
 import io.ktor.client.engine.HttpClientEngine
+import kotlinx.coroutines.sync.Mutex
 import java.io.PrintStream
 import java.nio.file.Path
 import java.time.Instant
@@ -364,7 +365,7 @@ class Cli(
     ): Int {
         val mls = guarded()
         val refill = RefillKeyPackages(api, mls, state.identities, state.keys, lock)
-        val access = ContactBookAccess(state.contacts) { Instant.now().epochSecond }
+        val access = ContactBookAccess(state.contacts, Mutex()) { Instant.now().epochSecond }
         val claim = ClaimKeyPackages(api, mls, state.identities, state.keys, lock, access)
         val keyPackages = KeyPackageCommands(api, refill, claim, out) { report(it) { } }
         val invites = InviteCommands(api, out) { report(it) { } }

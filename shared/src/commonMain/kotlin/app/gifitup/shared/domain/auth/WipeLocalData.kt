@@ -59,7 +59,7 @@ class WipeLocalData(
     private val lock: DeviceLock,
     private val history: HistoryCloser,
     /** The contact book's read-modify-write lock of this device (`DeviceStorage.contactBookLock`): see [eraseLocal]. */
-    private val contactBook: Mutex = Mutex(),
+    private val contactBook: Mutex,
 ) {
     suspend operator fun invoke(
         session: Session?,
@@ -92,16 +92,19 @@ class WipeLocalData(
     /**
      * Ends the server session with the token the caller still holds: best effort, at most [LOGOUT_TIMEOUT_MILLIS], every
      * failure swallowed and nothing logged (the token and any answer stay out of every message). Cancellation of the caller is not
-     * swallowed. Outside every lock.
+     * swallowed, and a caller that is cancelled after [eraseLocal] treats the device as wiped (security review SEC-6). Outside every
+     * lock.
      */
+    @Suppress("TooGenericExceptionCaught") // Any failure of a best-effort logout, the web's `kotlin.Error` included, means "not ended".
     suspend fun endSession(session: Session?) {
         if (session == null) return
         try {
             withTimeoutOrNull(LOGOUT_TIMEOUT_MILLIS) { logOut(session) }
         } catch (e: CancellationException) {
             throw e
-        } catch (ignored: Exception) {
-            // A failed logout leaves a token that expires on its own and isn't stored anywhere.
+        } catch (ignored: Throwable) {
+            // A failed logout leaves a token that expires on its own and isn't stored anywhere; it must never undo a finished erase
+            // by throwing at the caller, which would then keep a signed-in screen over a wiped device (security review SEC-5).
         }
     }
 

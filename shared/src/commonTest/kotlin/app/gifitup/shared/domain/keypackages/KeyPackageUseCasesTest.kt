@@ -31,6 +31,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -46,7 +47,7 @@ class KeyPackageUseCasesTest {
     private val lock = DeviceLock()
     private val refill = RefillKeyPackages(server.api(), unguarded(), identities, keys, lock)
     private val contactStore = InMemoryContactStore()
-    private val access = ContactBookAccess(contactStore) { 1_000L }
+    private val access = ContactBookAccess(contactStore, Mutex()) { 1_000L }
     private val claim = ClaimKeyPackages(server.api(), unguarded(), identities, keys, lock, access)
 
     /** A registered, logged-in device "ann". */

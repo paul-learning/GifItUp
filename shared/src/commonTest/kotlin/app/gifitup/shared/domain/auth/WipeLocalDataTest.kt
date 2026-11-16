@@ -31,6 +31,14 @@ import kotlin.test.assertIs
 
 private const val INVITE = "AAAAAAAAAAAAAAAAAAAAAA"
 
+private fun wipeLocalData(
+    data: DeviceData,
+    logOut: LogOut,
+    lock: DeviceLock,
+    history: HistoryCloser,
+    book: Mutex = Mutex(),
+) = WipeLocalData(data, logOut, lock, history, book)
+
 class WipeLocalDataTest {
     private val server = FakeAuthServer()
     private val steps = mutableListOf<String>()
@@ -56,7 +64,7 @@ class WipeLocalDataTest {
                 steps += "logout"
                 respond("", HttpStatusCode.NoContent)
             })
-            WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session, clients)
+            wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session, clients)
             assertEquals(listOf("/auth/logout"), server.requests.map { it.path })
             assertEquals(listOf("destroy key", "delete records", "logout"), steps)
             clients.forEach { client ->
@@ -68,7 +76,7 @@ class WipeLocalDataTest {
     fun aFailedLogoutDoesntStopTheWipe() =
         runTest {
             server.on("/auth/logout", FakeAuthServer.dropped)
-            WipeLocalData(
+            wipeLocalData(
                 data,
                 LogOut(server.api()),
                 DeviceLock(),
@@ -96,7 +104,7 @@ class WipeLocalDataTest {
                         steps += "delete records"
                     }
                 }
-            val wipe = WipeLocalData(flaky, LogOut(server.api()), DeviceLock(), HistoryCloser.None)
+            val wipe = wipeLocalData(flaky, LogOut(server.api()), DeviceLock(), HistoryCloser.None)
             assertFailsWith<IllegalStateException> { wipe(null, emptyList()) }
             wipe(null, emptyList())
             assertEquals(listOf("destroy key", "destroy key", "delete records"), steps)
@@ -132,7 +140,7 @@ class WipeLocalDataTest {
                         HistoryLeftovers.None,
                     )("ann", INVITE)
                 }
-            val wipe = async { WipeLocalData(wipeAll, LogOut(server.api()), lock, HistoryCloser.None)(null, emptyList()) }
+            val wipe = async { wipeLocalData(wipeAll, LogOut(server.api()), lock, HistoryCloser.None)(null, emptyList()) }
             awaitAll(register, wipe)
             assertEquals(listOf("destroy key after 2 saves"), steps)
             assertEquals(null, identities.identity)
@@ -141,7 +149,7 @@ class WipeLocalDataTest {
     @Test
     fun withoutASessionNothingIsSent() =
         runTest {
-            WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(null, emptyList())
+            wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(null, emptyList())
             assertEquals(emptyList(), server.requests)
             assertEquals(listOf("destroy key", "delete records"), steps)
         }
@@ -162,7 +170,7 @@ class WipeLocalDataTest {
                         order += "delete records"
                     }
                 }
-            WipeLocalData(recording, LogOut(server.api()), DeviceLock(), closing)(null, emptyList())
+            wipeLocalData(recording, LogOut(server.api()), DeviceLock(), closing)(null, emptyList())
             assertEquals(listOf("history closed", "destroy key", "delete records"), order)
         }
 
@@ -183,7 +191,7 @@ class WipeLocalDataTest {
                 }, { 0L })
             val first = async { runCatching { history.messages(KeyBytes(ByteArray(16))) } }
             runCurrent()
-            val wipe = async { WipeLocalData(data, LogOut(server.api()), lock, { history.close() })(null, emptyList()) }
+            val wipe = async { wipeLocalData(data, LogOut(server.api()), lock, { history.close() })(null, emptyList()) }
             runCurrent()
             go.complete(Unit)
             advanceUntilIdle()
@@ -205,7 +213,7 @@ class WipeLocalDataTest {
             val old = LazyHistory(opener, { 0L })
             val group = KeyBytes(ByteArray(16))
             old.messages(group)
-            WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser { old.close() })(null, emptyList())
+            wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser { old.close() })(null, emptyList())
             val registered =
                 RegisterDevice(
                     server.api(),
@@ -230,7 +238,7 @@ class WipeLocalDataTest {
                 respond("", HttpStatusCode.NoContent)
             })
             val lock = DeviceLock()
-            val wipe = async { WipeLocalData(data, LogOut(server.api()), lock, HistoryCloser.None)(session(), emptyList()) }
+            val wipe = async { wipeLocalData(data, LogOut(server.api()), lock, HistoryCloser.None)(session(), emptyList()) }
             runCurrent()
             assertEquals(listOf("destroy key", "delete records"), steps) // the erase is done while the logout is still out
             val free = async { lock.holding { "free" } }
@@ -247,7 +255,7 @@ class WipeLocalDataTest {
                 delay(1_000_000)
                 respond("", HttpStatusCode.NoContent)
             })
-            WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session(), emptyList())
+            wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session(), emptyList())
             assertEquals(WipeLocalData.LOGOUT_TIMEOUT_MILLIS, testScheduler.currentTime)
             assertEquals(listOf("destroy key", "delete records"), steps)
         }
@@ -265,7 +273,7 @@ class WipeLocalDataTest {
                     override suspend fun deleteAll() = error("blocked")
                 }
             assertFailsWith<IllegalStateException> {
-                WipeLocalData(failing, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session(), emptyList())
+                wipeLocalData(failing, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session(), emptyList())
             }
             assertEquals(emptyList(), server.requests)
         }
@@ -274,7 +282,7 @@ class WipeLocalDataTest {
     @Test
     fun theLogoutCarriesTheOldToken() =
         runTest {
-            WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session("old-token"), emptyList())
+            wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None)(session("old-token"), emptyList())
             val sent =
                 server.requests
                     .single()
@@ -282,7 +290,7 @@ class WipeLocalDataTest {
             assertEquals("Bearer old-token", sent)
         }
 
-    /** The caller's own cancellation is not swallowed by the best-effort logout. */
+    /** The caller's own cancellation is not swallowed by the best-effort logout: nothing after it runs. */
     @Test
     fun cancellingTheCallerIsNotSwallowed() =
         runTest {
@@ -290,11 +298,29 @@ class WipeLocalDataTest {
                 delay(1_000_000)
                 respond("", HttpStatusCode.NoContent)
             })
-            val job = launch { WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None).endSession(session()) }
+            var reachedAfterwards = false
+            val job =
+                launch {
+                    wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None).endSession(session())
+                    reachedAfterwards = true
+                }
             runCurrent()
             job.cancel()
             job.join()
-            assertEquals(true, job.isCancelled)
+            assertEquals(false, reachedAfterwards)
+        }
+
+    /** Whatever the logout throws, even the web's `kotlin.Error`, the finished erase is not undone by an exception (SEC-5). */
+    @Suppress("TooGenericExceptionThrown") // The web engine's failure is a bare `kotlin.Error`; that is what is simulated.
+    @Test
+    fun aLogoutThatThrowsAnythingNeverReachesTheCaller() =
+        runTest {
+            val throwing =
+                object : LogOut(server.api()) {
+                    override suspend fun invoke(session: Session): AuthResult<Unit> = throw Error("Fail to fetch")
+                }
+            wipeLocalData(data, throwing, DeviceLock(), HistoryCloser.None)(session(), emptyList())
+            assertEquals(listOf("destroy key", "delete records"), steps)
         }
 
     /** A contact-book change that is saving can't write its record after the records are gone (security plan review SEC-1). */
@@ -303,7 +329,7 @@ class WipeLocalDataTest {
         runTest {
             val book = Mutex()
             book.lock() // a book update that is saving
-            val wipe = async { WipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None, book)(null, emptyList()) }
+            val wipe = async { wipeLocalData(data, LogOut(server.api()), DeviceLock(), HistoryCloser.None, book)(null, emptyList()) }
             runCurrent()
             assertEquals(emptyList(), steps) // nothing is destroyed under it
             book.unlock()

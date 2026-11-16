@@ -8,6 +8,7 @@ import app.gifitup.shared.domain.contacts.ContactStatus
 import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.contacts.Observation
 import app.gifitup.shared.domain.contacts.TrustConflict
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,7 +34,7 @@ class ContactBookPinsTest {
 
     private suspend fun pins(vararg contacts: Contact): ContactPins? {
         val book = ContactBook(contacts.associateBy { it.accountId })
-        return ContactBookPins(ContactBookAccess(InMemoryContactStore(book)) { 0 }).load()
+        return ContactBookPins(ContactBookAccess(InMemoryContactStore(book), Mutex()) { 0 }).load()
     }
 
     @Test
@@ -66,6 +67,6 @@ class ContactBookPinsTest {
     @Test
     fun aMissingOrDamagedBookIsNoLookupAtAll() =
         runTest {
-            assertNull(ContactBookPins(ContactBookAccess(InMemoryContactStore(null)) { 0 }).load())
+            assertNull(ContactBookPins(ContactBookAccess(InMemoryContactStore(null), Mutex()) { 0 }).load())
         }
 }

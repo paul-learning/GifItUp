@@ -42,6 +42,7 @@ import app.gifitup.shared.domain.groups.WelcomesReport
 import app.gifitup.shared.domain.session.SessionHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -62,7 +63,7 @@ class ContactsStateHolderTest {
     private val identities = InMemoryIdentityStore()
     private val keys = InMemoryKeyStore()
     private val store = InMemoryContactStore()
-    private val access = ContactBookAccess(store) { 1_000L }
+    private val access = ContactBookAccess(store, Mutex()) { 1_000L }
     private val lock = DeviceLock()
     private val useCases =
         ContactsUseCases(

@@ -88,9 +88,9 @@ class FetchGifProviderKey(
     suspend operator fun invoke(session: Session): AuthResult<GifProviderKey> = api.gifProviderKey(session).toAuth()
 }
 
-/** Ends the session on the server. The caller drops its copy either way. */
-class LogOut(
+/** Ends the session on the server. The caller drops its copy either way. Open so a test can make it fail in ways the API never does. */
+open class LogOut(
     private val api: GifItUpApi,
 ) {
-    suspend operator fun invoke(session: Session): AuthResult<Unit> = api.logout(session).toAuth()
+    open suspend operator fun invoke(session: Session): AuthResult<Unit> = api.logout(session).toAuth()
 }
