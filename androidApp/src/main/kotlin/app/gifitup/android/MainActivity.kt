@@ -57,7 +57,8 @@ class MainActivity : ComponentActivity() {
 
     /**
      * `FLAG_SECURE`: no screenshots, no screen recording, a blank recents thumbnail. Counted: the flag is on while any
-     * `protect(true)` is open (the invite screen, the diagnostics, the chats' setting), so one screen leaving never lifts another's.
+     * `protect(true)` is open (the start-up hold from `onCreate` until `settled()`, the invite screen, the diagnostics, the
+     * chats' setting), so one screen leaving never lifts another's.
      */
     private val screenProtection =
         object : ScreenProtection {
