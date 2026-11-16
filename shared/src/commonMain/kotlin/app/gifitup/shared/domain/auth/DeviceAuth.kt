@@ -51,6 +51,12 @@ class DeviceStorage(
     val restores = StoredRestoreCounter(store)
     internal val lock = DeviceLock()
 
+    /**
+     * The contact book's read-modify-write lock, one per device storage like [lock] (a `DeviceAuth` per origin must not mean a book
+     * lock per origin: #282, SEC-M1-6). The wipe takes it too, after [lock].
+     */
+    internal val contactBookLock = Mutex()
+
     /** Serializes the opening of the history key (see [OpenHistoryKey]: never the [lock]). */
     private val historyKeyMutex = Mutex()
 
@@ -121,9 +127,13 @@ class DeviceAuth(
     val refillKeyPackages = RefillKeyPackages(api, guarded, storage.identities, keys, lock)
     val logIn = LogIn(api, guarded, storage.identities, keys, lock)
     val logOut = LogOut(api)
-    val wipe = WipeLocalData(storage.data, logOut, lock, closeHistory)
+    val wipe = WipeLocalData(storage.data, logOut, lock, closeHistory, storage.contactBookLock)
 
-    private val book = ContactBookAccess(RecordContactStore(storage.store, storage.identities)) { Clock.System.now().epochSeconds }
+    private val book =
+        ContactBookAccess(
+            RecordContactStore(storage.store, storage.identities),
+            storage.contactBookLock,
+        ) { Clock.System.now().epochSeconds }
 
     /** The contact book and what the Friends screen needs from it (ADR-0014); the clock is the book's display time only. */
     val contacts: ContactsUseCases =

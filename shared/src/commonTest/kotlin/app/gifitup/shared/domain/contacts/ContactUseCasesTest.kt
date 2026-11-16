@@ -27,6 +27,7 @@ import app.gifitup.shared.domain.contacts.Observation
 import app.gifitup.shared.domain.contacts.TrustConflict
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -39,7 +40,7 @@ class ContactUseCasesTest {
     private val identities = InMemoryIdentityStore()
     private val keys = InMemoryKeyStore()
     private val store = InMemoryContactStore()
-    private val access = ContactBookAccess(store) { 1_000L }
+    private val access = ContactBookAccess(store, Mutex()) { 1_000L }
     private val refresh = RefreshContacts(server.api(), unguarded(), identities, keys, DeviceLock(), access)
 
     private fun id(n: Int) = "00000000-0000-4000-8000-" + n.toString().padStart(12, '0')

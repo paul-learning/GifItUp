@@ -27,10 +27,10 @@ sealed interface BookUpdate<out T> {
  */
 class ContactBookAccess(
     private val store: ContactStore,
+    /** The device's book lock (`DeviceStorage.contactBookLock`), shared by every access over the same storage and the wipe: required. */
+    private val lock: Mutex,
     private val clock: () -> Long,
 ) {
-    private val lock = Mutex()
-
     suspend fun read(): ContactLoad = lock.withLock { store.load() }
 
     internal suspend fun <T> update(change: (book: ContactBook, now: Long) -> Pair<ContactBook, T>): BookUpdate<T> =
