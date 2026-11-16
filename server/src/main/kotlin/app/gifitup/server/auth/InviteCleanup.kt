@@ -2,6 +2,7 @@ package app.gifitup.server.auth
 
 import app.gifitup.server.db.InviteRepository
 import app.gifitup.server.db.TransactionRunner
+import app.gifitup.server.ops.CleanupOutcome
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.util.concurrent.Executors
@@ -19,12 +20,19 @@ class InviteCleanup(
 ) {
     private val log = LoggerFactory.getLogger(InviteCleanup::class.java)
 
+    /** What the last pass did, for the status line (#291). */
+    val outcome = CleanupOutcome(clock)
+
     /** One pass; returns how many invites were deleted. Failures are logged by class and retried on the next pass. */
     fun runOnce(): Int =
         runCatching { db.transaction { c -> invites.deleteFinished(c, clock.instant()) } }
-            .onSuccess { if (it > 0) log.info("event=invite_cleanup deleted={}", it) }
-            .onFailure { log.warn("event=invite_cleanup_failed exception={}", it::class.java.name) }
-            .getOrDefault(0)
+            .onSuccess {
+                outcome.record(it, failed = false)
+                if (it > 0) log.info("event=invite_cleanup deleted={}", it)
+            }.onFailure {
+                outcome.record(0, failed = true)
+                log.warn("event=invite_cleanup_failed exception={}", it::class.java.name)
+            }.getOrDefault(0)
 
     /** Runs [runOnce] now and then every hour on a daemon thread; close the returned executor on shutdown. */
     fun start(): ScheduledExecutorService =

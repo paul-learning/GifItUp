@@ -82,6 +82,23 @@ Checks that a client can register against the deployed server, with a **test acc
    rm -rf "$state"
    ```
 
+## Watching the server (#291)
+The server logs one INFO line a minute with the number of open sockets and what each retention job did last. No names, ids,
+addresses or content are in it (counts, times and job names only):
+```bash
+cd /opt/gifitup/deploy
+docker compose logs --since 10m server | grep 'event=status' | tail -3
+# event=status sockets=4 invite_cleanup="ok deleted=0 ago_s=2100" key_package_cleanup="ok deleted=12 ago_s=2100" delivery_cleanup="ok deleted=0 ago_s=2100"
+```
+- `sockets` is the number of authenticated devices connected (the live-updates channel, ADR-0015); a count that sits at 0 while
+  people are online, or at the cap of 500, is worth a look.
+- Each cleanup runs hourly: `ago_s` should stay under about 3600 and `ok`. `never` means it has not run since the start;
+  `failed` means the last pass failed. A failing job also logs its own warning with the exception class:
+  `docker compose logs --since 24h server | grep -E 'event=.*(cleanup_failed)'` (the class name is the whole message, never a
+  row). A failing cleanup lets expired rows pile up (key packages count towards a device's cap), so look at it the same day.
+- Other server events worth a grep: `event=delivery_cleanup deleted=N`, `event=key_package_cleanup deleted=N` (only when rows
+  went), `event=invite_cleanup deleted=N`. Nothing the server logs contains a message, a GIF, a key or an invite code.
+
 ## Rollback or redeploy
 - **Automatic:** a failed health check restores the previous commit and image.
 - **By hand:** *Actions → Deploy → Run workflow* on `main`, with `commit` set to the full SHA of an earlier deployed commit. Each deploy run's summary lists its commit and digest. The run skips the build, looks up that commit's image, verifies its provenance, and deploys it after your approval.

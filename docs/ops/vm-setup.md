@@ -163,6 +163,31 @@ until docker exec gifitup-restore-test pg_isready -U postgres -q; do sleep 1; do
 docker exec gifitup-restore-test sh -c "createdb -U postgres restored && pg_restore -U postgres -d restored --no-owner /backups/$(basename "$f") && psql -U postgres -d restored -c '\dt'"
 docker rm -f gifitup-restore-test
 ```
+**Restore drill with the migration** (before the alpha, then after any Postgres major upgrade; #291). The dump is only as good as the
+schema it restores into, so run the `Migrate` entry point against the restored copy as well: on a scratch network with a scratch
+password, never the live files. *This drill was written without running it; the first run is also its test: fix this section if a
+step is wrong.*
+```bash
+cd /opt/gifitup/deploy
+f=$(ls -t /var/backups/gifitup/gifitup-*.dump | head -1)
+img=$(grep -o 'postgres:18-alpine@sha256:[0-9a-f]*' docker-compose.yml)
+docker network create gifitup-drill
+docker run -d --name gifitup-drill-db --network gifitup-drill -e POSTGRES_USER=gifitup -e POSTGRES_PASSWORD=throwaway \
+  -e POSTGRES_DB=gifitup -v /var/backups/gifitup:/backups:ro "$img"
+until docker exec gifitup-drill-db pg_isready -U gifitup -q; do sleep 1; done
+docker exec gifitup-drill-db pg_restore -U gifitup -d gifitup --no-owner --clean --if-exists "/backups/$(basename "$f")"
+umask 077; mkdir -p /tmp/gifitup-drill && echo throwaway > /tmp/gifitup-drill/pw && echo throwaway2 > /tmp/gifitup-drill/app
+set -a; . ./.env; set +a    # GIFITUP_SERVER_IMAGE
+docker run --rm --network gifitup-drill -v /tmp/gifitup-drill:/run/secrets:ro \
+  -e DB_URL=jdbc:postgresql://gifitup-drill-db:5432/gifitup -e DB_ADMIN_USER=gifitup \
+  -e DB_ADMIN_PASSWORD_FILE=/run/secrets/pw -e DB_APP_PASSWORD_FILE=/run/secrets/app \
+  --entrypoint /usr/bin/java "$GIFITUP_SERVER_IMAGE" -cp '/app/lib/*' app.gifitup.server.MigrateKt
+docker exec gifitup-drill-db psql -U gifitup -d gifitup -c 'select count(*) from gifitup.accounts' -c '\dt gifitup.*'
+docker rm -f gifitup-drill-db; docker network rm gifitup-drill; rm -rf /tmp/gifitup-drill
+```
+Expected: `Migrate` ends without an error (the schema is already at the current version, so it changes nothing), the counts
+look like the live database, and nothing of the scratch setup is left. Note the date and the dump's name in your own notes.
+
 To restore for real: stop `server`, then `pg_restore --clean --if-exists` into the live database through `docker compose exec -T postgres`, and start `server` again.
 
 ## 7. Updating
