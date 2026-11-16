@@ -37,6 +37,7 @@ import app.gifitup.server.keypackages.keyPackageBodyLimit
 import app.gifitup.server.keypackages.keyPackageRoutes
 import app.gifitup.server.members.MemberService
 import app.gifitup.server.members.memberRoutes
+import app.gifitup.server.ops.ServerStatusLog
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -68,9 +69,22 @@ fun main() {
     val delivery = DeliveryService(database, clock, DeliveryLimits(clock))
     // The GIF provider's key comes from a secret file, never from the config object that may be logged (ADR-0003, #40).
     val gifProvider = GifProviderEndpoint.of(GifProviderKey.fromEnv(env), clock)
-    val inviteCleanup = InviteCleanup(database, clock).start()
-    val keyPackageCleanup = KeyPackageCleanup(database, clock).start()
-    val deliveryCleanup = DeliveryCleanup(database, clock).start()
+    val inviteJob = InviteCleanup(database, clock)
+    val keyPackageJob = KeyPackageCleanup(database, clock)
+    val deliveryJob = DeliveryCleanup(database, clock)
+    val inviteCleanup = inviteJob.start()
+    val keyPackageCleanup = keyPackageJob.start()
+    val deliveryCleanup = deliveryJob.start()
+    // One INFO line a minute: open sockets and what each retention job did last (#291).
+    val statusLog =
+        ServerStatusLog(
+            delivery.sockets::onlineSockets,
+            linkedMapOf(
+                "invite_cleanup" to inviteJob.outcome,
+                "key_package_cleanup" to keyPackageJob.outcome,
+                "delivery_cleanup" to deliveryJob.outcome,
+            ),
+        ).start()
     val sockets = SocketEndpoint(auth, delivery.sockets, clock)
     val server =
         embeddedServer(
@@ -82,6 +96,7 @@ fun main() {
         inviteCleanup.shutdownNow()
         keyPackageCleanup.shutdownNow()
         deliveryCleanup.shutdownNow()
+        statusLog.shutdownNow()
         sockets.shutdown()
         inviteCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
         keyPackageCleanup.awaitTermination(CLEANUP_SHUTDOWN_SECONDS, java.util.concurrent.TimeUnit.SECONDS)

@@ -1,5 +1,6 @@
 package app.gifitup.server.db
 
+import app.gifitup.server.ops.CleanupOutcome
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.util.concurrent.Executors
@@ -19,6 +20,9 @@ class KeyPackageCleanup(
 ) {
     private val log = LoggerFactory.getLogger(KeyPackageCleanup::class.java)
 
+    /** What the last pass did, for the status line (#291). */
+    val outcome = CleanupOutcome(clock)
+
     /**
      * One pass; returns how many rows were deleted. Any failure is logged by class and retried on the next pass: an
      * exception escaping a task given to `scheduleAtFixedRate` would silently cancel every later run, and expired rows
@@ -27,6 +31,7 @@ class KeyPackageCleanup(
     @Suppress("TooGenericExceptionCaught") // The scheduled task must survive anything; only the class name is logged.
     fun runOnce(): Int {
         var total = 0
+        var failed = false
         try {
             do {
                 val deleted = db.transaction { c -> repository.deleteExpired(c, clock.instant(), batchSize) }
@@ -34,8 +39,10 @@ class KeyPackageCleanup(
                 if (deleted == batchSize) pause()
             } while (deleted == batchSize)
         } catch (e: Exception) {
+            failed = true
             log.warn("event=key_package_cleanup_failed exception={}", e::class.java.name)
         }
+        outcome.record(total, failed)
         if (total > 0) log.info("event=key_package_cleanup deleted={}", total)
         return total
     }

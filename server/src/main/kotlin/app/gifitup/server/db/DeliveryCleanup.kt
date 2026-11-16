@@ -1,5 +1,6 @@
 package app.gifitup.server.db
 
+import app.gifitup.server.ops.CleanupOutcome
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
@@ -20,6 +21,9 @@ class DeliveryCleanup(
     private val ttl: Duration = Duration.ofDays(TTL_DAYS),
     private val activeWindow: Duration = Duration.ofDays(ACTIVE_DAYS),
 ) {
+    /** What the last pass did, for the status line (#291). */
+    val outcome = CleanupOutcome(clock)
+
     private val log = LoggerFactory.getLogger(DeliveryCleanup::class.java)
 
     /**
@@ -29,6 +33,7 @@ class DeliveryCleanup(
     @Suppress("TooGenericExceptionCaught") // The scheduled task must survive anything; only the class name is logged.
     fun runOnce(): Int {
         var total = 0
+        var failed = false
         try {
             val now = clock.instant()
             total += db.transaction { c -> repository.deleteAcked(c, now.minus(activeWindow)) }
@@ -39,8 +44,10 @@ class DeliveryCleanup(
             db.transaction { c -> repository.deleteAddsBefore(c, now.minus(ADDS_KEPT)) }
             db.transaction { c -> repository.recountRetainedBytes(c) }
         } catch (e: Exception) {
+            failed = true
             log.warn("event=delivery_cleanup_failed exception={}", e::class.java.name)
         }
+        outcome.record(total, failed)
         if (total > 0) log.info("event=delivery_cleanup deleted={}", total)
         return total
     }
