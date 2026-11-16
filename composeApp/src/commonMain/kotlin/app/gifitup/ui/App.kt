@@ -257,7 +257,8 @@ private fun rememberScreenProtection(
     // One share of the window's protection, taken and let go of by the state (never by an `onDispose` that reads a delegated state
     // property: that reads the *new* value, not the one the effect was made with, and the share was never released).
     val share = remember(screen) { HeldShare({ screen.protect(true) }, { screen.protect(false) }) }
-    SideEffect { share.set(protect) }
+    val wanted = protect // the value of this composition, not whatever the state is when the effect runs
+    SideEffect { share.set(wanted) }
     DisposableEffect(share) { onDispose { share.set(false) } }
     return ProtectionControls.of(holder)
 }
