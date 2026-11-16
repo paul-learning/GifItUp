@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import app.gifitup.shared.domain.invite.LaunchLink
+import app.gifitup.shared.presentation.settings.WindowProtectionCounter
 import app.gifitup.ui.App
 import app.gifitup.ui.InviteInbox
 import app.gifitup.ui.ScreenProtection
@@ -39,8 +40,9 @@ class MainActivity : ComponentActivity() {
         val inbox = InviteInbox(link)
         // Bound to this window and used only inside the composition, never kept by a ViewModel.
         // Protected before the first frame: the stored choice isn't read yet and "protected" is the safe answer. The app lets go of
-        // this hold (`settled`) once it knows the choice; the screens' own `protect` calls keep the flag from there.
-        screenProtection.protect(true)
+        // this hold (`settled`) once it knows the choice; the screens' own `protect` calls keep the flag from there. (On the
+        // start-up error and loading screens the app never gets that far, so the window stays protected there: fail closed.)
+        windowProtection.holdUntilSettled()
         setContent { App(graph, inbox, screenProtection, export) }
     }
 
@@ -56,30 +58,23 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * `FLAG_SECURE`: no screenshots, no screen recording, a blank recents thumbnail. Counted: the flag is on while any
-     * `protect(true)` is open (the start-up hold from `onCreate` until `settled()`, the invite screen, the diagnostics, the
-     * chats' setting), so one screen leaving never lifts another's.
+     * `FLAG_SECURE`: no screenshots, no screen recording, a blank recents thumbnail. Counted by [WindowProtectionCounter]: the flag
+     * is on while any `protect(true)` is open (the start-up hold from `onCreate` until `settled()`, the invite screen, the
+     * diagnostics, the chats' setting), so one screen leaving never lifts another's.
      */
+    private val windowProtection =
+        WindowProtectionCounter { on ->
+            if (on) {
+                window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+
     private val screenProtection =
         object : ScreenProtection {
-            private var open = 0
+            override fun protect(on: Boolean) = if (on) windowProtection.acquire() else windowProtection.release()
 
-            private var startupHold = true
-
-            override fun settled() {
-                if (startupHold) {
-                    startupHold = false
-                    protect(false)
-                }
-            }
-
-            override fun protect(on: Boolean) {
-                open = (open + if (on) 1 else -1).coerceAtLeast(0)
-                if (open > 0) {
-                    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
-                } else {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                }
-            }
+            override fun settled() = windowProtection.settled()
         }
 }

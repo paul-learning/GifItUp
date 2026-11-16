@@ -234,9 +234,9 @@ private fun NavGraphBuilder.diagnosticsRoute(
 }
 
 /**
- * The app's windows stay out of screenshots, recordings and the recents thumbnail unless the user switched that off (#281). On from
- * the first frame, the stored choice is read right after. Returns the switch's controls, or `null` where the platform can't do it
- * (the web).
+ * The app's windows stay out of screenshots, recordings and the recents thumbnail unless the user switched that off (#281). On
+ * from the first frame (the Activity's start-up hold); the stored choice is read right after, here, once the navigation is
+ * composed, and then the hold is let go. Returns the switch's controls, or `null` where the platform can't do it (the web).
  */
 @Composable
 private fun rememberScreenProtection(
