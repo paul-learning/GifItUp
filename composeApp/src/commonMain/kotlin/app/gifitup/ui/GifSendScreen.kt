@@ -39,6 +39,7 @@ import app.gifitup.shared.domain.contacts.KeyBytes
 import app.gifitup.shared.domain.messages.CaptionInput
 import app.gifitup.shared.domain.messages.CaptionVerdict
 import app.gifitup.shared.presentation.chat.GifTilesStateHolder
+import app.gifitup.shared.presentation.chat.TileGeometry
 
 /**
  * The step after picking (#217, Signal-style in #154): the chosen GIF **fitted** into the room above the caption bar (never taller
@@ -67,10 +68,11 @@ internal fun GifSendScreen(
     val canSend = check.verdict == CaptionVerdict.OK
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth()) { IconTile(ChatTexts.BACK, onBack) { Chevron(it) } }
-        // The room the GIF has: all of what the bar leaves. The tile is sized to fit it, whatever the GIF's shape.
+        // The room the GIF has: whatever the top row and the bar leave (the bar is laid out first, so it is always reachable; on a
+        // short window the GIF just gets smaller).  The tile is sized to fit it, whatever the GIF's shape.
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             val ratio = tileRatio(loaded[key], reference)
-            val width = minOf(maxWidth, maxHeight * ratio)
+            val width = TileGeometry.fittedWidth(maxWidth.value, maxHeight.value, ratio).dp
             Box(Modifier.width(width).height(width / ratio).clip(MaterialTheme.shapes.large)) {
                 GifTileView(loaded[key], reference, "GIF") { tiles.tap(key, reference) }
             }
