@@ -246,12 +246,7 @@ internal fun GifTileView(
     onLongPress: (() -> Unit)? = null,
     onTap: () -> Unit,
 ) {
-    // The shape of a placeholder comes from the sender's size hint; once loaded, from the file itself. Both are clamped.
-    val ratio =
-        when (tile) {
-            is GifTile.Ready -> tile.info.width.toFloat() / tile.info.height
-            else -> reference.width.toFloat() / reference.height
-        }.coerceIn(MIN_RATIO, MAX_RATIO)
+    val ratio = tileRatio(tile, reference)
     var failed by remember(tile) { mutableStateOf(false) }
     val shape = Modifier.fillMaxWidth().aspectRatio(ratio)
     when {
@@ -366,5 +361,3 @@ private const val CAPTION_MAX_LINES = 6
 private val SENDER_AVATAR_SIZE = 24.dp
 private val BUBBLE_MAX_WIDTH = 320.dp
 private val CAPTION_MAX_HEIGHT = 160.dp
-private const val MIN_RATIO = 0.5f
-private const val MAX_RATIO = 2.5f
