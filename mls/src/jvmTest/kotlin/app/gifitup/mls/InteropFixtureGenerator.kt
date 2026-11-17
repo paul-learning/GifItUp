@@ -1,6 +1,7 @@
 package app.gifitup.mls
 
 import kotlinx.coroutines.test.runTest
+import org.junit.Assume
 import java.io.File
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -20,7 +21,8 @@ class InteropFixtureGenerator {
     @Test
     fun regenerate() =
         runTest {
-            if (System.getenv("GIFITUP_REGENERATE_INTEROP") != "1") return@runTest
+            // Reported as skipped, not as passed, when it has nothing to do.
+            Assume.assumeTrue(System.getenv("GIFITUP_REGENERATE_INTEROP") == "1")
             val factory = UniffiMlsClientFactory
             val aliceKey = ByteArray(KEY) { 11 }
             val bobKey = ByteArray(KEY) { 13 }
