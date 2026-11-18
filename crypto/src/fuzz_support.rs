@@ -71,7 +71,7 @@ impl Bytes<'_> {
 /// process, so valid objects reach the parsers however the keys change between runs.
 fn edit(seed: &[u8], script: &[u8]) -> Vec<u8> {
     let mut out = seed.to_vec();
-    for step in script.chunks_exact(3).take(16) {
+    for step in script.as_chunks::<3>().0.iter().take(16) {
         let (op, at, val) = (step[0] % 4, usize::from(step[1]), step[2]);
         let at = at * 7 % (out.len() + 1);
         match op {
@@ -243,7 +243,7 @@ fn hostile_key_package(owner: &Client, data: &mut Bytes) -> Option<Vec<u8>> {
     let kp_extensions = Extensions::from_vec(extensions(data)).ok()?;
     let leaf_extensions = Extensions::from_vec(extensions(data)).ok()?;
     let lifetime = Lifetime::init(data.u64(), data.u64());
-    let identity = if data.u8() % 4 == 0 {
+    let identity = if data.u8().is_multiple_of(4) {
         data.blob(40)
     } else {
         owner.username.as_bytes().to_vec()
@@ -258,7 +258,7 @@ fn hostile_key_package(owner: &Client, data: &mut Bytes) -> Option<Vec<u8>> {
         .key_package_extensions(kp_extensions)
         .leaf_node_extensions(leaf_extensions)
         .key_package_lifetime(lifetime);
-    if data.u8() % 8 == 0 {
+    if data.u8().is_multiple_of(8) {
         builder = builder.mark_as_last_resort();
     }
     let bundle = builder
@@ -300,10 +300,10 @@ pub fn hostile_member(data: &[u8]) {
     if let Ok(Incoming::Commit { token, .. }) = bob.stage_incoming(&group_id, &prepared.commit) {
         let _ = bob.merge_staged(token);
     }
-    if let Some(welcome) = prepared.welcome {
-        if let Ok(info) = carol.inspect_welcome(&welcome, &group_id) {
-            let _ = carol.join_welcome(info.token);
-        }
+    if let Some(welcome) = prepared.welcome
+        && let Ok(info) = carol.inspect_welcome(&welcome, &group_id)
+    {
+        let _ = carol.join_welcome(info.token);
     }
 }
 
