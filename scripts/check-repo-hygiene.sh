@@ -42,6 +42,21 @@ elif [ "$toml" != "$lock" ] || [ "$toml" != "$cli" ] || [ "$toml" != "$deploy_wb
   fail "wasm-bindgen versions differ: Cargo.toml=$toml Cargo.lock=$lock ci.yml=$cli deploy.yml=$deploy_wb"
 fi
 
+# `--cfg fuzzing` code (#64 SEC-5): only cargo-fuzz sets the cfg, so it may appear in exactly these crate files (the gated
+# module, its `mod` line, one gated helper in history.rs and the check-cfg line) and in crypto/fuzz. Anywhere else (a
+# build script, a cargo config, a workflow that sets RUSTFLAGS globally, other sources) it could put the fuzz-only entry
+# points into a shipped build.
+fuzz_cfg=$(git grep -lE 'cfg\(fuzzing\)|cfg\(not\(fuzzing\)\)|cfg_attr\(fuzzing|--cfg[ =,"'"'"']+fuzzing|fuzzing.*rustflags|rustflags.*fuzzing' -- . ':!crypto/fuzz' ':!docs' ':!scripts/check-repo-hygiene.sh' || true)
+for f in $fuzz_cfg; do
+  case "$f" in
+    crypto/src/lib.rs | crypto/src/fuzz_support.rs | crypto/src/history.rs | crypto/Cargo.toml) ;;
+    *) fail "$f uses the fuzzing cfg; it is allowed only in crypto/src/{lib,fuzz_support,history}.rs, crypto/Cargo.toml and crypto/fuzz (#64)" ;;
+  esac
+done
+if git ls-files -- crypto/build.rs crypto/.cargo .cargo | grep -q .; then
+  fail "crypto has a build.rs, or the repo a .cargo/ config: it could set the fuzzing cfg for every build (#64)"
+fi
+
 # One HTTP engine for the push channel's socket (#27, #272 SEC-4): OkHttp is created in exactly one place, and nothing
 # in the app sources touches TLS trust (no custom socket factory, trust manager, hostname verifier or pinner), so the
 # platform's trust store and the network security config decide for every connection. Text checks of the common spellings.

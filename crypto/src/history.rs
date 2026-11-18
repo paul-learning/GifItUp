@@ -179,6 +179,28 @@ impl HistoryCipher {
         unpad(&padded)
     }
 
+    /// Fuzzing only (#64): seals `padded` as it is, so `open` reaches the unpadding of a record that authenticates.
+    #[cfg(fuzzing)]
+    pub(crate) fn seal_raw_padded(&self, name: &[u8], padded: &[u8]) -> Result<Vec<u8>, ErrorCode> {
+        let nonce: [u8; NONCE_LEN] = self
+            .crypto
+            .random_array()
+            .map_err(|_| ErrorCode::Internal)?;
+        let mut out = header(&nonce);
+        let sealed = self
+            .crypto
+            .aead_encrypt(
+                AeadType::Aes256Gcm,
+                self.seal_key.as_slice(),
+                padded,
+                &nonce,
+                &self.aad(&out, name),
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        out.extend_from_slice(&sealed);
+        Ok(out)
+    }
+
     fn aad(&self, head: &[u8], name: &[u8]) -> Vec<u8> {
         let mut aad =
             Vec::with_capacity(head.len() + AAD_LABEL.len() + self.origin.len() + name.len() + 2);

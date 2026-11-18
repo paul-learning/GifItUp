@@ -30,6 +30,10 @@ mod wasm_api;
 #[cfg(not(target_arch = "wasm32"))]
 uniffi::setup_scaffolding!();
 
+/// Entry points for the fuzz targets in `crypto/fuzz` (#64). Exists only when cargo-fuzz sets `--cfg fuzzing`.
+#[cfg(fuzzing)]
+pub mod fuzz_support;
+
 #[cfg(test)]
 mod robustness_tests;
 #[cfg(test)]

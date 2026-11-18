@@ -45,6 +45,10 @@ wasm-bindgen = "=0.2.129"
 # which needs its "js" feature (crypto.getRandomValues) on wasm32-unknown-unknown. Not used directly.
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 
+# `fuzzing` is set only by cargo-fuzz (crypto/fuzz, #64); no build of ours sets it.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
 # Size/complexity limits (default thresholds); CI runs clippy with -D warnings. See the periodic architecture review in AGENTS.md.
 [lints.clippy]
 too_many_lines = "warn"

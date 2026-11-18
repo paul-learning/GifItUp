@@ -1,0 +1,112 @@
+[package]
+name = "gifitup-crypto-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the parse paths of gifitup-crypto (#64). Dev tool, never built by Gradle or shipped."
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.12"
+gifitup-crypto = { path = "..", default-features = false }
+
+# Outside the crate's workspace: its own lockfile, never part of a build of ours.
+[workspace]
+members = ["."]
+
+# Same arithmetic checks and unwinding as the shipped release profile (ADR-0007).
+[profile.release]
+debug = 1
+overflow-checks = true
+panic = "unwind"
+
+[[bin]]
+name = "key_package_bytes"
+path = "fuzz_targets/key_package_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hostile_key_package"
+path = "fuzz_targets/hostile_key_package.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hostile_member"
+path = "fuzz_targets/hostile_member.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "welcome_bytes"
+path = "fuzz_targets/welcome_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "welcome_edit"
+path = "fuzz_targets/welcome_edit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "message_bytes"
+path = "fuzz_targets/message_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "message_edit"
+path = "fuzz_targets/message_edit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "restore_outer"
+path = "fuzz_targets/restore_outer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "inner_snapshot"
+path = "fuzz_targets/inner_snapshot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "history_open"
+path = "fuzz_targets/history_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "history_open_padded"
+path = "fuzz_targets/history_open_padded.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lists"
+path = "fuzz_targets/lists.rs"
+test = false
+doc = false
+bench = false
+
+# Not a fuzz target: writes the seed corpora (seed.sh).
+[[example]]
+name = "gen_seeds"
+path = "gen_seeds.rs"
