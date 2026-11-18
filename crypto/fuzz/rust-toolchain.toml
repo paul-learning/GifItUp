@@ -1,0 +1,5 @@
+# cargo-fuzz needs a nightly compiler (sanitizer flags). Pinned to a date so a run is reproducible and kept apart
+# from the crate's own stable pin in ../rust-toolchain.toml (#64). Bump it by hand with the cargo-fuzz version.
+[toolchain]
+channel = "nightly-2026-11-15"
+profile = "minimal"
