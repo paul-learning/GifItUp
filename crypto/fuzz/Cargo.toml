@@ -106,9 +106,7 @@ test = false
 doc = false
 bench = false
 
-[[bin]]
+# Not a fuzz target: writes the seed corpora (seed.sh).
+[[example]]
 name = "gen_seeds"
-path = "fuzz_targets/gen_seeds.rs"
-test = false
-doc = false
-bench = false
+path = "gen_seeds.rs"

@@ -42,6 +42,7 @@ build scripts and compiles C++.
 ```sh
 cd crypto/fuzz
 ./seed.sh                      # valid objects (test keys only) into corpus/<target>/ (gitignored)
+                               # built in-process from the public API, not taken from the crate's tests
 cargo fuzz build               # all targets
 cargo fuzz run <target> -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=<N>
 ```
@@ -69,3 +70,4 @@ cargo-fuzz; `scripts/check-repo-hygiene.sh` fails if the cfg (any spelling, in a
 | Date | Commit | Toolchain / cargo-fuzz | Result |
 |---|---|---|---|
 | 2026-11-18 | `27a425e` (targets; later commits only docs and lint fixes) | nightly-2026-11-15, cargo-fuzz 0.13.2, libfuzzer-sys 0.4.12 | First run, sandbox: 60 s per target, all twelve, `-timeout=10 -rss_limit_mb=2048`, per-target `-max_len` as above, seeds from `seed.sh`. No crash, timeout or out-of-memory. Executions: `lists` 15.0 M, `history_open` 2.6 M, `restore_outer` 1.2 M, `history_open_padded` 1.2 M, `key_package_bytes` 252 k, `inner_snapshot` 231 k, `welcome_bytes` 289 k, `message_bytes` 50 k, `welcome_edit` 97 k, `hostile_key_package` 35 k, `message_edit` 13 k, `hostile_member` 5 k. Then 300 s each for the two hostile targets: `hostile_member` 27 k executions (cov 11275), `hostile_key_package` 203 k (cov 4283), no crash. Short runs: a longer run (hours) before the M2 milestone security review is the point of this table. |
+| 2026-11-18 | `0eb4d43` plus the review fixes of #329 (`fuzz_support.rs` had changed since the first run) | same | Smoke run at the final code: 20 s each for `inner_snapshot`, `welcome_edit`, `message_edit`, `hostile_member`, `hostile_key_package` (1.05 M, 36 k, 5 k, 1.8 k and 14 k executions): no crash, timeout or out-of-memory. |

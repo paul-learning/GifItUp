@@ -178,13 +178,13 @@ pub fn restore_outer(data: &[u8]) {
 /// with the test key and restored inside `catch`: `openmls_memory_storage` unwraps malformed stored values, so a
 /// panic from that crate is the documented, known case (only a key holder or our own bug can produce such a
 /// snapshot; Android/JVM: `Poisoned`, web: trap, threat model *Crafted MLS input*). Any panic from elsewhere
-/// aborts the fuzzer. Returns whether the known case was hit.
-pub fn inner_snapshot(data: &[u8], v2: bool) -> bool {
+/// aborts the fuzzer.
+pub fn inner_snapshot(data: &[u8], v2: bool) {
     let Ok(snapshot) = Snapshot::decode_inner(data, v2) else {
-        return false;
+        return;
     };
     let Ok(resealed) = snapshot.seal(&key(), &RustCrypto::default()) else {
-        return false;
+        return;
     };
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(|info| {
@@ -196,9 +196,8 @@ pub fn inner_snapshot(data: &[u8], v2: bool) -> bool {
             std::process::abort();
         }
     }));
-    let outcome = catch(|| Client::restore(&resealed, key()));
+    let _ = catch(|| Client::restore(&resealed, key()));
     std::panic::set_hook(previous);
-    matches!(outcome, Err(crate::error::ErrorCode::Poisoned))
 }
 
 /// Raw bytes as a sealed history record (framing and authentication).

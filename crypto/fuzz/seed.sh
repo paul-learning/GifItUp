@@ -3,4 +3,4 @@
 # Run from anywhere; the pinned nightly of rust-toolchain.toml is used.
 set -euo pipefail
 cd "$(dirname "$0")"
-RUSTFLAGS="--cfg fuzzing" cargo run --release --bin gen_seeds
+RUSTFLAGS="--cfg fuzzing" cargo run --release --example gen_seeds
