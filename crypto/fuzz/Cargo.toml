@@ -9,7 +9,7 @@ description = "cargo-fuzz targets for the parse paths of gifitup-crypto (#64). D
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "=0.4.12"
+libfuzzer-sys = "=0.4.13"
 gifitup-crypto = { path = "..", default-features = false }
 
 # Outside the crate's workspace: its own lockfile, never part of a build of ours.
