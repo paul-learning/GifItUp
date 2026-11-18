@@ -46,15 +46,15 @@ fi
 # module, its `mod` line, one gated helper in history.rs and the check-cfg line) and in crypto/fuzz. Anywhere else (a
 # build script, a cargo config, a workflow that sets RUSTFLAGS globally, other sources) it could put the fuzz-only entry
 # points into a shipped build.
-fuzz_cfg=$(git grep -lE 'cfg\(fuzzing\)|cfg\(not\(fuzzing\)\)|--cfg[ =]+fuzzing|cfg_attr\(fuzzing' -- crypto .github 'scripts' ':!crypto/fuzz' ':!scripts/check-repo-hygiene.sh' || true)
+fuzz_cfg=$(git grep -lE 'cfg\(fuzzing\)|cfg\(not\(fuzzing\)\)|cfg_attr\(fuzzing|--cfg[ =,"'"'"']+fuzzing|fuzzing.*rustflags|rustflags.*fuzzing' -- . ':!crypto/fuzz' ':!docs' ':!scripts/check-repo-hygiene.sh' || true)
 for f in $fuzz_cfg; do
   case "$f" in
     crypto/src/lib.rs | crypto/src/fuzz_support.rs | crypto/src/history.rs | crypto/Cargo.toml) ;;
     *) fail "$f uses the fuzzing cfg; it is allowed only in crypto/src/{lib,fuzz_support,history}.rs, crypto/Cargo.toml and crypto/fuzz (#64)" ;;
   esac
 done
-if git ls-files -- crypto/build.rs crypto/.cargo | grep -q .; then
-  fail "crypto has a build.rs or .cargo/ config: it could set the fuzzing cfg for every build (#64)"
+if git ls-files -- crypto/build.rs crypto/.cargo .cargo | grep -q .; then
+  fail "crypto has a build.rs, or the repo a .cargo/ config: it could set the fuzzing cfg for every build (#64)"
 fi
 
 # One HTTP engine for the push channel's socket (#27, #272 SEC-4): OkHttp is created in exactly one place, and nothing

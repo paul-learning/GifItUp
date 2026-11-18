@@ -28,7 +28,7 @@ anything between two runs. The deterministic mutation tests in `src/robustness_t
 **The known panic in `inner_snapshot`:** `openmls_memory_storage` unwraps malformed stored values, so restoring a
 decrypted snapshot with a malformed value inside can panic. Only a holder of the snapshot key (or our own bug) can
 produce such a snapshot (threat model, *Crafted MLS input*). The target allows a panic **whose location is in that
-crate** (a scoped panic hook, restored afterwards) and aborts on any other panic, so a new panic site is a crash.
+crate** (a scoped panic hook, restored afterwards) and aborts on any other panic, so a new panic site is a crash. The hook is process-global; that is safe because libFuzzer runs the target on one thread.
 Note that the fuzz binary calls the core `Client` directly, not the binding layer, so no silent panic hook or
 `PanicGuard` hides a panic anywhere else.
 
@@ -60,9 +60,9 @@ instructions, and check an input for real data before committing it (the harness
 The fuzz crate is outside the crate's workspace with its own `Cargo.lock`; no Gradle task, CI job or shipped artifact
 builds it. Its only dependency is `libfuzzer-sys` (pinned `=0.4.12`; the Rust fuzzing project; its bundled LLVM
 libFuzzer is licensed `(MIT OR Apache-2.0) AND NCSA`, a permissive BSD-style licence that `crypto/deny.toml` does not
-list because `deny` does not cover this crate). Dependabot watches `/crypto/fuzz`. `cfg(fuzzing)` is set only by
-cargo-fuzz; `scripts/check-repo-hygiene.sh` fails if the cfg appears anywhere but `crypto/src/{lib,fuzz_support,history}.rs`,
-`crypto/Cargo.toml` and `crypto/fuzz`, or if `crypto/` gets a `build.rs` or `.cargo/` config.
+list because `deny` does not cover this crate). Dependabot watches `/crypto/fuzz`. Neither `cargo deny` nor `cargo audit` runs on its lockfile in CI: **before each milestone security review run `cargo deny --manifest-path crypto/fuzz/Cargo.toml check` by hand** (it needs `NCSA` allowed for this crate only, after reading the licence) and record the result in the table below (SEC-9 on #329). `cfg(fuzzing)` is set only by
+cargo-fuzz; `scripts/check-repo-hygiene.sh` fails if the cfg (any spelling, in any file of the repo outside `docs/`) appears anywhere but
+`crypto/src/{lib,fuzz_support,history}.rs`, `crypto/Cargo.toml` and `crypto/fuzz`, or if `crypto/` gets a `build.rs` or the repo a `.cargo/` config.
 
 ## Runs
 
