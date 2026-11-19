@@ -17,12 +17,13 @@ import app.gifitup.shared.presentation.chat.GroupInfoStateHolder
 import app.gifitup.shared.presentation.session.OriginSession
 
 /**
- * The androidx shell of one server origin's [OriginSession] (ADR-0013, #160): the session builds and owns everything bound
- * to the origin, this class gives it the view model's scope (so a rotation keeps it) and ends it in [onCleared]. What stays
- * here is what needs androidx or Compose: the lifecycle observer, and the Compose state of the open conversation, group info
- * and contact profile, which the screens observe.
+ * The androidx shell of one server origin's [OriginSession] (ADR-0013, #160). It began as the onboarding screen's view model,
+ * and the navigation routes and keys still say "onboarding". The session builds and owns everything bound to the origin; this
+ * class gives it the view model's scope (so a rotation keeps it) and ends it in [onCleared]. What stays here is what needs
+ * androidx or Compose: the lifecycle observer, and the Compose state of the open conversation, group info and contact profile,
+ * which the screens observe.
  */
-internal class OnboardingViewModel(
+internal class OriginViewModel(
     graph: AppGraph,
     storage: DeviceStorage,
     mls: MlsClientFactory,

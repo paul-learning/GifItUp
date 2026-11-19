@@ -41,7 +41,7 @@ internal const val ROUTE_DIAGNOSTICS = "diagnostics"
  */
 @Composable
 internal fun ChatHome(
-    model: OnboardingViewModel,
+    model: OriginViewModel,
     nav: NavHostController,
     customServer: Boolean,
     notice: (@Composable () -> Unit)?,
@@ -76,7 +76,7 @@ internal fun ChatHome(
 
 /** Opens [username]'s profile; the name goes in the ViewModel, never in the route. */
 internal fun openProfile(
-    model: OnboardingViewModel,
+    model: OriginViewModel,
     nav: NavHostController,
     username: String,
 ) {
@@ -87,7 +87,7 @@ internal fun openProfile(
 
 /** Opens the info of the open group. */
 internal fun openGroup(
-    model: OnboardingViewModel,
+    model: OriginViewModel,
     nav: NavHostController,
 ) {
     model.openGroupInfo()
@@ -107,14 +107,14 @@ internal fun NavGraphBuilder.chatRoutes(
     val origin = server.origin
     composable(ROUTE_PROFILE) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
+        val model = viewModel<OriginViewModel>(parent, key = "onboarding-$origin")
         val signedIn by model.holder.state.collectAsState()
         val leave = { if (nav.currentDestination?.route == ROUTE_PROFILE) nav.popBackStack() }
         (signedIn as? OnboardingState.Done)?.let { ProfileScreen(it.username, server, model.contacts, glyphs, protection) { leave() } }
     }
     composable(ROUTE_CONTACT) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
+        val model = viewModel<OriginViewModel>(parent, key = "onboarding-$origin")
         val username = model.contactProfile
         val leave = { if (nav.currentDestination?.route == ROUTE_CONTACT) nav.popBackStack() }
         // A process that was recreated has no open profile: back.
@@ -122,7 +122,7 @@ internal fun NavGraphBuilder.chatRoutes(
     }
     composable(ROUTE_GROUP) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
+        val model = viewModel<OriginViewModel>(parent, key = "onboarding-$origin")
         val info = model.groupInfo
         val leave = { if (nav.currentDestination?.route == ROUTE_GROUP) nav.popBackStack() }
         // A process that was recreated has no open group: back.
@@ -138,7 +138,7 @@ internal fun NavGraphBuilder.chatRoutes(
     }
     composable(ROUTE_NEW_CHAT) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin")
+        val model = viewModel<OriginViewModel>(parent, key = "onboarding-$origin")
         val leave = { if (nav.currentDestination?.route == ROUTE_NEW_CHAT) nav.popBackStack() }
         // On a wide window the open conversation is shown beside the list, as when a row is tapped (see ChatHome).
         BoxWithConstraints {
@@ -157,14 +157,14 @@ internal fun NavGraphBuilder.chatRoutes(
     }
     composable(ROUTE_CONVERSATION) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-        ConversationRoute(viewModel<OnboardingViewModel>(parent, key = "onboarding-$origin"), nav)
+        ConversationRoute(viewModel<OriginViewModel>(parent, key = "onboarding-$origin"), nav)
     }
 }
 
 /** The phone layout's conversation screen. */
 @Composable
 private fun ConversationRoute(
-    model: OnboardingViewModel,
+    model: OriginViewModel,
     nav: NavHostController,
 ) {
     val holder = model.conversation
@@ -187,7 +187,7 @@ private fun ConversationRoute(
 /** The right pane of the wide layout: the conversation the list opened, or a hint. */
 @Composable
 private fun OpenConversation(
-    model: OnboardingViewModel,
+    model: OriginViewModel,
     nav: NavHostController,
     modifier: Modifier,
 ) {
