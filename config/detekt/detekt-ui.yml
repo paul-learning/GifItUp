@@ -2,16 +2,15 @@
 # The UI package renders state and sends events; it never builds the data layer. Per-origin construction (engine, API,
 # socket, providers, storage) lives in shared/presentation/session/OriginSession, so `ui/` imports from `shared.data` only
 # what its state is made of. The allow-list is that vocabulary; it shrinks as the owner's decision on #285 (domain <-> data)
-# and #162 (the start-up state) land, and a new entry needs a reason in the PR:
+# lands, and a new entry needs a reason in the PR:
 #   content.GifReference, content.ReactionEmojis  value types of the content schema the screens draw
 #   crypto.FingerprintEmoji(s)                    the emoji of a key fingerprint (ADR-0014)
 #   crypto.MlsClientFactory                       an opaque handle the platform root passes on to the session
 #   network.ApiError, Invite, InviteState         the vocabulary of the error and invite state the screens render (#285)
-#   storage.LocalStateException                   the start-up screen catches it (#162 moves that into a state holder)
 # Import lines only: a fully qualified name in code is not checked. The web's AnimatedGif actual is platform code.
 style:
   ForbiddenImport:
     active: true
     includes: ['**/composeApp/src/*/kotlin/app/gifitup/ui/**']
     excludes: ['**/AnimatedGif.wasmJs.kt']
-    forbiddenPatterns: '^app\.gifitup\.shared\.data\.(?!(content\.(GifReference|ReactionEmojis)|crypto\.(FingerprintEmojis?|MlsClientFactory)|network\.(ApiError|Invite|InviteState)|storage\.LocalStateException)$)'
+    forbiddenPatterns: '^app\.gifitup\.shared\.data\.(?!(content\.(GifReference|ReactionEmojis)|crypto\.(FingerprintEmojis?|MlsClientFactory)|network\.(ApiError|Invite|InviteState))$)'
