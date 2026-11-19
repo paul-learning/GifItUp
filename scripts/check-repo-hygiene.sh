@@ -57,6 +57,15 @@ if git ls-files -- crypto/build.rs crypto/.cargo .cargo | grep -q .; then
   fail "crypto has a build.rs, or the repo a .cargo/ config: it could set the fuzzing cfg for every build (#64)"
 fi
 
+# The UI package's fence off the data layer (#160, ADR-0013): the detekt rule must stay active, cover composeApp's ui/ and be
+# layered onto the build, or a later edit could switch the guard off without a failing check.
+ui_rule=config/detekt/detekt-ui.yml
+if ! grep -qE '^  ForbiddenImport:' "$ui_rule" || ! grep -qE '^    active: true' "$ui_rule" ||
+  ! grep -qF "includes: ['**/composeApp/src/*/kotlin/app/gifitup/ui/**']" "$ui_rule" ||
+  ! grep -qF 'forbiddenPatterns:' "$ui_rule" || ! grep -qF 'detekt-ui.yml' build.gradle.kts; then
+  fail "$ui_rule must keep ForbiddenImport active for composeApp's ui/ and build.gradle.kts must layer it (#160)"
+fi
+
 # One HTTP engine for the push channel's socket (#27, #272 SEC-4): OkHttp is created in exactly one place, and nothing
 # in the app sources touches TLS trust (no custom socket factory, trust manager, hostname verifier or pinner), so the
 # platform's trust store and the network security config decide for every connection. Text checks of the common spellings.
