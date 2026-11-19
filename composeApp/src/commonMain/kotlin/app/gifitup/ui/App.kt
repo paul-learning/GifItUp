@@ -178,7 +178,7 @@ private fun Navigation(
             // One ViewModel per origin: a new server gets a new flow with its own engine, API and session.
             val model =
                 viewModel(key = "onboarding-${current.origin}") {
-                    OnboardingViewModel(services.graph, services.storage, services.mls, current.origin, services.setting)
+                    OriginViewModel(services.graph, services.storage, services.mls, current.origin, services.setting)
                 }
             val state by model.holder.state.collectAsState()
             LaunchedEffect(model, appLifecycle) { model.bindLifecycle(appLifecycle) }
@@ -201,7 +201,7 @@ private fun Navigation(
         composable(ROUTE_INVITES) { entry ->
             // The onboarding entry stays on the back stack below, so its ViewModel (API, session, engine) is the one used.
             val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-            val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
+            val model = viewModel<OriginViewModel>(parent, key = "onboarding-${current.origin}")
             CreateInviteScreen(model.invites, services.graph.clipboard.clearsCopied, screen) {
                 if (nav.currentDestination?.route == ROUTE_INVITES) nav.popBackStack()
             }
@@ -210,7 +210,7 @@ private fun Navigation(
         diagnosticsRoute(nav, services, current, screen)
         composable(ROUTE_FRIENDS) { entry ->
             val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-            val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
+            val model = viewModel<OriginViewModel>(parent, key = "onboarding-${current.origin}")
             FriendsScreen(model.contacts, services.graph.glyphs) {
                 if (nav.currentDestination?.route == ROUTE_FRIENDS) nav.popBackStack()
             }
@@ -228,7 +228,7 @@ private fun NavGraphBuilder.diagnosticsRoute(
 ) {
     composable(ROUTE_DIAGNOSTICS) { entry ->
         val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-        val model = viewModel<OnboardingViewModel>(parent, key = "onboarding-${current.origin}")
+        val model = viewModel<OriginViewModel>(parent, key = "onboarding-${current.origin}")
         DiagnosticsScreen(model.diagnosticsScreen, services.export, services.graph.clipboard, screen) {
             if (nav.currentDestination?.route == ROUTE_DIAGNOSTICS) nav.popBackStack()
         }

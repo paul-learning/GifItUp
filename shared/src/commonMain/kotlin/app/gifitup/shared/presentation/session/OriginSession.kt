@@ -59,7 +59,7 @@ import kotlin.time.Clock
 /**
  * The onboarding, and after it every screen, for one server origin (ADR-0013): everything bound to that origin, the HTTP
  * engine, the API, the identity use cases, the session, the socket and all state holders, so they live exactly as long as
- * the flow that uses them. The platform shell (`OnboardingViewModel` in `composeApp`) owns one per origin and calls [close]
+ * the flow that uses them. The platform shell (`OriginViewModel` in `composeApp`) owns one per origin and calls [close]
  * when it ends (#131 SEC-15). It keeps nothing in saved state: the invite code lives in the holder's memory only, and a
  * process death starts the flow again (a pending registration is finished without it). The invite link of the create-invite
  * screen is in memory only too.
