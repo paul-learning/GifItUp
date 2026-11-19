@@ -53,7 +53,13 @@ subprojects {
 
     extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
         buildUponDefaultConfig = true
-        config.setFrom(rootProject.file("config/detekt/detekt.yml"))
+        // :composeApp adds the rule that fences its UI package off the data layer (#160, config/detekt/detekt-ui.yml).
+        config.setFrom(
+            listOfNotNull(
+                rootProject.file("config/detekt/detekt.yml"),
+                rootProject.file("config/detekt/detekt-ui.yml").takeIf { project.name == "composeApp" },
+            ),
+        )
         // KMP source sets are not picked up by default; lint every src/<sourceSet>/kotlin dir.
         source.setFrom(file("src").listFiles().orEmpty().map { it.resolve("kotlin") }.filter { it.isDirectory })
     }
