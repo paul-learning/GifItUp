@@ -33,7 +33,6 @@ import androidx.navigation.compose.rememberNavController
 import app.gifitup.AppGraph
 import app.gifitup.BuildDefaults
 import app.gifitup.shared.data.crypto.MlsClientFactory
-import app.gifitup.shared.data.storage.LocalStateException
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.DeviceStorage
 import app.gifitup.shared.domain.origin.ServerOriginSetting
@@ -44,6 +43,8 @@ import app.gifitup.shared.presentation.onboarding.OriginView
 import app.gifitup.shared.presentation.settings.HeldShare
 import app.gifitup.shared.presentation.settings.ScreenProtectionStateHolder
 import app.gifitup.shared.presentation.settings.ServerSettingsStateHolder
+import app.gifitup.shared.presentation.start.AppStartState
+import app.gifitup.shared.presentation.start.LoadAppStart
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -82,15 +83,6 @@ private fun HomeNotice(state: OnboardingState.Done) {
     }
 }
 
-/** What the origin setting said; a storage failure is a state, never a crash (#131 SEC-16). */
-private sealed interface Loaded {
-    class Ready(
-        val origin: ServerOriginSetting.Current,
-    ) : Loaded
-
-    data object StorageFailed : Loaded
-}
-
 @Composable
 private fun Configured(
     graph: AppGraph,
@@ -102,39 +94,35 @@ private fun Configured(
     val setting = remember(storage) { storage.originSetting(BuildDefaults.DEFAULT_ORIGIN, graph.serverSettingsEditable) }
     var originVersion by remember { mutableIntStateOf(0) }
     val mls by produceState<MlsClientFactory?>(null) { value = graph.mlsClientFactory() }
-    val loaded by produceState<Loaded?>(null, originVersion) {
-        value =
-            try {
-                Loaded.Ready(setting.current())
-            } catch (ignored: LocalStateException) {
-                Loaded.StorageFailed
-            }
-    }
+    val start by produceState<AppStartState>(AppStartState.Loading, originVersion) { value = LoadAppStart(setting)() }
     val factory = mls
-    val origin = (loaded as? Loaded.Ready)?.origin
-    when {
-        loaded == Loaded.StorageFailed -> {
+    when (val state = start) {
+        AppStartState.StorageFailed -> {
             Text(Texts.error(AuthError.Local.STORAGE_FAILED))
         }
 
-        origin == ServerOriginSetting.Current.Unreadable -> {
+        AppStartState.StateInvalid -> {
             Text(Texts.blocked(BlockReason.STATE_INVALID))
         }
 
-        origin is ServerOriginSetting.Current.Origin && factory != null -> {
-            Navigation(
-                services = Services(graph, storage, factory, setting, export),
-                current = OriginView(origin.origin, origin.custom),
-                inbox = inbox,
-                screen = screen,
-            ) {
-                // A new server never picks up the link that came with the old one (#131 SEC-14).
-                inbox.drop()
-                originVersion++
+        is AppStartState.Ready -> {
+            if (factory == null) {
+                CircularProgressIndicator()
+            } else {
+                Navigation(
+                    services = Services(graph, storage, factory, setting, export),
+                    current = state.origin,
+                    inbox = inbox,
+                    screen = screen,
+                ) {
+                    // A new server never picks up the link that came with the old one (#131 SEC-14).
+                    inbox.drop()
+                    originVersion++
+                }
             }
         }
 
-        else -> {
+        AppStartState.Loading -> {
             CircularProgressIndicator()
         }
     }
