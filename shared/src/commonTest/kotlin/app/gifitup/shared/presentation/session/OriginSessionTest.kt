@@ -160,6 +160,7 @@ class OriginSessionTest {
             session.setForeground(true)
             session.setForeground(false)
             assertFalse(session.liveConnected.value)
+            assertTrue(server.requests.isEmpty(), "no request, and so no socket, before the account is ready")
             session.close()
             scope.cancel()
         }

@@ -278,7 +278,10 @@ class OriginSession(
 
     private var sendWatch: Job? = null
 
-    /** The conversation the list opened, `null` if none. One at a time. */
+    /**
+     * The conversation the list opened, `null` if none. One at a time. A plain property: the platform shell mirrors it into the
+     * observable state its screens read and must set it only through [openConversation] and [closeConversation].
+     */
     var conversation: ConversationStateHolder? = null
         private set
 
