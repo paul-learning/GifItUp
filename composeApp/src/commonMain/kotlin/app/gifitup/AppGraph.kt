@@ -12,6 +12,7 @@ import app.gifitup.shared.domain.media.MediaFetcher
 import app.gifitup.shared.domain.messages.GraphemeCounter
 import app.gifitup.shared.domain.messages.HistoryLimits
 import app.gifitup.shared.presentation.invite.SensitiveClipboard
+import app.gifitup.shared.presentation.session.OriginDeps
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +71,24 @@ class AppGraph(
             ).also { it.record(DiagEvent.APP_START) }
         }
     }
+
+    /** What one server origin's session needs from this platform (#160): the ports, the build's own values and the log. */
+    fun originDeps(): OriginDeps =
+        OriginDeps(
+            engine = engine,
+            socketEngine = socketEngine,
+            random = random,
+            clipboard = clipboard,
+            mediaFetcher = conversations.mediaFetcher,
+            providerFetcher = conversations.providerFetcher,
+            graphemes = conversations.graphemes,
+            historyCiphers = historyCiphers,
+            historyLimits = historyLimits,
+            diagnostics = diagnostics,
+            platform = platform,
+            version = BuildDefaults.VERSION,
+            defaultOrigin = BuildDefaults.DEFAULT_ORIGIN,
+        )
 }
 
 /**
