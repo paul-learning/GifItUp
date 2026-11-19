@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,25 +23,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavGraphBuilder
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import app.gifitup.AppGraph
 import app.gifitup.BuildDefaults
 import app.gifitup.shared.data.crypto.MlsClientFactory
 import app.gifitup.shared.domain.auth.AuthError
 import app.gifitup.shared.domain.auth.DeviceStorage
-import app.gifitup.shared.domain.origin.ServerOriginSetting
 import app.gifitup.shared.domain.settings.ScreenProtectionSetting
 import app.gifitup.shared.presentation.onboarding.BlockReason
-import app.gifitup.shared.presentation.onboarding.OnboardingState
 import app.gifitup.shared.presentation.onboarding.OriginView
 import app.gifitup.shared.presentation.settings.HeldShare
 import app.gifitup.shared.presentation.settings.ScreenProtectionStateHolder
-import app.gifitup.shared.presentation.settings.ServerSettingsStateHolder
 import app.gifitup.shared.presentation.start.AppStartState
 import app.gifitup.shared.presentation.start.LoadAppStart
 import kotlinx.coroutines.CoroutineScope
@@ -69,17 +61,6 @@ fun App(
                 }
             }
         }
-    }
-}
-
-/**
- * Above the landing list: a note while some setup is pending. The custom-server banner is not here any more (#217, owner
- * decision 2026-11-02): the list's top bar carries a small marker and the Profile screen shows the server (ADR-0013).
- */
-@Composable
-private fun HomeNotice(state: OnboardingState.Done) {
-    if (state.keyPackagesUploaded == false) {
-        Text(ChatTexts.SETUP_PENDING, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -128,15 +109,6 @@ private fun Configured(
     }
 }
 
-/** What the screens need besides the origin. */
-private class Services(
-    val graph: AppGraph,
-    val storage: DeviceStorage,
-    val mls: MlsClientFactory,
-    val setting: ServerOriginSetting,
-    val export: LogExport,
-)
-
 @Composable
 private fun Navigation(
     services: Services,
@@ -162,64 +134,12 @@ private fun Navigation(
     }
     val protectionControls = rememberScreenProtection(screen, services.storage, scope)
     NavHost(navController = nav, startDestination = ROUTE_ONBOARDING) {
-        composable(ROUTE_ONBOARDING) {
-            // One ViewModel per origin: a new server gets a new flow with its own engine, API and session.
-            val model =
-                viewModel(key = "onboarding-${current.origin}") {
-                    OriginViewModel(services.graph, services.storage, services.mls, current.origin, services.setting)
-                }
-            val state by model.holder.state.collectAsState()
-            LaunchedEffect(model, appLifecycle) { model.bindLifecycle(appLifecycle) }
-            LaunchedEffect(state is OnboardingState.EnterInvite) {
-                if (state is OnboardingState.EnterInvite) inbox.take()?.let(model.holder::submitInvite)
-            }
-            val signedIn = state as? OnboardingState.Done
-            if (signedIn != null) {
-                // The account is ready: the chat list is the landing screen (#217).
-                ChatHome(model, nav, current.custom) { HomeNotice(signedIn) }
-            } else {
-                OnboardingScreen(
-                    state,
-                    model.holder,
-                    current,
-                    onOpenSettings = if (services.graph.serverSettingsEditable) ({ nav.navigate(ROUTE_SETTINGS) }) else null,
-                )
-            }
-        }
-        composable(ROUTE_INVITES) { entry ->
-            // The onboarding entry stays on the back stack below, so its ViewModel (API, session, engine) is the one used.
-            val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-            val model = viewModel<OriginViewModel>(parent, key = "onboarding-${current.origin}")
-            CreateInviteScreen(model.invites, services.graph.clipboard.clearsCopied, screen) {
-                if (nav.currentDestination?.route == ROUTE_INVITES) nav.popBackStack()
-            }
-        }
+        onboardingRoute(nav, services, current, inbox, appLifecycle)
+        invitesRoute(nav, services, current, screen)
         chatRoutes(nav, current, services.graph.glyphs, protectionControls)
         diagnosticsRoute(nav, services, current, screen)
-        composable(ROUTE_FRIENDS) { entry ->
-            val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-            val model = viewModel<OriginViewModel>(parent, key = "onboarding-${current.origin}")
-            FriendsScreen(model.contacts, services.graph.glyphs) {
-                if (nav.currentDestination?.route == ROUTE_FRIENDS) nav.popBackStack()
-            }
-        }
+        friendsRoute(nav, services, current)
         settingsRoute(nav, services, current, scope, onOriginChanged)
-    }
-}
-
-/** About and diagnostics (#154 follow-up), over the onboarding entry's ViewModel like the other signed-in screens. */
-private fun NavGraphBuilder.diagnosticsRoute(
-    nav: NavHostController,
-    services: Services,
-    current: OriginView,
-    screen: ScreenProtection,
-) {
-    composable(ROUTE_DIAGNOSTICS) { entry ->
-        val parent = remember(entry) { nav.getBackStackEntry(ROUTE_ONBOARDING) }
-        val model = viewModel<OriginViewModel>(parent, key = "onboarding-${current.origin}")
-        DiagnosticsScreen(model.diagnosticsScreen, services.export, services.graph.clipboard, screen) {
-            if (nav.currentDestination?.route == ROUTE_DIAGNOSTICS) nav.popBackStack()
-        }
     }
 }
 
@@ -250,24 +170,3 @@ private fun rememberScreenProtection(
     DisposableEffect(share) { onDispose { share.set(false) } }
     return ProtectionControls.of(holder)
 }
-
-/** Not registered where the server can't be chosen (the web, #159): there is no route to reach. */
-private fun NavGraphBuilder.settingsRoute(
-    nav: NavHostController,
-    services: Services,
-    current: OriginView,
-    scope: CoroutineScope,
-    onOriginChanged: () -> Unit,
-) {
-    if (!services.graph.serverSettingsEditable) return
-    composable(ROUTE_SETTINGS) {
-        val holder = remember { ServerSettingsStateHolder(scope, services.setting, onOriginChanged) }
-        SettingsScreen(holder, current.origin, services.setting.default) {
-            // Only from Settings: a second tap must not pop the start destination and leave an empty back stack.
-            if (nav.currentDestination?.route == ROUTE_SETTINGS) nav.popBackStack()
-        }
-    }
-}
-
-private const val ROUTE_SETTINGS = "settings"
-internal const val ROUTE_INVITES = "invites"
