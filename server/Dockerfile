@@ -2,7 +2,7 @@
 # `./gradlew :server:installDist`. The Java build runs in the workflow's verified Gradle step (dependency
 # verification, locks, wrapper checksum), not inside Docker, so this is a single runtime stage.
 # Distroless: no shell, no package manager, non-root by default (compose additionally pins UID 10001).
-FROM gcr.io/distroless/java21-debian13:nonroot@sha256:6b60e44d652d66a9e2e584364c96adac4df7133674b2834b6f71741b7cdb1ff3
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:128bd878463537eef7771b50fecf68faace9089f654a2d233f1c4f344e6817d9
 
 ARG REVISION=unknown
 # The web image that belongs to this release (#27): "<repo>@sha256:<digest>", or empty. deploy.sh reads it from the verified
